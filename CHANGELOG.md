@@ -9,6 +9,179 @@ release-plz updates this file in the Release PR.
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-types-registry-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+- reduce cognitive complexity threshold to 20 for modules
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-tenant-resolver-gw-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-static-tr-plugin-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-single-tenant-tr-plugin-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.3](https://github.com/devjow/hyperspot/releases/tag/cf-tenant-resolver-sdk-v0.1.3) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-nodes-registry-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-nodes-registry-sdk-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-module-orchestrator-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-file-parser-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+- CI: add oasdiff to compare openapi.spec on PR (by @dominic1988-lgtm) - #490
+- Merge pull request #251 from yoskini/feat/Quick_start_guide (by @Artifizer) - #251
+
+### Contributors
+
+* @github-actions[bot]
+* @dominic1988-lgtm
+* @Artifizer
+
+## [0.2.3](https://github.com/devjow/hyperspot/compare/types-sdk-v0.2.2...types-sdk-v0.2.3) - 2026-02-07
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-types-registry-sdk-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-grpc-hub-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #448
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.2](https://github.com/devjow/hyperspot/releases/tag/cf-api-gateway-v0.1.2) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+- release (by @github-actions[bot]) - #448
+- CI: add oasdiff to compare openapi.spec on PR (by @dominic1988-lgtm) - #490
+- reduce cognitive complexity threshold to 20 for modules
+
+### Contributors
+
+* @github-actions[bot]
+* @dominic1988-lgtm
+
+## [0.2.3](https://github.com/devjow/hyperspot/compare/cf-modkit-v0.2.2...cf-modkit-v0.2.3) - 2026-02-07
+
+### Fixed
+
+- *(dylint/de1301)* allow proc-macro impl methods via visit_assoc_item (by @Artifizer)
+
+### Other
+
+- Merge branch 'main' into shutdown-nl (by @Artifizer) - #475
+- Merge branch 'main' into rescue-docs-standards (by @Artifizer) - #478
+
+### Contributors
+
+* @Artifizer
+
+## [0.1.7](https://github.com/devjow/hyperspot/releases/tag/cf-system-sdks-v0.1.7) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.7](https://github.com/devjow/hyperspot/releases/tag/cf-system-sdk-directory-v0.1.7) - 2026-02-07
+
+### Other
+
+- release (by @github-actions[bot]) - #493
+
+### Contributors
+
+* @github-actions[bot]
+
 ## [0.1.3](https://github.com/hypernetix/hyperspot/compare/cf-tenant-resolver-sdk-v0.1.2...cf-tenant-resolver-sdk-v0.1.3) - 2026-02-07
 
 ### Other
