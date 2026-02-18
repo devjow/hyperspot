@@ -39,7 +39,7 @@ impl Default for SingleTenantTrPlugin {
 #[async_trait]
 impl Module for SingleTenantTrPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing single_tenant_tr_plugin");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Generate plugin instance ID
         let instance_id = TenantResolverPluginSpecV1::gts_make_instance_id(
@@ -72,7 +72,7 @@ impl Module for SingleTenantTrPlugin {
             instance_id = %instance_id,
             vendor = VENDOR,
             priority = PRIORITY,
-            "Single-tenant plugin initialized"
+            "{} module initialized successfully", Self::MODULE_NAME
         );
         Ok(())
     }

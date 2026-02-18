@@ -44,7 +44,7 @@ impl Module for AuthZResolver {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         let cfg: AuthZResolverConfig = ctx.config()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
-        info!(vendor = %cfg.vendor, "Initializing authz_resolver");
+        info!(vendor = %cfg.vendor, "Initializing {} module", Self::MODULE_NAME);
 
         // Register plugin schema in types-registry
         let registry = ctx.client_hub().get::<dyn TypesRegistryClient>()?;
@@ -60,15 +60,15 @@ impl Module for AuthZResolver {
         // Create service
         let hub = ctx.client_hub();
         let svc = Arc::new(Service::new(hub, cfg.vendor));
+        self.service
+            .set(svc.clone())
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         // Register client in ClientHub
-        let api: Arc<dyn AuthZResolverClient> =
-            Arc::new(AuthZResolverLocalClient::new(svc.clone()));
+        let api: Arc<dyn AuthZResolverClient> = Arc::new(AuthZResolverLocalClient::new(svc));
         ctx.client_hub().register::<dyn AuthZResolverClient>(api);
 
-        self.service
-            .set(svc)
-            .map_err(|_| anyhow::anyhow!("Service already initialized"))?;
+        info!("{} module initialized successfully", Self::MODULE_NAME);
 
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use modkit::api::OpenApiRegistry;
@@ -18,22 +18,13 @@ use crate::infra::parsers::{
     capabilities = [rest]
 )]
 pub struct FileParserModule {
-    // Keep the service behind ArcSwap for cheap read-mostly access.
-    service: arc_swap::ArcSwapOption<FileParserService>,
+    service: OnceLock<Arc<FileParserService>>,
 }
 
 impl Default for FileParserModule {
     fn default() -> Self {
         Self {
-            service: arc_swap::ArcSwapOption::from(None),
-        }
-    }
-}
-
-impl Clone for FileParserModule {
-    fn clone(&self) -> Self {
-        Self {
-            service: arc_swap::ArcSwapOption::new(self.service.load().as_ref().map(Clone::clone)),
+            service: OnceLock::new(),
         }
     }
 }
@@ -44,7 +35,7 @@ impl Module for FileParserModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         const BYTES_IN_MB: u64 = 1024_u64 * 1024;
 
-        info!("Initializing file-parser module");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Load module configuration
         let cfg: FileParserConfig = ctx.config()?;
@@ -104,9 +95,11 @@ impl Module for FileParserModule {
         let file_parser_service = Arc::new(FileParserService::new(parsers, service_config));
 
         // Store service for REST usage
-        self.service.store(Some(file_parser_service));
+        self.service
+            .set(file_parser_service)
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
-        info!("FileParserService initialized successfully");
+        info!("{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }
@@ -122,8 +115,7 @@ impl RestApiCapability for FileParserModule {
 
         let service = self
             .service
-            .load()
-            .as_ref()
+            .get()
             .ok_or_else(|| anyhow::anyhow!("Service not initialized"))?
             .clone();
 

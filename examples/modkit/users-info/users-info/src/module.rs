@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use modkit::api::OpenApiRegistry;
@@ -41,9 +41,9 @@ pub(crate) type ConcreteAppServices =
     capabilities = [db, rest]
 )]
 pub struct UsersInfo {
-    // Keep the domain service behind ArcSwap for cheap read-mostly access.
+    // Keep the domain service behind OnceLock for set-once access.
     // AppServices contains the db_handle and provides db() for per-request Db instances.
-    service: arc_swap::ArcSwapOption<ConcreteAppServices>,
+    service: OnceLock<Arc<ConcreteAppServices>>,
     // SSE broadcaster for user events
     sse: SseBroadcaster<UserEvent>,
 }
@@ -51,17 +51,8 @@ pub struct UsersInfo {
 impl Default for UsersInfo {
     fn default() -> Self {
         Self {
-            service: arc_swap::ArcSwapOption::from(None),
+            service: OnceLock::new(),
             sse: SseBroadcaster::new(1024),
-        }
-    }
-}
-
-impl Clone for UsersInfo {
-    fn clone(&self) -> Self {
-        Self {
-            service: arc_swap::ArcSwapOption::new(self.service.load().as_ref().map(Clone::clone)),
-            sse: self.sse.clone(),
         }
     }
 }
@@ -69,7 +60,7 @@ impl Clone for UsersInfo {
 #[async_trait]
 impl Module for UsersInfo {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing users_info module");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Load module configuration using new API
         let cfg: UsersInfoConfig = ctx.config()?;
@@ -131,8 +122,9 @@ impl Module for UsersInfo {
             service_config,
         ));
 
-        // Store service for REST and internal usage
-        self.service.store(Some(services.clone()));
+        self.service
+            .set(services.clone())
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         // Create local client adapter that implements object-safe UsersInfoClientV1
         let local = UsersInfoLocalClient::new(services);
@@ -140,7 +132,8 @@ impl Module for UsersInfo {
         // Register under the SDK trait for transport-agnostic consumption
         ctx.client_hub()
             .register::<dyn UsersInfoClientV1>(Arc::new(local));
-        info!("UsersInfo client registered into ClientHub as dyn UsersInfoClientV1");
+
+        info!("{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }
@@ -164,8 +157,7 @@ impl RestApiCapability for UsersInfo {
 
         let service = self
             .service
-            .load()
-            .as_ref()
+            .get()
             .ok_or_else(|| anyhow::anyhow!("Service not initialized"))?
             .clone();
 

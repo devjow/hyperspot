@@ -50,7 +50,7 @@ impl Default for Types {
 #[async_trait]
 impl Module for Types {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing types module");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Get the types registry client
         let registry = ctx.client_hub().get::<dyn TypesRegistryClient>()?;
@@ -74,7 +74,7 @@ impl Module for Types {
         let api: Arc<dyn TypesClient> = Arc::new(client);
         ctx.client_hub().register::<dyn TypesClient>(api);
 
-        info!("Types module initialized");
+        info!("{} module initialized successfully", Self::MODULE_NAME);
 
         Ok(())
     }

@@ -33,7 +33,6 @@ serde_json = { workspace = true }
 utoipa = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 uuid = { workspace = true }
-arc-swap = { workspace = true }
 sea-orm = { workspace = true, features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",

@@ -41,7 +41,7 @@ impl Default for StaticTrPlugin {
 #[async_trait]
 impl Module for StaticTrPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing static_tr_plugin");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Load configuration
         let cfg: StaticTrPluginConfig = ctx.config()?;
@@ -74,7 +74,7 @@ impl Module for StaticTrPlugin {
         let service = Arc::new(Service::from_config(&cfg));
         self.service
             .set(service.clone())
-            .map_err(|_| anyhow::anyhow!("Service already initialized"))?;
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         // Register scoped client in ClientHub
         let api: Arc<dyn TenantResolverPluginClient> = service;
@@ -84,7 +84,7 @@ impl Module for StaticTrPlugin {
                 api,
             );
 
-        info!(instance_id = %instance_id, "Static plugin initialized");
+        info!(instance_id = %instance_id, "{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }

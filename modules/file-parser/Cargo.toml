@@ -39,8 +39,6 @@ time = { workspace = true }
 # UUID support
 uuid = { workspace = true }
 
-# Lock-free atomic swaps
-arc-swap = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

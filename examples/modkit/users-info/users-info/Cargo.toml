@@ -48,8 +48,6 @@ url = { workspace = true }
 # UUID support
 uuid = { workspace = true }
 
-# Lock-free atomic swaps
-arc-swap = { workspace = true }
 
 # Database - SeaORM
 sea-orm = { workspace = true, features = [

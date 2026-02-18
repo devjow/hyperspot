@@ -34,7 +34,7 @@ impl Default for CalculatorModule {
 #[async_trait]
 impl modkit::Module for CalculatorModule {
     async fn init(&self, ctx: &ModuleCtx) -> Result<()> {
-        tracing::info!("Initializing calculator module");
+        tracing::info!("Initializing {} module", Self::MODULE_NAME);
 
         // Create domain service
         let service = Arc::new(Service::new());
@@ -42,7 +42,7 @@ impl modkit::Module for CalculatorModule {
         // Register Service in ClientHub for gRPC layer to use
         ctx.client_hub().register::<Service>(service);
 
-        tracing::info!("calculator module initialized");
+        tracing::info!("{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }

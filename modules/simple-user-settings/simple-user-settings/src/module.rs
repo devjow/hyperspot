@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use axum::Router;
@@ -27,21 +27,13 @@ type ConcreteService = Service<SeaOrmSettingsRepository>;
     capabilities = [rest, db]
 )]
 pub struct SettingsModule {
-    service: arc_swap::ArcSwapOption<ConcreteService>,
+    service: OnceLock<Arc<ConcreteService>>,
 }
 
 impl Default for SettingsModule {
     fn default() -> Self {
         Self {
-            service: arc_swap::ArcSwapOption::from(None),
-        }
-    }
-}
-
-impl Clone for SettingsModule {
-    fn clone(&self) -> Self {
-        Self {
-            service: arc_swap::ArcSwapOption::new(self.service.load().as_ref().map(Clone::clone)),
+            service: OnceLock::new(),
         }
     }
 }
@@ -57,7 +49,7 @@ impl modkit::contracts::DatabaseCapability for SettingsModule {
 #[async_trait]
 impl Module for SettingsModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing settings module");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         let cfg: SettingsConfig = ctx.config()?;
 
@@ -77,12 +69,14 @@ impl Module for SettingsModule {
             max_field_length: cfg.max_field_length,
         };
         let service = Arc::new(Service::new(db, repo, policy_enforcer, service_config));
+        self.service
+            .set(service.clone())
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
-        let local_client: Arc<dyn SimpleUserSettingsClientV1> =
-            Arc::new(LocalClient::new(service.clone()));
+        let local_client: Arc<dyn SimpleUserSettingsClientV1> = Arc::new(LocalClient::new(service));
         ctx.client_hub().register(local_client);
 
-        self.service.store(Some(service));
+        info!("{} module initialized successfully", Self::MODULE_NAME);
 
         Ok(())
     }
@@ -99,8 +93,7 @@ impl modkit::contracts::RestApiCapability for SettingsModule {
         info!("Settings module: register_rest called");
         let service = self
             .service
-            .load()
-            .as_ref()
+            .get()
             .ok_or_else(|| anyhow::anyhow!("Service not initialized"))?
             .clone();
 
@@ -117,14 +110,14 @@ mod tests {
     #[test]
     fn test_settings_module_default() {
         let module = SettingsModule::default();
-        assert!(module.service.load().is_none());
+        assert!(module.service.get().is_none());
     }
 
     #[test]
-    fn test_settings_module_clone_empty_service() {
+    fn test_settings_module_multiple_defaults_empty_service() {
         let module = SettingsModule::default();
-        let cloned = module.clone();
-        assert!(cloned.service.load().is_none());
-        assert!(module.service.load().is_none());
+        let other = SettingsModule::default();
+        assert!(other.service.get().is_none());
+        assert!(module.service.get().is_none());
     }
 }

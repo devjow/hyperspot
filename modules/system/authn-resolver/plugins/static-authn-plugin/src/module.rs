@@ -41,7 +41,7 @@ impl Default for StaticAuthNPlugin {
 #[async_trait]
 impl Module for StaticAuthNPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing static_authn_plugin");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         // Load configuration
         let cfg: StaticAuthNPluginConfig = ctx.config()?;
@@ -83,7 +83,7 @@ impl Module for StaticAuthNPlugin {
         let service = Arc::new(Service::from_config(&cfg));
         self.service
             .set(service.clone())
-            .map_err(|_| anyhow::anyhow!("Service already initialized"))?;
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         // Register scoped client in ClientHub
         let api: Arc<dyn AuthNResolverPluginClient> = service;
@@ -93,7 +93,7 @@ impl Module for StaticAuthNPlugin {
                 api,
             );
 
-        info!(instance_id = %instance_id, "Static authn plugin initialized");
+        info!(instance_id = %instance_id, "{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }

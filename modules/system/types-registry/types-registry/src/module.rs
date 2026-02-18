@@ -1,6 +1,6 @@
 //! Module declaration for the Types Registry module.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use modkit::api::OpenApiRegistry;
@@ -33,21 +33,13 @@ use crate::infra::InMemoryGtsRepository;
     capabilities = [system, rest]
 )]
 pub struct TypesRegistryModule {
-    service: arc_swap::ArcSwapOption<TypesRegistryService>,
+    service: OnceLock<Arc<TypesRegistryService>>,
 }
 
 impl Default for TypesRegistryModule {
     fn default() -> Self {
         Self {
-            service: arc_swap::ArcSwapOption::from(None),
-        }
-    }
-}
-
-impl Clone for TypesRegistryModule {
-    fn clone(&self) -> Self {
-        Self {
-            service: arc_swap::ArcSwapOption::new(self.service.load().as_ref().map(Clone::clone)),
+            service: OnceLock::new(),
         }
     }
 }
@@ -55,7 +47,7 @@ impl Clone for TypesRegistryModule {
 #[async_trait]
 impl Module for TypesRegistryModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing types_registry module");
+        info!("Initializing {} module", Self::MODULE_NAME);
 
         let cfg: TypesRegistryConfig = ctx.config()?;
         debug!(
@@ -67,13 +59,14 @@ impl Module for TypesRegistryModule {
         let repo = Arc::new(InMemoryGtsRepository::new(gts_config));
         let service = Arc::new(TypesRegistryService::new(repo, cfg));
 
-        self.service.store(Some(service.clone()));
+        self.service
+            .set(service.clone())
+            .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         let api: Arc<dyn TypesRegistryClient> = Arc::new(TypesRegistryLocalClient::new(service));
-
         ctx.client_hub().register::<dyn TypesRegistryClient>(api);
 
-        info!("Types registry module initialized");
+        info!("{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
     }
 }
@@ -90,8 +83,7 @@ impl SystemCapability for TypesRegistryModule {
 
         let service = self
             .service
-            .load()
-            .as_ref()
+            .get()
             .ok_or_else(|| anyhow::anyhow!("Service not initialized"))?
             .clone();
 
@@ -132,8 +124,7 @@ impl RestApiCapability for TypesRegistryModule {
 
         let service = self
             .service
-            .load()
-            .as_ref()
+            .get()
             .ok_or_else(|| anyhow::anyhow!("Service not initialized"))?
             .clone();
 
