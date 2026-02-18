@@ -403,7 +403,7 @@ Removal of deprecated APIs is breaking and requires MAJOR.
 
 ## Workspace Policy (Monorepo)
 
-We use per-crate versioning, controlled via Cargo manifests and release automation. :contentReference[oaicite:1]{index=1}
+We use per-crate versioning, controlled via Cargo manifests and release automation.
 
 ### Publishable vs internal crates
 - `publish = false` means the crate is internal and must not be published.
