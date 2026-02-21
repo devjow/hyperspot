@@ -208,11 +208,6 @@ impl ModuleCtx {
         })
     }
 
-    #[must_use]
-    pub fn current_module(&self) -> Option<&str> {
-        Some(&self.module_name)
-    }
-
     /// Deserialize the module's config section into T, or use defaults if missing.
     ///
     /// This method uses lenient configuration loading: if the module is not present in config,

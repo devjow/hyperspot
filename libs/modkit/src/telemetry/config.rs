@@ -1,6 +1,7 @@
-//! OpenTelemetry tracing configuration types
+//! OpenTelemetry tracing and metrics configuration types
 //!
-//! These types define the configuration structure for OpenTelemetry distributed tracing.
+//! These types define the configuration structure for OpenTelemetry distributed
+//! tracing and metrics.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,6 +17,20 @@ pub struct TracingConfig {
     pub resource: Option<HashMap<String, String>>,
     pub http: Option<HttpOpts>,
     pub logs_correlation: Option<LogsCorrelation>,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
+}
+
+/// Metrics configuration for OpenTelemetry metrics collection
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct MetricsConfig {
+    pub enabled: bool,
+    pub exporter: Option<Exporter>,
+    /// Maximum number of distinct attribute combinations per instrument.
+    /// When the limit is reached, new combinations are folded into an
+    /// overflow data point.  `None` means the SDK default is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cardinality_limit: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq, Eq, Copy)]

@@ -73,6 +73,7 @@ modkit-errors-macro = { workspace = true }
 modkit-odata = { workspace = true, features = ["with-utoipa"] }
 modkit-sdk = { workspace = true }
 modkit-macros = { workspace = true }
+opentelemetry = { workspace = true }
 
 [dev-dependencies]
 tokio-util = { workspace = true }
@@ -85,5 +86,4 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 tracing-test = { workspace = true }
 httpmock = { workspace = true }
 tokio-test = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }

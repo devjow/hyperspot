@@ -272,6 +272,15 @@ tracing:
   logs_correlation:
     inject_trace_ids_into_logs: true
 
+  # Metrics configuration
+  metrics:
+    enabled: false
+    exporter:
+      kind: "otlp_grpc"  # or "otlp_http"
+      endpoint: "http://127.0.0.1:4317"
+      timeout_ms: 5000
+    # cardinality_limit: 2000  # Max distinct attribute combinations per instrument (SDK default if omitted)
+
 # Example configurations for different database scenarios:
 #
 # Example 1: PostgreSQL server with multiple modules

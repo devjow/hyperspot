@@ -280,8 +280,8 @@ tracing-opentelemetry = "0.32"
 tracing-error = "0.2"
 tracing-appender = "0.2"
 tracing-test = "0.2"
-opentelemetry = { version = "0.31", features = ["trace"] }
-opentelemetry_sdk = { version = "0.31", features = ["trace", "rt-tokio"] }
+opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", features = ["trace", "rt-tokio", "metrics"] }
 opentelemetry-otlp = { version = "0.31", features = [
     "grpc-tonic",
     "http-proto",
@@ -470,6 +470,9 @@ temp-env = "0.3"
 
 # Additional utilities
 nanoid = "0.4"
+
+# Metrics
+tokio-metrics = { version = "0.4", features = ["rt"] }
 
 # GTS dependencies
 jsonschema = "0.40"
