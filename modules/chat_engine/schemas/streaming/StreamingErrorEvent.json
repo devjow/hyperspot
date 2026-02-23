@@ -14,15 +14,15 @@
       "$ref": "../common/GtsMessageId.json",
       "description": "Message identifier (may be partial)"
     },
-    "error_code": {
+    "code": {
       "$ref": "../common/ErrorCode.json"
     },
-    "message": {
+    "detail": {
       "type": "string",
       "minLength": 1,
       "description": "Human-readable error message"
     }
   },
-  "required": ["type", "message_id", "error_code", "message"],
+  "required": ["type", "message_id", "code", "detail"],
   "additionalProperties": false
 }

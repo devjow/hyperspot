@@ -1393,26 +1393,41 @@
       },
       "Error": {
         "type": "object",
-        "required": ["error_code", "message"],
+        "required": ["type", "title", "status"],
         "properties": {
-          "error_code": {
+          "type": {
             "type": "string",
-            "enum": [
-              "AUTH_REQUIRED",
-              "SESSION_NOT_FOUND",
-              "MESSAGE_NOT_FOUND",
-              "INVALID_REQUEST",
-              "BACKEND_TIMEOUT",
-              "BACKEND_ERROR",
-              "RATE_LIMIT_EXCEEDED",
-              "INTERNAL_ERROR"
-            ]
+            "description": "URI reference identifying the problem type"
           },
-          "message": {
-            "type": "string"
+          "title": {
+            "type": "string",
+            "description": "Short, human-readable summary of the problem type"
           },
-          "details": {
-            "$ref": "../schemas/common/ErrorDetails.json"
+          "status": {
+            "type": "integer",
+            "description": "HTTP status code"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Human-readable explanation specific to this occurrence"
+          },
+          "instance": {
+            "type": "string",
+            "description": "URI reference identifying the specific occurrence"
+          },
+          "code": {
+            "$ref": "../schemas/common/ErrorCode.json"
+          },
+          "trace_id": {
+            "type": "string",
+            "description": "W3C trace ID for support correlation"
+          },
+          "errors": {
+            "type": "array",
+            "description": "Field-level validation violations",
+            "items": {
+              "$ref": "../schemas/common/ValidationViolation.json"
+            }
           }
         }
       },
@@ -1584,7 +1599,7 @@
       },
       "StreamingErrorEvent": {
         "type": "object",
-        "required": ["type", "message_id", "error_code", "message"],
+        "required": ["type", "message_id", "code", "detail"],
         "properties": {
           "type": {
             "type": "string",
@@ -1593,14 +1608,11 @@
           "message_id": {
             "$ref": "../schemas/common/GtsMessageId.json"
           },
-          "error_code": {
-            "type": "string"
+          "code": {
+            "$ref": "../schemas/common/ErrorCode.json"
           },
-          "message": {
+          "detail": {
             "type": "string"
-          },
-          "details": {
-            "type": "object"
           }
         }
       },
