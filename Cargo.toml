@@ -476,6 +476,9 @@ walkdir = "2.5"
 shellexpand = "3.1"
 
 # GTS library
-gts-id = "0.8.1"
-gts = "0.8.1"
-gts-macros = "0.8.1"
+gts-id = "0.8.2"
+gts = "0.8.2"
+gts-macros = "0.8.2"
+
+# GTS validator
+gts-validator = "0.8.2"
