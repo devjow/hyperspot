@@ -76,6 +76,8 @@ members = [
     "modules/system/authz-resolver/plugins/static-authz-plugin",
     "modules/system/oagw/oagw",
     "modules/system/oagw/oagw-sdk",
+    "modules/mini-chat/mini-chat-sdk",
+    "modules/mini-chat/mini-chat",
 ]
 exclude = ["fuzz"]
 resolver = "3"

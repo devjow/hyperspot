@@ -1122,6 +1122,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "cf-mini-chat"
+version = "0.2.14"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "cf-authz-resolver-sdk",
+ "cf-mini-chat-sdk",
+ "cf-modkit",
+ "cf-modkit-db",
+ "cf-modkit-errors",
+ "cf-modkit-errors-macro",
+ "cf-modkit-macros",
+ "cf-modkit-security",
+ "http",
+ "inventory",
+ "sea-orm",
+ "sea-orm-migration",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "cf-mini-chat-sdk"
+version = "0.2.14"
+dependencies = [
+ "async-trait",
+ "cf-modkit-security",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "cf-modkit"
 version = "0.2.14"
 dependencies = [
@@ -3536,6 +3576,7 @@ dependencies = [
  "cf-credstore",
  "cf-file-parser",
  "cf-grpc-hub",
+ "cf-mini-chat",
  "cf-modkit",
  "cf-module-orchestrator",
  "cf-nodes-registry",

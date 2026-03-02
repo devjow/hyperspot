@@ -1,0 +1,66 @@
+[package]
+name = "cf-mini-chat"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Mini-chat module: multi-tenant AI chat with SSE streaming"
+
+[lib]
+name = "mini_chat"
+
+[lints]
+workspace = true
+
+[dependencies]
+# SDK - public API, models, and errors
+mini-chat-sdk = { package = "cf-mini-chat-sdk", path = "../mini-chat-sdk" }
+
+# AuthZ resolver for authorization (PEP flow)
+authz-resolver-sdk = { package = "cf-authz-resolver-sdk", path = "../../system/authz-resolver/authz-resolver-sdk" }
+
+# Core dependencies
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+inventory = { workspace = true }
+
+# Serde and JSON
+serde = { workspace = true }
+serde_json = { workspace = true }
+utoipa = { workspace = true, features = ["time"] }
+
+# HTTP and REST
+axum = { workspace = true, features = ["macros"] }
+http = { workspace = true }
+
+# Time handling
+time = { workspace = true }
+
+# UUID support
+uuid = { workspace = true }
+
+# Database - SeaORM
+sea-orm = { workspace = true, features = [
+    "sqlx-sqlite",
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+    "macros",
+    "with-time",
+    "with-uuid",
+] }
+sea-orm-migration = { workspace = true, features = ["sqlx-sqlite", "sqlx-postgres"] }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Local dependencies
+modkit = { workspace = true }
+modkit-db = { workspace = true, features = ["sqlite", "pg"] }
+modkit-security = { workspace = true }
+modkit-errors = { workspace = true }
+modkit-errors-macro = { workspace = true }
+modkit-macros = { workspace = true }
+

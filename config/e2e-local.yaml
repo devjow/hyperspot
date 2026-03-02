@@ -224,6 +224,12 @@ modules:
     config:
       vendor: "hyperspot"
       priority: 100
+  
+  mini-chat:
+    # Module-specific database configuration
+    database:
+      server: "sqlite_users"
+      file: "mini_chat.db"
 
   simple-user-settings:
     # Module-specific database configuration

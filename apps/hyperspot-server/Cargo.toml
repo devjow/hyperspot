@@ -18,6 +18,7 @@ static-tenants = ["dep:static-tr-plugin"]
 static-authn = ["dep:static-authn-plugin"]
 static-authz = ["dep:static-authz-plugin"]
 static-credstore = ["dep:static-credstore-plugin"]
+mini-chat = ["dep:mini-chat"]
 otel = ["modkit/otel"]
 
 [dependencies]
@@ -57,6 +58,9 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 clap = { workspace = true }
+
+# Optional mini-chat module
+mini-chat = { package = "cf-mini-chat", path = "../../modules/mini-chat/mini-chat", optional = true }
 
 # Optional example module
 users-info = { path = "../../examples/modkit/users-info/users-info", optional = true }
