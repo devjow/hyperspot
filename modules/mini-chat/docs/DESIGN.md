@@ -1401,7 +1401,20 @@ sequenceDiagram
 
 **Description**: Thread summary is updated asynchronously after a chat turn when trigger conditions are met. Summary generation is a background task and MUST be attributed as `requester_type=system` so that its usage is not charged to an arbitrary end user.
 
-Summary quality gate (P1): the system MUST detect and mitigate obviously-bad summaries without ML-based evaluation.
+**P1 — Simple summarization (no quality gate):**
+
+- The background worker calls the LLM with a summarization prompt over the old messages batch.
+- If the LLM call succeeds: save the new `thread_summary` and mark the batch as `is_compressed = true`.
+- If the LLM call fails (provider error, timeout): keep the previous summary unchanged; do NOT mark messages as compressed; log the failure and increment `mini_chat_summary_fallback_total`.
+- No length or entropy validation is performed in P1.
+
+Observability (P1):
+
+- Increment `mini_chat_summary_fallback_total` when the worker falls back due to provider failure.
+
+**P2+ — Summary quality gate (deferred):**
+
+The following quality gate is deferred to P2+. It is preserved here for forward design continuity.
 
 - After generating a summary, the domain service MUST validate the candidate summary text.
 - If summary length < `X` OR entropy < `Y`, the domain service MUST attempt regeneration.
@@ -1411,10 +1424,10 @@ Summary quality gate (P1): the system MUST detect and mitigate obviously-bad sum
 
 `H_norm = (-sum(p_i * log2(p_i))) / log2(N)` where `p_i` is the empirical frequency of token `i` and `N` is the number of distinct tokens.
 
-Observability:
+Observability (P2+):
 
 - Increment `mini_chat_summary_regen_total{reason}` for each regeneration attempt (`reason` from a bounded allowlist such as `too_short|low_entropy|provider_error|invalid_format`).
-- Increment `mini_chat_summary_fallback_total` when the fallback behavior above is used.
+- Increment `mini_chat_summary_fallback_total` when the fallback behavior above is used (replaces the P1 metric of the same name).
 
 ### 3.7 Database Schemas & Tables
 
