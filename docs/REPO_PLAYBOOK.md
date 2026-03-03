@@ -30,7 +30,7 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 | Architecture overview | [x] `p1` | [docs/ARCHITECTURE_MANIFEST.md](./ARCHITECTURE_MANIFEST.md), [docs/MODULES.md](./MODULES.md) | Add “current vs target” split blocks |
 | System diagrams | [x] `p1` | [docs/img/](./img), [docs/ARCHITECTURE_MANIFEST.md](./ARCHITECTURE_MANIFEST.md), [docs/MODULES.md](./MODULES.md) | Add ownership + update cadence per diagram |
 | Component responsibilities | [x] `p1` | [docs/MODULES.md](./MODULES.md), [docs/modkit_unified_system/README.md](./modkit_unified_system/README.md) | Add per-module responsibility cards |
-| Module boundaries | [x] `p1` | [docs/MODULES.md](./MODULES.md), [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), [dylint_lints/README.md](../dylint_lints/README.md) | Expand lint coverage for boundary rules |
+| Module boundaries | [x] `p1` | [docs/MODULES.md](./MODULES.md), [docs/modkit_unified_system/](./modkit_unified_system/README.md), [dylint_lints/README.md](../dylint_lints/README.md) | Expand lint coverage for boundary rules |
 | Technology choices | [x] `p1` | [README.md](../README.md), [docs/ARCHITECTURE_MANIFEST.md](./ARCHITECTURE_MANIFEST.md), [guidelines/DEPENDENCIES.md](../guidelines/DEPENDENCIES.md) | Add technology decision registry page |
 | Data flow | [x] `p2` | [docs/MODULES.md](./MODULES.md) and [docs/spec-templates/cf-sdlc/DESIGN/template.md](./spec-templates/cf-sdlc/DESIGN/template.md) | Add dedicated sequence-diagram doc set |
 
@@ -38,12 +38,12 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 
 | Item | Status / Phase / ID | Implemented (where) | Planned |
 |---|---|---|---|
-| Repository structure | [x] `p1` | [README.md](../README.md), [docs/ARCHITECTURE_MANIFEST.md](./ARCHITECTURE_MANIFEST.md), [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Keep in sync with workspace changes |
-| Folder conventions | [x] `p1` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add root-level `REPO_STRUCTURE.md` |
-| Naming conventions | [x] `p1` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), [scripts/validate_module_names.py](../scripts/validate_module_names.py), [dylint_lints/](../dylint_lints) | Expand naming rules beyond modules |
-| Code organization rules | [x] `p1` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), [docs/modkit_unified_system/README.md](./modkit_unified_system/README.md) | Add short “golden-path skeleton” page |
+| Repository structure | [x] `p1` | [README.md](../README.md), [docs/ARCHITECTURE_MANIFEST.md](./ARCHITECTURE_MANIFEST.md), [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Keep in sync with workspace changes |
+| Folder conventions | [x] `p1` | [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add root-level `REPO_STRUCTURE.md` |
+| Naming conventions | [x] `p1` | [docs/modkit_unified_system/](./modkit_unified_system/README.md), [scripts/validate_module_names.py](../scripts/validate_module_names.py), [dylint_lints/](../dylint_lints) | Expand naming rules beyond modules |
+| Code organization rules | [x] `p1` | [docs/modkit_unified_system/](./modkit_unified_system/README.md), [docs/modkit_unified_system/README.md](./modkit_unified_system/README.md) | Add short “golden-path skeleton” page |
 | Dependency policies | [x] `p1` | [guidelines/DEPENDENCIES.md](../guidelines/DEPENDENCIES.md), [docs/security/SECURITY.md](./security/SECURITY.md) | Add explicit approval policy for new deps |
-| File naming rules | [x] `p2` | [docs/spec-templates/README.md](./spec-templates/README.md) (ADR/feature naming), module file layout in [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add global naming matrix |
+| File naming rules | [x] `p2` | [docs/spec-templates/README.md](./spec-templates/README.md) (ADR/feature naming), module file layout in [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add global naming matrix |
 
 ## 4) Coding Standards & Static Quality
 
@@ -57,7 +57,7 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 | Static analysis rules | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), [dylint_lints/](../dylint_lints), [.github/workflows/codeql.yml](../.github/workflows/codeql.yml) | Add local static-analysis quickstart |
 | Code complexity rules | [x] `p2` | Clippy `cognitive_complexity` (threshold: 20) in workspace [Cargo.toml](../Cargo.toml), [clippy.toml](../clippy.toml) | Add per-module complexity budget |
 | Commenting rules | [ ] `p3` | Partial conventions in existing guidelines | Add explicit comment policy document |
-| README standards | [ ] `p3` | Implicit via module QUICKSTART guidance in [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add README template + required sections |
+| README standards | [ ] `p3` | Implicit via module QUICKSTART guidance in [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add README template + required sections |
 
 ## 5) Git Workflow & Reviews
 
@@ -120,7 +120,7 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 | Integration testing rules | [x] `p1` | [CONTRIBUTING.md](../CONTRIBUTING.md), `ci.py all` flow | Add integration test standards page |
 | End-to-end testing rules | [x] `p1` | [README.md](../README.md), [scripts/ci.py](../scripts/ci.py), `.github/workflows/e2e.yml` | Add e2e flakiness policy |
 | Coverage expectations | [x] `p1` | [README.md](../README.md), [CONTRIBUTING.md](../CONTRIBUTING.md), [Makefile](../Makefile) | Enforce threshold gates in CI |
-| Test structure | [x] `p2` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), [dylint_lints/AGENTS.md](../dylint_lints/AGENTS.md) | Add repository-wide test taxonomy |
+| Test structure | [x] `p2` | [docs/modkit_unified_system/](./modkit_unified_system/README.md), [dylint_lints/AGENTS.md](../dylint_lints/AGENTS.md) | Add repository-wide test taxonomy |
 | Test data management | [ ] `p3` | Not centralized | Add test-fixture lifecycle guide |
 
 ## 11) Debugging, Logging & Observability
@@ -144,7 +144,7 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 | Security practices | [x] `p1` | [SECURITY.md](../SECURITY.md), [guidelines/SECURITY.md](../guidelines/SECURITY.md), [docs/security/SECURITY.md](./security/SECURITY.md) | Expand secure coding examples |
 | Dependency security rules | [x] `p1` | [docs/security/SECURITY.md](./security/SECURITY.md), [Makefile](../Makefile), `cargo deny` | Add allow/deny decision log |
 | Vulnerability response | [x] `p1` | [SECURITY.md](../SECURITY.md) | Add incident severity matrix |
-| Secure ORM tenant scoping | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), [docs/modkit_unified_system/06_secure_orm_db_access.md](./modkit_unified_system/06_secure_orm_db_access.md) | Add security-context propagation verification checks |
+| Secure ORM tenant scoping | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), [docs/modkit_unified_system/06_authn_authz_secure_orm.md](./modkit_unified_system/06_authn_authz_secure_orm.md) | Add security-context propagation verification checks |
 | Static security linting (Clippy + Dylint) | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), [dylint_lints/README.md](../dylint_lints/README.md), [clippy.toml](../clippy.toml) | Expand security-focused lint set |
 | Secrets handling | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), [docs/pr-review/README.md](./pr-review/README.md) token guidance | Add repository-wide secrets policy doc |
 | Data protection rules | [x] `p2` | [docs/security/SECURITY.md](./security/SECURITY.md), secure ORM docs | Add data classification policy |
@@ -199,9 +199,9 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 | PR checklist | [x] `p1` | [CONTRIBUTING.md](../CONTRIBUTING.md), [docs/checklists/CODING.md](./checklists/CODING.md) | Add enforceable checklist bot |
 | Documentation templates | [x] `p1` | [docs/spec-templates/README.md](./spec-templates/README.md) and template files | Add docs template quick-selector |
 | Examples | [x] `p1` | [examples/](../examples), [docs/QUICKSTART_GUIDE.md](./QUICKSTART_GUIDE.md) | Expand reference examples per module type |
-| Code templates | [x] `p2` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) module skeletons/patterns | Add dedicated starter templates folder |
+| Code templates | [x] `p2` | [docs/modkit_unified_system/](./modkit_unified_system/README.md) module skeletons/patterns | Add dedicated starter templates folder |
 | PR templates | [x] `p2` | [CONTRIBUTING.md](../CONTRIBUTING.md) PR description template, [docs/pr-review/code-review-template.md](./pr-review/code-review-template.md) | Add `.github/PULL_REQUEST_TEMPLATE.md` |
-| Reference implementations | [x] `p2` | [examples/modkit](../examples/modkit), [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Curate “golden reference modules” list |
+| Reference implementations | [x] `p2` | [examples/modkit](../examples/modkit), [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Curate “golden reference modules” list |
 | Good examples | [x] `p2` | Lint/module examples in [dylint_lints/README.md](../dylint_lints/README.md), [examples/](../examples) | Add explicit tagged good examples index |
 | Bad examples | [x] `p2` | Dylint bad patterns in [dylint_lints/README.md](../dylint_lints/README.md) + UI tests | Add cross-domain anti-pattern examples |
 | Release checklist | [ ] `p3` | Partial in [docs/RELEASING.md](./RELEASING.md) | Add explicit release checklist doc |
@@ -212,14 +212,14 @@ Purpose: one concise map of repository artifacts that improve developer + AI pro
 
 | Item | Status / Phase / ID | Implemented (where) | Planned |
 |---|---|---|---|
-| API guidelines | [x] `p1` | [guidelines/README.md](../guidelines/README.md), [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), ModKit docs | Add API design quick-reference |
+| API guidelines | [x] `p1` | [guidelines/README.md](../guidelines/README.md), [docs/modkit_unified_system/](./modkit_unified_system/README.md), ModKit docs | Add API design quick-reference |
 | API versioning | [x] `p1` | Dylint DE0801 in [dylint_lints/README.md](../dylint_lints/README.md), [CONTRIBUTING.md](../CONTRIBUTING.md) | Add auto-check for docs/version sync |
 | Contract rules | [x] `p1` | Dylint DE01xx/DE02xx/DE03xx in [dylint_lints/README.md](../dylint_lints/README.md) | Expand contract lint set |
-| Error handling standards | [x] `p1` | [docs/modkit_unified_system/05_errors_rfc9457.md](./modkit_unified_system/05_errors_rfc9457.md), [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add repository-wide error taxonomy |
-| Configuration management | [x] `p1` | [README.md](../README.md) config section, [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add config schema validation policy |
-| Data model conventions | [x] `p2` | [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md), [docs/modkit_unified_system/02_module_layout_and_sdk_pattern.md](./modkit_unified_system/02_module_layout_and_sdk_pattern.md) | Add canonical model naming matrix |
+| Error handling standards | [x] `p1` | [docs/modkit_unified_system/05_errors_rfc9457.md](./modkit_unified_system/05_errors_rfc9457.md), [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add repository-wide error taxonomy |
+| Configuration management | [x] `p1` | [README.md](../README.md) config section, [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add config schema validation policy |
+| Data model conventions | [x] `p2` | [docs/modkit_unified_system/](./modkit_unified_system/README.md), [docs/modkit_unified_system/02_module_layout_and_sdk_pattern.md](./modkit_unified_system/02_module_layout_and_sdk_pattern.md) | Add canonical model naming matrix |
 | Schema rules | [x] `p2` | GTS + OData + OpenAPI references in ModKit docs and dylint DE09xx | Add schema compatibility checklist |
-| Migration rules | [x] `p2` | Secure ORM and module infra patterns in ModKit docs + [guidelines/NEW_MODULE.md](../guidelines/NEW_MODULE.md) | Add explicit DB migration policy doc |
+| Migration rules | [x] `p2` | Secure ORM and module infra patterns in ModKit docs + [docs/modkit_unified_system/](./modkit_unified_system/README.md) | Add explicit DB migration policy doc |
 | Environment configs | [x] `p2` | [README.md](../README.md) env overrides, [docs/TRACING_SETUP.md](./TRACING_SETUP.md) | Add per-environment config matrix |
 | Feature flags | [ ] `p3` | Mentioned as target in architecture docs | Add standard feature-flag framework |
 

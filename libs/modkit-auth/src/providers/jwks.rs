@@ -1,4 +1,4 @@
-use crate::{claims_error::ClaimsError, plugin_traits::KeyProvider};
+use crate::{claims_error::ClaimsError, traits::KeyProvider};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};

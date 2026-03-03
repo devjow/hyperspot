@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain::credential::CredentialResolver;
+use credstore_sdk::CredStoreClientV1;
+
 use crate::domain::plugin::{AuthPlugin, PluginError};
 
 use super::apikey_auth::ApiKeyAuthPlugin;
@@ -16,11 +17,11 @@ pub struct AuthPluginRegistry {
 impl AuthPluginRegistry {
     /// Create a registry with the built-in plugins (apikey, noop).
     #[must_use]
-    pub fn with_builtins(credential_resolver: Arc<dyn CredentialResolver>) -> Self {
+    pub fn with_builtins(credstore: Arc<dyn CredStoreClientV1>) -> Self {
         let mut plugins: HashMap<String, Arc<dyn AuthPlugin>> = HashMap::new();
         plugins.insert(
             APIKEY_AUTH_PLUGIN_ID.to_string(),
-            Arc::new(ApiKeyAuthPlugin::new(credential_resolver)),
+            Arc::new(ApiKeyAuthPlugin::new(credstore)),
         );
         plugins.insert(NOOP_AUTH_PLUGIN_ID.to_string(), Arc::new(NoopAuthPlugin));
         Self { plugins }
@@ -42,13 +43,12 @@ impl AuthPluginRegistry {
 mod tests {
     use std::sync::Arc;
 
-    use crate::infra::storage::credential_repo::InMemoryCredentialResolver;
+    use crate::domain::test_support::MockCredStoreClient;
 
     use super::*;
 
     fn make_registry() -> AuthPluginRegistry {
-        let creds = Arc::new(InMemoryCredentialResolver::new());
-        AuthPluginRegistry::with_builtins(creds)
+        AuthPluginRegistry::with_builtins(Arc::new(MockCredStoreClient::empty()))
     }
 
     #[test]

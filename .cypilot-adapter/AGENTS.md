@@ -49,34 +49,26 @@ ALWAYS open `docs/REPO_PLAYBOOK.md` WHEN looking for a map of repository artifac
 
 ALWAYS register new modules under `modules/<module_name>/` as a `children[]` entry of the root `cyberfabric` system in `artifacts.json` WHEN adding a new module / subsystem
 
-ALWAYS open `guidelines/NEW_MODULE.md#table-of-contents` WHEN starting to define requirements or architecture design or implement any module — review structure before diving into specific steps
+ALWAYS open `docs/modkit_unified_system/01_overview.md` WHEN onboarding to ModKit, understanding core concepts, or reviewing the golden path for module development
 
-ALWAYS open `guidelines/NEW_MODULE.md#canonical-project-layout` WHEN creating new module directory structure, deciding where to place files, or understanding SDK pattern
+ALWAYS open `docs/modkit_unified_system/02_module_layout_and_sdk_pattern.md` WHEN starting to define requirements, architecture design, or implement any module; creating new module directory structure; deciding where to place files; understanding SDK pattern; creating Cargo.toml; naming data types; implementing local client; registering module in hyperspot-server; or creating QUICKSTART.md
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-1-project--cargo-setup` WHEN creating Cargo.toml for new module, setting up SDK crate, or configuring workspace dependencies
+ALWAYS open `docs/modkit_unified_system/03_clienthub_and_plugins.md` WHEN implementing inter-module communication via ClientHub, registering or resolving typed clients, implementing plugin architecture, creating main module with plugins, or registering scoped clients via GTS
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-2-data-types-naming-matrix` WHEN naming data types, deciding between Entity/Model/DTO, or mapping DB layer to API layer types
+ALWAYS open `docs/modkit_unified_system/03_clienthub_and_plugins.md` AND `docs/MODKIT_PLUGINS.md` WHEN implementing full plugin architecture with GTS schema/instance registration, plugin selection, or studying the tenant-resolver reference implementation
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-3-errors-management` WHEN implementing error handling, creating DomainError, mapping errors to Problem (RFC-9457), or defining SDK errors
+ALWAYS open `docs/modkit_unified_system/04_rest_operation_builder.md` WHEN adding REST endpoints, creating DTOs, implementing handlers, using OperationBuilder, adding SSE events, or configuring endpoint authentication
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-4-sdk-crate-public-api-surface` WHEN creating SDK trait, defining public API, adding models.rs/errors.rs/api.rs to SDK crate
+ALWAYS open `docs/modkit_unified_system/05_errors_rfc9457.md` WHEN implementing error handling, creating DomainError, mapping errors to Problem (RFC-9457), defining SDK errors, or adding From impls for error conversion
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-5-domain-layer-business-logic` WHEN implementing domain service, creating repository traits, defining domain events, or adding business logic
+ALWAYS open `docs/modkit_unified_system/06_authn_authz_secure_orm.md` WHEN adding SeaORM entities, using SecureConn, implementing AuthN/AuthZ, using PolicyEnforcer PEP pattern, or working with AccessScope from PDP constraints
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-6-module-wiring--lifecycle` WHEN using #[modkit::module] macro, implementing Module trait, registering clients in ClientHub, or configuring module lifecycle
+ALWAYS open `docs/modkit_unified_system/11_database_patterns.md` WHEN implementing repositories, creating database migrations, using DBRunner/SecureTx, or implementing transaction patterns
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-7-rest-api-layer-optional` WHEN adding REST endpoints, creating DTOs, implementing handlers, using OperationBuilder, or adding OData support
+ALWAYS open `docs/modkit_unified_system/07_odata_pagination_select_filter.md` WHEN adding OData filtering, pagination, $select, $orderby, implementing ODataFilterable derive, creating FieldToColumn/ODataFieldMapping, or using cursor-based pagination
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-8-infrastorage-layer-optional` WHEN adding SeaORM entities, implementing repositories, using SecureConn, or creating database migrations
+ALWAYS open `docs/modkit_unified_system/08_lifecycle_stateful_tasks.md` WHEN using #[modkit::module] macro, implementing Module trait, registering clients in ClientHub, configuring module lifecycle, or using WithLifecycle/CancellationToken for background tasks
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-9-sse-integration-optional` WHEN adding Server-Sent Events, implementing SseBroadcaster, or creating real-time event streams
+ALWAYS open `docs/modkit_unified_system/09_oop_grpc_sdk_pattern.md` WHEN creating out-of-process module, implementing gRPC service, setting up OoP binary, or wiring gRPC clients via DirectoryApi
 
-ALWAYS open `guidelines/NEW_MODULE.md#step-10-local-client-implementation` WHEN implementing local client adapter, bridging domain service to SDK trait, or registering in ClientHub
-
-ALWAYS open `guidelines/NEW_MODULE.md#step-11-register-module-in-hyperspot-server` WHEN registering module in hyperspot-server, adding to Cargo.toml, or importing in registered_modules.rs
-
-ALWAYS open `guidelines/NEW_MODULE.md#step-12-testing` WHEN writing module tests, creating SecurityContext for tests, or implementing integration tests
-
-ALWAYS open `guidelines/NEW_MODULE.md#step-13-out-of-process-oop-module-support-optional` WHEN creating out-of-process module, implementing gRPC service, or setting up OoP binary
-
-ALWAYS open `guidelines/NEW_MODULE.md#step-14-plugin-based-modules-gateway--plugins-pattern` WHEN implementing plugin architecture, creating gateway module, or registering scoped clients via GTS
+ALWAYS open `docs/modkit_unified_system/10_checklists_and_templates.md` WHEN writing module tests, creating SecurityContext for tests, implementing integration tests, or looking for quick checklists and code templates

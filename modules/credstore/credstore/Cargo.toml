@@ -1,14 +1,15 @@
 [package]
 name = "cf-credstore"
+description = "credstore gateway module"
 version = "0.1.0"
-publish = false
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "CredStore gateway module"
 repository.workspace = true
+rust-version.workspace = true
 readme = "README.md"
-keywords = ["cyberfabric"]
+keywords = ["cyberfabric", "cyberfabric-system"]
+categories = ["security"]
 
 [lib]
 name = "credstore"
@@ -18,7 +19,6 @@ workspace = true
 
 [dependencies]
 credstore-sdk = { workspace = true }
-tenant-resolver-sdk = { workspace = true }
 types-registry-sdk = { workspace = true }
 
 anyhow = { workspace = true }

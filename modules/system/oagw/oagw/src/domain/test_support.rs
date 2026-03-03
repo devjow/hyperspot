@@ -1,22 +1,27 @@
 //! Test utilities for CP and DP integration tests.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::domain::credential::CredentialResolver;
 use async_trait::async_trait;
 use authz_resolver_sdk::{
     AuthZResolverClient, AuthZResolverError, EvaluationRequest, EvaluationResponse,
     EvaluationResponseContext, PolicyEnforcer,
 };
+use credstore_sdk::{
+    CredStoreClientV1, CredStoreError, GetSecretResponse, SecretRef, SecretValue, SharingMode,
+};
 use modkit::client_hub::ClientHub;
+use modkit_security::SecurityContext;
 use oagw_sdk::api::ServiceGatewayClientV1;
+use uuid::Uuid;
 
 use crate::domain::services::{
     ControlPlaneService, ControlPlaneServiceImpl, DataPlaneService, ServiceGatewayClientV1Facade,
 };
 use crate::infra::proxy::DataPlaneServiceImpl;
-use crate::infra::storage::{InMemoryCredentialResolver, InMemoryRouteRepo, InMemoryUpstreamRepo};
+use crate::infra::storage::{InMemoryRouteRepo, InMemoryUpstreamRepo};
 
 /// Mock AuthZ resolver that always allows access for testing.
 struct MockAuthZResolverClient;
@@ -110,8 +115,71 @@ impl AuthZResolverClient for CapturingAuthZResolverClient {
     }
 }
 
-/// Re-export for tests that need to set credentials after creation.
-pub use crate::infra::storage::credential_repo::InMemoryCredentialResolver as TestCredentialResolver;
+/// Mock `CredStoreClientV1` for tests. Stores secrets in memory keyed by
+/// the bare secret name (without `cred://` prefix).
+pub struct MockCredStoreClient {
+    store: HashMap<String, Vec<u8>>,
+}
+
+impl MockCredStoreClient {
+    /// Create a mock pre-loaded with secrets.
+    ///
+    /// Keys may optionally include the `cred://` prefix — it is stripped
+    /// automatically so lookups work regardless of the prefix convention.
+    pub fn with_secrets(creds: Vec<(String, String)>) -> Self {
+        let store = creds
+            .into_iter()
+            .map(|(k, v)| {
+                let key = k.strip_prefix("cred://").unwrap_or(k.as_str()).to_string();
+                (key, v.into_bytes())
+            })
+            .collect();
+        Self { store }
+    }
+
+    /// Create an empty mock (all lookups return `Ok(None)`).
+    pub fn empty() -> Self {
+        Self {
+            store: HashMap::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl CredStoreClientV1 for MockCredStoreClient {
+    async fn get(
+        &self,
+        _ctx: &SecurityContext,
+        key: &SecretRef,
+    ) -> Result<Option<GetSecretResponse>, CredStoreError> {
+        Ok(self.store.get(key.as_ref()).map(|v| GetSecretResponse {
+            value: SecretValue::new(v.clone()),
+            owner_tenant_id: Uuid::nil(),
+            sharing: SharingMode::default(),
+            is_inherited: false,
+        }))
+    }
+}
+
+/// Mock `CredStoreClientV1` that always returns `CredStoreError::Internal`.
+/// Useful for testing error-handling paths.
+#[cfg(test)]
+pub struct FailingCredStoreClient;
+
+#[cfg(test)]
+#[async_trait]
+impl CredStoreClientV1 for FailingCredStoreClient {
+    async fn get(
+        &self,
+        _ctx: &SecurityContext,
+        _key: &SecretRef,
+    ) -> Result<Option<GetSecretResponse>, CredStoreError> {
+        Err(CredStoreError::Internal("backend failure".into()))
+    }
+}
+
+/// Re-export for tests that need a `CredStoreClientV1` mock.
+pub use MockCredStoreClient as TestCredStoreClient;
 
 /// Re-export plugin ID constants for test configurations.
 pub use crate::domain::gts_helpers::APIKEY_AUTH_PLUGIN_ID;
@@ -129,14 +197,14 @@ impl TestCpBuilder {
         }
     }
 
-    /// Pre-load credentials into the credential resolver.
+    /// Pre-load credentials into the mock credstore client.
     #[must_use]
     pub fn with_credentials(mut self, creds: Vec<(String, String)>) -> Self {
         self.credentials = creds;
         self
     }
 
-    /// Create repos, service, and credential resolver, register them in the
+    /// Create repos, service, and mock credstore, register them in the
     /// provided `ClientHub`, and return the CP service trait object.
     pub(crate) fn build_and_register(self, hub: &ClientHub) -> Arc<dyn ControlPlaneService> {
         let upstream_repo = Arc::new(InMemoryUpstreamRepo::new());
@@ -144,11 +212,9 @@ impl TestCpBuilder {
         let cp: Arc<dyn ControlPlaneService> =
             Arc::new(ControlPlaneServiceImpl::new(upstream_repo, route_repo));
 
-        let cred_resolver: Arc<dyn CredentialResolver> = Arc::new(
-            InMemoryCredentialResolver::with_credentials(self.credentials),
-        );
-
-        hub.register::<dyn CredentialResolver>(cred_resolver);
+        let credstore: Arc<dyn CredStoreClientV1> =
+            Arc::new(MockCredStoreClient::with_secrets(self.credentials));
+        hub.register::<dyn CredStoreClientV1>(credstore);
 
         cp
     }
@@ -162,7 +228,7 @@ impl Default for TestCpBuilder {
 
 /// Builder for a fully-wired Data Plane test environment.
 ///
-/// Requires that a `CredentialResolver` is already registered in the
+/// Requires that a `CredStoreClientV1` is already registered in the
 /// `ClientHub` (e.g., via `TestCpBuilder`).
 pub struct TestDpBuilder {
     request_timeout: Option<Duration>,
@@ -192,23 +258,23 @@ impl TestDpBuilder {
         self
     }
 
-    /// Fetch CredentialResolver from the hub, create a DP service with
+    /// Fetch `CredStoreClientV1` from the hub, create a DP service with
     /// the given CP, and return the trait object.
     pub(crate) fn build_and_register(
         self,
         hub: &ClientHub,
         cp: Arc<dyn ControlPlaneService>,
     ) -> Arc<dyn DataPlaneService> {
-        let cred_resolver = hub
-            .get::<dyn CredentialResolver>()
-            .expect("CredentialResolver must be registered before building DP");
+        let credstore = hub
+            .get::<dyn CredStoreClientV1>()
+            .expect("CredStoreClientV1 must be registered before building DP");
 
         let authz_client = self
             .authz_client
             .unwrap_or_else(|| Arc::new(MockAuthZResolverClient));
         let policy_enforcer = PolicyEnforcer::new(authz_client);
 
-        let mut svc = DataPlaneServiceImpl::new(cp, cred_resolver, policy_enforcer)
+        let mut svc = DataPlaneServiceImpl::new(cp, credstore, policy_enforcer)
             .expect("failed to build DataPlaneServiceImpl in test");
         if let Some(timeout) = self.request_timeout {
             svc = svc.with_request_timeout(timeout);

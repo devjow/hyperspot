@@ -1,0 +1,21 @@
+[package]
+name = "cf-mini-chat-sdk"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "SDK for mini-chat module: API traits, types, and error definitions"
+
+[lib]
+name = "mini_chat_sdk"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+async-trait = { workspace = true }
+modkit-security = { workspace = true }

@@ -69,9 +69,22 @@ def mock_upstream():
 
     yield server
 
+    async def _shutdown() -> None:
+        await server.stop()
+        current = asyncio.current_task()
+        pending = [
+            t for t in asyncio.all_tasks()
+            if t is not current and not t.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    fut = asyncio.run_coroutine_threadsafe(_shutdown(), loop)
+    fut.result(timeout=5)
     loop.call_soon_threadsafe(loop.stop)
     thread.join(timeout=5)
-    loop.run_until_complete(server.stop())
     loop.close()
 
 

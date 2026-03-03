@@ -59,8 +59,8 @@
       "patterns": ["modules/system/nodes-registry/*"]
     },
     {
-      "reason": "Ignore module 'oagw' (not SDLC-documented yet: missing required PRD/DESIGN).",
-      "patterns": ["modules/system/oagw/*"]
+      "reason": "Ignore legacy (pre-Cypilot) ADR files in oagw/docs root — converted copies live under docs/ADR/.",
+      "patterns": ["modules/system/oagw/docs/adr-*.md"]
     },
     {
       "reason": "Ignore module 'tenant-resolver' (not SDLC-documented yet: missing required PRD/DESIGN).",

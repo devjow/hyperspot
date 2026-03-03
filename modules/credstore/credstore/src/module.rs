@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use credstore_sdk::{CredStoreClientV1, CredStorePluginSpecV1};
+use modkit::contracts::SystemCapability;
 use modkit::{Module, ModuleCtx};
 use tracing::info;
 use types_registry_sdk::{RegisterResult, TypesRegistryClient};
@@ -17,11 +18,11 @@ use crate::domain::{CredStoreLocalClient, Service};
 /// 1. Registers the `CredStorePluginSpecV1` schema in types-registry
 /// 2. Discovers plugin instances via types-registry (lazy, first-use)
 /// 3. Routes secret operations through the selected plugin
-/// 4. Implements hierarchical tenant secret resolution via tenant-resolver
-/// 5. Registers `Arc<dyn CredStoreClientV1>` in `ClientHub` for consumers
+/// 4. Registers `Arc<dyn CredStoreClientV1>` in `ClientHub` for consumers
 #[modkit::module(
     name = "credstore",
-    deps = ["types-registry"]
+    deps = ["types-registry"],
+    capabilities = [system]
 )]
 pub struct CredStoreModule {
     service: OnceLock<Arc<Service>>,
@@ -41,7 +42,7 @@ impl Module for CredStoreModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         let cfg: CredStoreConfig = ctx.config()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
-        info!(vendor = %cfg.vendor, "Initializing {} module", Self::MODULE_NAME);
+        info!(vendor = %cfg.vendor);
 
         // Register plugin schema in types-registry
         let registry = ctx.client_hub().get::<dyn TypesRegistryClient>()?;
@@ -65,8 +66,9 @@ impl Module for CredStoreModule {
         let api: Arc<dyn CredStoreClientV1> = Arc::new(CredStoreLocalClient::new(svc));
         ctx.client_hub().register::<dyn CredStoreClientV1>(api);
 
-        info!("{} module initialized successfully", Self::MODULE_NAME);
-
         Ok(())
     }
 }
+
+#[async_trait]
+impl SystemCapability for CredStoreModule {}

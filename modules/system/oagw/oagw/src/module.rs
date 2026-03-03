@@ -2,12 +2,12 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::config::OagwConfig;
-use crate::domain::credential::CredentialResolver;
 use crate::domain::type_catalog::oagw_gts_entities;
 use crate::domain::type_provisioning::TypeProvisioningService;
 use crate::infra::type_provisioning::TypeProvisioningServiceImpl;
 use async_trait::async_trait;
 use authz_resolver_sdk::{AuthZResolverClient, PolicyEnforcer};
+use credstore_sdk::CredStoreClientV1;
 use modkit::api::OpenApiRegistry;
 use modkit::contracts::SystemCapability;
 use modkit::{Module, ModuleCtx, RestApiCapability};
@@ -21,7 +21,7 @@ use crate::domain::services::{
     ControlPlaneService, ControlPlaneServiceImpl, DataPlaneService, ServiceGatewayClientV1Facade,
 };
 use crate::infra::proxy::DataPlaneServiceImpl;
-use crate::infra::storage::{InMemoryCredentialResolver, InMemoryRouteRepo, InMemoryUpstreamRepo};
+use crate::infra::storage::{InMemoryRouteRepo, InMemoryUpstreamRepo};
 
 /// Shared application state injected into all handlers.
 #[derive(Clone)]
@@ -34,7 +34,7 @@ pub struct AppState {
 /// Outbound API Gateway module: wires repos, services, and routes.
 #[modkit::module(
     name = "oagw",
-    deps = ["types-registry", "authz-resolver"],
+    deps = ["types-registry", "authz-resolver", "credstore"],
     capabilities = [system, rest]
 )]
 pub struct OutboundApiGatewayModule {
@@ -56,8 +56,6 @@ impl Default for OutboundApiGatewayModule {
 #[async_trait]
 impl Module for OutboundApiGatewayModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        info!("Initializing Outbound API Gateway module");
-
         let cfg: OagwConfig = ctx.config()?;
         info!("OAGW config: proxy_timeout_secs={}", cfg.proxy_timeout_secs);
 
@@ -67,15 +65,7 @@ impl Module for OutboundApiGatewayModule {
         let cp: Arc<dyn ControlPlaneService> =
             Arc::new(ControlPlaneServiceImpl::new(upstream_repo, route_repo));
 
-        let cred_resolver = InMemoryCredentialResolver::new();
-        for (secret_ref, value) in &cfg.credentials {
-            info!("Seeding credential: {secret_ref}");
-            cred_resolver.set(secret_ref.clone(), value.clone());
-        }
-        let cred_resolver: Arc<dyn CredentialResolver> = Arc::new(cred_resolver);
-
-        ctx.client_hub()
-            .register::<dyn CredentialResolver>(cred_resolver.clone());
+        let credstore = ctx.client_hub().get::<dyn CredStoreClientV1>()?;
 
         // -- AuthZ resolver for permission checks --
         let authz = ctx.client_hub().get::<dyn AuthZResolverClient>()?;
@@ -83,7 +73,7 @@ impl Module for OutboundApiGatewayModule {
 
         // -- Data Plane init --
         let dp: Arc<dyn DataPlaneService> = Arc::new(
-            DataPlaneServiceImpl::new(cp.clone(), cred_resolver, policy_enforcer)?
+            DataPlaneServiceImpl::new(cp.clone(), credstore, policy_enforcer)?
                 .with_request_timeout(Duration::from_secs(cfg.proxy_timeout_secs)),
         );
 
@@ -132,7 +122,6 @@ impl Module for OutboundApiGatewayModule {
         };
 
         self.state.store(Some(Arc::new(app_state)));
-        info!("Outbound API Gateway module initialized");
         Ok(())
     }
 }

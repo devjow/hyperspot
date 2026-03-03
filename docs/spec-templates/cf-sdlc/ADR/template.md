@@ -2,7 +2,7 @@
 status: accepted
 date: {YYYY-MM-DD}
 decision-makers: {optionally fill decision makers names, accounts or remove that field}
---- 
+---
 <!--
  =============================================================================
  ARCHITECTURE DECISION RECORD (ADR) — based on MADR format
@@ -60,8 +60,11 @@ Chosen option: "{title of option 1}", because {justification, e.g., only option 
 
 ### Consequences
 
-* Good, because {positive consequence, e.g., improvement of one or more desired qualities}
-* Bad, because {negative consequence, e.g., compromising one or more desired qualities}
+{Describe the concrete consequences of this decision for the later design and implementation. Do NOT repeat Good/Bad pros and cons here — those belong in the "Pros and Cons of the Options" section below. Instead, state what this decision requires, enables, or constrains in practice.}
+
+* {Consequence 1, e.g., "Choosing X means we must define Y and register it in Z"}
+* {Consequence 2, e.g., "This decision requires the library to provide A, and modules must adapt by doing B"}
+* {Consequence 3, e.g., "Future extensibility will need to be handled via C"}
 
 ### Confirmation
 

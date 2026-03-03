@@ -93,9 +93,3 @@ impl From<DomainError> for CredStoreError {
         }
     }
 }
-
-impl From<tenant_resolver_sdk::TenantResolverError> for DomainError {
-    fn from(e: tenant_resolver_sdk::TenantResolverError) -> Self {
-        Self::Internal(e.to_string())
-    }
-}

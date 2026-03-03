@@ -15,7 +15,7 @@
   "tags": [
     {
       "name": "chats",
-      "description": "Chat lifecycle: create, list, get, delete."
+      "description": "Chat lifecycle: create, list, get, update title, delete."
     },
     {
       "name": "messages",
@@ -32,6 +32,10 @@
     {
       "name": "reactions",
       "description": "Binary like/dislike reactions on assistant messages."
+    },
+    {
+      "name": "models",
+      "description": "Read-only model catalog visible to the authenticated user."
     }
   ],
   "paths": {
@@ -75,7 +79,7 @@
             }
           },
           "400": {
-            "description": "Invalid request (e.g. unknown model name).",
+            "description": "Invalid request (e.g. unknown model name). Code: `invalid_request`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -189,6 +193,62 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "operationId": "updateChatTitle",
+        "tags": ["chats"],
+        "summary": "Update chat title",
+        "description": "Partial update — P1 allows updating only the `title` field. The title is trimmed; strings consisting entirely of whitespace are rejected. On success, `updated_at` is set to the current time. Does not affect messages, attachments, model, or is_temporary.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChatTitleRequest"
+              },
+              "example": {
+                "title": "Renamed Chat"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat title updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDetail"
+                },
+                "example": {
+                  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                  "model": "gpt-5.2",
+                  "title": "Renamed Chat",
+                  "is_temporary": false,
+                  "message_count": 12,
+                  "created_at": "2025-06-15T10:30:00Z",
+                  "updated_at": "2025-06-15T11:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (e.g. missing title, empty after trim, exceeds max length).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/v1/chats/{id}/messages:stream": {
@@ -220,7 +280,7 @@
         },
         "responses": {
           "200": {
-            "description": "SSE stream opened. Events delivered as `text/event-stream`. HTTP 200 does NOT guarantee success — terminal failures after streaming starts are delivered as SSE `event: error` (payload: SseErrorEvent) while the HTTP status remains 200. Non-200 JSON error responses (4xx/5xx below) occur only when the failure is detected before the SSE stream is opened. See operation description for event types and payload schemas.",
+            "description": "SSE stream opened. Events delivered as `text/event-stream`. HTTP 200 does NOT guarantee success — terminal failures after streaming starts are delivered as SSE `event: error` (payload: SseErrorEvent) while the HTTP status remains 200. Non-200 JSON error responses (4xx/5xx below) occur only when the failure is detected before the SSE stream is opened. The server closes the connection immediately after the terminal event (done or error); no further events are sent. See operation description for event types and payload schemas.",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -948,6 +1008,66 @@
           }
         }
       }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "listModels",
+        "tags": ["models"],
+        "summary": "List models visible to the current user",
+        "description": "Returns all models that are globally enabled in the policy catalog AND user-enabled for this user (allow-by-default semantics). Disabled models are never returned. The catalog is sourced from `minichat-policy-plugin` and cached in memory.",
+        "responses": {
+          "200": {
+            "description": "List of visible models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}": {
+      "get": {
+        "operationId": "getModel",
+        "tags": ["models"],
+        "summary": "Get a single model by ID",
+        "description": "Returns the model only if it is visible to the current user (globally enabled AND user-enabled). Returns 404 if the model is globally disabled, user-disabled, or does not exist — to avoid leaking catalog details.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ModelId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ModelNotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -998,6 +1118,15 @@
         "schema": {
           "type": "string",
           "format": "uuid"
+        }
+      },
+      "ModelId": {
+        "name": "model_id",
+        "in": "path",
+        "required": true,
+        "description": "Stable internal model identifier (e.g., \"gpt-5.2\").",
+        "schema": {
+          "type": "string"
         }
       },
       "PaginationLimit": {
@@ -1069,11 +1198,31 @@
             }
           }
         }
+      },
+      "Unauthorized": {
+        "description": "Authentication required. The request lacks valid credentials or the bearer token is expired/invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ModelNotFound": {
+        "description": "Model does not exist in the catalog or is not visible to the user (globally disabled or user-disabled). Code: `model_not_found`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "schemas": {
       "ErrorResponse": {
-        "description": "Standard error envelope for JSON error responses and SSE terminal error events.",
+        "description": "Standard error envelope for JSON error responses and SSE terminal error events. Error messages and codes MUST NOT contain provider-scoped identifiers (provider_file_id, vector_store_id, deployment names). All error codes are stable internal codes.",
         "oneOf": [
           { "$ref": "#/components/schemas/QuotaExceededError" },
           { "$ref": "#/components/schemas/GenericError" }
@@ -1082,16 +1231,18 @@
       "GenericError": {
         "type": "object",
         "required": ["code", "message"],
-        "description": "Error response for all non-quota error codes.",
+        "description": "Error response for all non-quota error codes. No provider identifiers in any field.",
         "properties": {
           "code": {
             "type": "string",
             "description": "Canonical error code.",
             "enum": [
+              "invalid_request",
               "feature_not_licensed",
               "insufficient_permissions",
               "chat_not_found",
               "message_not_found",
+              "model_not_found",
               "generation_in_progress",
               "request_id_conflict",
               "rate_limited",
@@ -1110,14 +1261,14 @@
           },
           "message": {
             "type": "string",
-            "description": "Human-readable error description."
+            "description": "Human-readable error description. MUST NOT contain provider-scoped identifiers (provider_file_id, vector_store_id, deployment names, upstream error bodies)."
           }
         }
       },
       "QuotaExceededError": {
         "type": "object",
         "required": ["code", "message", "quota_scope"],
-        "description": "Error response for quota exhaustion. The quota_scope field is REQUIRED and distinguishes token quota exhaustion, upload quota exhaustion, and web search quota exhaustion.",
+        "description": "Error response for quota exhaustion. The quota_scope field is REQUIRED and distinguishes token quota exhaustion, upload quota exhaustion, and web search quota exhaustion. No provider identifiers in any field.",
         "properties": {
           "code": {
             "type": "string",
@@ -1125,7 +1276,7 @@
           },
           "message": {
             "type": "string",
-            "description": "Human-readable error description."
+            "description": "Human-readable error description. MUST NOT contain provider-scoped identifiers."
           },
           "quota_scope": {
             "type": "string",
@@ -1197,7 +1348,7 @@
           "request_id": {
             "type": "string",
             "format": "uuid",
-            "description": "Turn correlation key (doubles as idempotency key). Within a normal turn the user message and the assistant response share the same request_id. Client-generated, or server-generated UUID v4 when the client omits it. System/background messages (e.g. doc_summary) carry an independently server-generated UUID v4. Always present and non-null."
+            "description": "Turn correlation key (doubles as idempotency key). Within a normal turn the user message and the assistant response share the same request_id. Client-generated, or server-generated UUID v4 when the client omits it. System/background messages (e.g. doc_summary) carry an independently server-generated UUID v4. Always non-null in API responses. Note: The database schema permits NULL for internal use cases, but all messages exposed through this API are guaranteed to have a request_id."
           },
           "role": {
             "type": "string",
@@ -1301,12 +1452,12 @@
           "state": {
             "type": "string",
             "enum": ["running", "done", "error", "cancelled"],
-            "description": "Turn state. 'done', 'error', 'cancelled' are terminal and immutable. 'cancelled' indicates client disconnect or internal abort — no SSE error event was emitted. Use this endpoint to resolve state after disconnect."
+            "description": "Turn state. 'done', 'error', 'cancelled' are terminal and immutable. 'error' indicates the turn failed — check error_code to determine if it was a provider failure (provider_error, provider_timeout) or a system timeout (orphan_timeout). 'cancelled' indicates client disconnect or internal abort — no SSE error event was emitted. Use this endpoint to resolve state after disconnect. IMPORTANT: error_code='orphan_timeout' means stream ended without provider terminal event (system timeout, NOT provider error); display 'Request timed out' to users, NOT 'Provider error'."
           },
           "error_code": {
             "type": "string",
             "nullable": true,
-            "description": "Terminal error code when state is 'error' (e.g. 'provider_error', 'orphan_timeout', 'context_length_exceeded'). Null for non-error terminal states and while running. Mapped from internal chat_turns.error_code. Provider identifiers and billing outcome are not exposed."
+            "description": "Terminal error code when state is 'error'. Disambiguates failure cause. Common values: 'provider_error' (LLM provider returned terminal error), 'provider_timeout' (provider request timed out), 'orphan_timeout' (turn stuck beyond watchdog timeout — system timeout, NOT provider failure; stream ended without provider terminal event), 'context_length_exceeded' (preflight rejection), 'quota_overshoot_exceeded' (actual usage exceeded overshoot tolerance). Null for non-error terminal states and while running. CRITICAL: 'orphan_timeout' indicates a SYSTEM timeout (pod crash, network partition, orphan watchdog cleanup), not a provider-side error. UX SHOULD display 'Request timed out. Please try again.' for orphan_timeout, NOT 'Provider error.' Support and analytics: orphan_timeout metrics should be tracked separately from provider_error to distinguish infrastructure issues from LLM provider issues. Mapped from internal chat_turns.error_code. Provider identifiers and billing outcome are not exposed."
           },
           "assistant_message_id": {
             "type": "string",
@@ -1378,6 +1529,19 @@
           "model": {
             "type": "string",
             "description": "Model from the deployment model catalog. If omitted, the default model is resolved: the is_default premium model, then the first enabled premium model, then the first enabled standard model."
+          }
+        }
+      },
+      "UpdateChatTitleRequest": {
+        "type": "object",
+        "required": ["title"],
+        "description": "Request body for updating a chat title. Only `title` is updatable in P1.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "New chat title. Trimmed by the server; a string consisting entirely of whitespace is rejected with 400 invalid_request."
           }
         }
       },
@@ -1563,8 +1727,8 @@
           },
           "downgrade_reason": {
             "type": "string",
-            "enum": ["premium_quota_exhausted", "kill_switch"],
-            "description": "Why downgrade occurred. Present only when quota_decision=\"downgrade\"."
+            "enum": ["premium_quota_exhausted", "force_standard_tier", "disable_premium_tier", "model_disabled"],
+            "description": "Why downgrade occurred. Present only when quota_decision=\"downgrade\". Values: premium_quota_exhausted (user quota exhausted); force_standard_tier (operator kill switch: premium tier forcibly disabled for this tenant); disable_premium_tier (operator kill switch: premium tier globally disabled); model_disabled (operator kill switch: selected model global_enabled=false)."
           }
         }
       },
@@ -1588,7 +1752,7 @@
         }
       },
       "SseErrorEvent": {
-        "description": "SSE `event: error` payload. Terminal event indicating a failure after the stream has started. Shares the same error envelope as JSON error responses: GenericError for all non-quota errors, QuotaExceededError (with required quota_scope) when code is quota_exceeded.",
+        "description": "SSE `event: error` payload. Terminal event indicating a failure after the stream has started. Shares the same error envelope as JSON error responses: GenericError for all non-quota errors, QuotaExceededError (with required quota_scope) when code is quota_exceeded. Error messages MUST NOT contain provider-scoped identifiers.",
         "oneOf": [
           { "$ref": "#/components/schemas/QuotaExceededError" },
           { "$ref": "#/components/schemas/GenericError" }
@@ -1672,6 +1836,66 @@
         "type": "string",
         "enum": ["allow", "downgrade"],
         "description": "Deprecated as standalone schema — fields are now inlined on SseDoneEvent. Retained for backward reference only."
+      },
+      "MultimodalCapability": {
+        "type": "string",
+        "description": "Model capability flag. P1 known values: VISION_INPUT (supports image inputs), RAG (supports file_search tool / retrieval grounding). Future values may be added without a version bump. Clients MUST ignore unknown values."
+      },
+      "Model": {
+        "type": "object",
+        "required": ["model_id", "display_name", "provider", "tier", "multiplier_display", "multimodal_capabilities", "context_window"],
+        "description": "A model visible to the current user. Does NOT expose provider deployment IDs, credit multipliers, policy_version, max_output, or is_default.",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Stable internal model identifier (e.g., \"gpt-5.2\"). Same value used in POST /v1/chats and chats.model."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "User-facing name for the model selector UI."
+          },
+          "provider": {
+            "type": "string",
+            "description": "User-facing display name of the provider (e.g., \"OpenAI\", \"Azure OpenAI\"). MUST NOT be a deployment handle, routing identifier, or internal provider key."
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["standard", "premium"],
+            "description": "Rate-limit tier."
+          },
+          "multiplier_display": {
+            "type": "string",
+            "description": "Human-readable credit multiplier (e.g., \"1x\", \"2x\"). Informational only — does not expose credits_micro or numeric multiplier internals."
+          },
+          "description": {
+            "type": "string",
+            "description": "User-facing help text."
+          },
+          "multimodal_capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MultimodalCapability"
+            },
+            "description": "Capability flags supported by this model."
+          },
+          "context_window": {
+            "type": "integer",
+            "description": "Maximum context window in tokens."
+          }
+        }
+      },
+      "ModelList": {
+        "type": "object",
+        "required": ["items"],
+        "description": "List of models visible to the current user.",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          }
+        }
       }
     }
   }

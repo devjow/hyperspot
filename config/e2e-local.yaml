@@ -94,7 +94,7 @@ modules:
   api-gateway:
     # No database needed for api-gateway
     config:
-      bind_addr: "127.0.0.1:8086"
+      bind_addr: "0.0.0.0:8086"
       enable_docs: true
       cors_enabled: false
 
@@ -161,6 +161,25 @@ modules:
     config:
       vendor: "Fabrikam"
 
+  static-credstore-plugin:
+    config:
+      secrets:
+        # Test-only fake client ID, not a real credential
+        - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          key: "openai-key"
+          value: "sk-test-e2e-fake-key"
+        # Test-only fake credentials for OAuth2 client ID and secret
+        - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          key: "test-oauth2-client-id"
+          value: "test-client-id"
+        # Test-only fake client secret, not a real credential
+        - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          key: "test-oauth2-client-secret"
+          value: "test-client-secret"
+
   grpc-hub:
     config:
       listen_addr: "uds:///tmp/hyperspot-grpc-e2e"
@@ -205,6 +224,12 @@ modules:
     config:
       vendor: "hyperspot"
       priority: 100
+  
+  mini-chat:
+    # Module-specific database configuration
+    database:
+      server: "sqlite_users"
+      file: "mini_chat.db"
 
   simple-user-settings:
     # Module-specific database configuration
@@ -215,13 +240,11 @@ modules:
 
   file-parser:
     config:
-      allowed_local_base_dir: data
+      allowed_local_base_dir: /tmp
 
   oagw:
     config:
       proxy_timeout_secs: 2
-      credentials:
-        "cred://openai-key": "sk-test-e2e-fake-key"  # Test-only fake key, not a real credential
 
 # OpenTelemetry tracing configuration
 tracing:

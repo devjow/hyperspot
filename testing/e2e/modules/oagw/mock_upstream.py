@@ -9,7 +9,7 @@ Uses only stdlib asyncio — no aiohttp dependency.
 import asyncio
 import json
 import re
-
+import logging
 
 # ---------------------------------------------------------------------------
 # Request/response helpers
@@ -200,10 +200,21 @@ class MockUpstreamServer:
                 method, path, headers, body = await _read_request(reader)
                 await _handle(method, path, headers, body, writer)
                 await writer.drain()
+            except (asyncio.CancelledError, GeneratorExit):
+                raise
             except Exception:
                 pass
             finally:
-                writer.close()
+                try:
+                    writer.close()
+                except RuntimeError:
+                    # Event loop may already be closing/shutdown.
+                    return
+                try:
+                    await writer.wait_closed()
+                except (ConnectionError, RuntimeError):
+                    # Ignore connection/loop errors during shutdown; the peer may have disconnected.
+                    logging.debug("Ignoring connection/loop error during writer.close()", exc_info=True)
 
         self._server = await asyncio.start_server(_client, self.host, self.port)
 

@@ -14,6 +14,9 @@ impl AuthPlugin for NoopAuthPlugin {
 mod tests {
     use std::collections::HashMap;
 
+    use modkit_security::SecurityContext;
+    use uuid::Uuid;
+
     use super::*;
 
     #[tokio::test]
@@ -25,6 +28,11 @@ mod tests {
         let mut ctx = AuthContext {
             headers: headers.clone(),
             config: HashMap::new(),
+            security_context: SecurityContext::builder()
+                .subject_tenant_id(Uuid::nil())
+                .subject_id(Uuid::nil())
+                .build()
+                .unwrap(),
         };
 
         plugin.authenticate(&mut ctx).await.unwrap();

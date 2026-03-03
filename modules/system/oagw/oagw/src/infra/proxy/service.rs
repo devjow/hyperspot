@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::domain::credential::CredentialResolver;
+use credstore_sdk::CredStoreClientV1;
+
 use crate::domain::error::DomainError;
 use crate::domain::model::{PassthroughMode, PathSuffixMode};
 use crate::domain::plugin::AuthContext;
@@ -43,7 +44,7 @@ impl DataPlaneServiceImpl {
     /// Returns an error if the HTTP client cannot be built.
     pub fn new(
         cp: Arc<dyn ControlPlaneService>,
-        credential_resolver: Arc<dyn CredentialResolver>,
+        credstore: Arc<dyn CredStoreClientV1>,
         policy_enforcer: PolicyEnforcer,
     ) -> anyhow::Result<Self> {
         let http_client = reqwest::Client::builder()
@@ -54,7 +55,7 @@ impl DataPlaneServiceImpl {
             // Request-header timeout is applied via tokio::time::timeout below.
             .build()?;
 
-        let auth_registry = AuthPluginRegistry::with_builtins(credential_resolver);
+        let auth_registry = AuthPluginRegistry::with_builtins(credstore);
         let rate_limiter = RateLimiter::new();
 
         Ok(Self {
@@ -208,6 +209,7 @@ impl DataPlaneService for DataPlaneServiceImpl {
             let mut auth_ctx = AuthContext {
                 headers: auth_headers,
                 config: auth.config.clone().unwrap_or_default(),
+                security_context: ctx.clone(),
             };
             plugin
                 .authenticate(&mut auth_ctx)

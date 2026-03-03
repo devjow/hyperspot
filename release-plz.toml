@@ -233,3 +233,23 @@ git_release_enable = false
 name = "cf-authz-resolver"
 changelog_update = false
 git_release_enable = false
+
+[[package]]
+name = "cf-oagw-sdk"
+changelog_update = false
+git_release_enable = false
+
+[[package]]
+name = "cf-oagw"
+changelog_update = false
+git_release_enable = false
+
+[[package]]
+name = "cf-credstore-sdk"
+changelog_update = false
+git_release_enable = false
+
+[[package]]
+name = "cf-credstore"
+changelog_update = false
+git_release_enable = false

@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db-macros"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "axum 0.8.8",
  "http",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors-macro"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-macros"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "base64",
  "bigdecimal",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-sdk"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "cf-modkit-odata",
  "cf-modkit-security",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-security"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "anyhow",
  "postcard",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-utils"
-version = "0.2.12"
+version = "0.2.14"
 dependencies = [
  "humantime",
  "serde",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdk-directory"
-version = "0.1.13"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdks"
-version = "0.1.13"
+version = "0.1.15"
 dependencies = [
  "cf-system-sdk-directory",
 ]
@@ -1799,9 +1799,9 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gts"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35490554642cb0c546c2edc82a66a3d5347fb3796f06d686005bad6617861b88"
+checksum = "ce6f5841b1df050923040aeb9574cdd232eaba91e64202e1c37a00cea9175a76"
 dependencies = [
  "gts-id",
  "jsonschema",
@@ -1818,18 +1818,18 @@ dependencies = [
 
 [[package]]
 name = "gts-id"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bc89697e279954ac55254a190d64b0aad8434b4b6e50c1578818228f0e17a47"
+checksum = "9e872c9c5344cd49f705d8a82f4d35dd952146f0df88e7b10e6e3ee5eab526d4"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gts-macros"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a988585f888bfd7233d72ba246c0e47a1fee7034bfc2e2eecaa09f03db97982"
+checksum = "36248d3c70926565f362c82ddfa44485d9ea553b7a4698acf808df784b960be4"
 dependencies = [
  "gts-id",
  "proc-macro2",

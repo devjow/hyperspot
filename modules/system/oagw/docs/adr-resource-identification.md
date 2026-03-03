@@ -694,7 +694,7 @@ X-Tenant-ID: partner-uuid
   },
   "plugins": {
     "sharing": "inherit",
-    "items": ["gts.x.core.oagw.filter_plugin.v1~x.core.oagw.logging.v1"]
+    "items": ["gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1"]
   }
 }
 ```

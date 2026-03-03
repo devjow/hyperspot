@@ -3,8 +3,9 @@ CI := 1
 OPENAPI_URL ?= http://127.0.0.1:8087/openapi.json
 OPENAPI_OUT ?= docs/api/api.json
 
-# E2E Docker args
-E2E_ARGS ?= --features users-info-example
+# E2E feature set (single source of truth: config/e2e-features.txt)
+E2E_FEATURES ?= $(strip $(shell cat config/e2e-features.txt 2>/dev/null))
+E2E_ARGS ?= $(if $(E2E_FEATURES),--features $(E2E_FEATURES),)
 
 # -------- Utility macros --------
 
@@ -236,7 +237,7 @@ openapi:
 	@command -v curl >/dev/null || (echo "curl is required to generate OpenAPI spec" && exit 1)
 	@echo "Starting hyperspot-server to generate OpenAPI spec..."
 	# Run server in background
-	cargo run --bin hyperspot-server --features users-info-example,static-authn,static-authz -- --config config/quickstart.yaml &
+	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml &
 	@SERVER_PID=$$!; \
 	trap 'kill $$SERVER_PID >/dev/null 2>&1 || true' EXIT; \
 	echo "hyperspot-server PID: $$SERVER_PID"; \
@@ -314,22 +315,26 @@ test-users-info-pg:
 
 # -------- E2E tests --------
 
-.PHONY: e2e e2e-local e2e-docker e2e-smoke
+.PHONY: e2e e2e-local e2e-local-smoke e2e-docker e2e-docker-smoke
 
 # Run E2E tests in Docker (default)
 e2e: e2e-docker
 
+## Run E2E tests in Docker environment
+e2e-docker:
+	python3 scripts/ci.py e2e-docker $(E2E_ARGS)
+
 ## Run E2E smoke tests in Docker (only tests marked @pytest.mark.smoke)
-e2e-smoke:
-	python3 scripts/ci.py e2e --docker $(E2E_ARGS) -- -m smoke
+e2e-docker-smoke:
+	python3 scripts/ci.py e2e-docker $(E2E_ARGS) -- -m smoke
 
 # Run E2E tests locally
 e2e-local:
-	python3 scripts/ci.py e2e
+	python3 scripts/ci.py e2e-local
 
-## Run E2E tests in Docker environment
-e2e-docker:
-	python3 scripts/ci.py e2e --docker $(E2E_ARGS)
+## Run E2E smoke tests locally (only tests marked @pytest.mark.smoke)
+e2e-local-smoke:
+	python3 scripts/ci.py e2e-local --smoke
 
 # -------- Code coverage --------
 
@@ -347,7 +352,7 @@ coverage-unit:
 
 ## Ensure needed packages and programs installed for local e2e testing
 check-prereq-e2e-local:
-	python scripts/check_local_env.py --mode e2e-local
+	python3 scripts/check_local_env.py --mode e2e-local
 
 # Generate code coverage report (e2e-local tests only)
 coverage-e2e-local: check-prereq-e2e-local
@@ -419,11 +424,11 @@ quickstart:
 
 ## Run server with example module
 example:
-	cargo run --bin hyperspot-server --features users-info-example,static-authn,static-authz -- --config config/quickstart.yaml run
+	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml run
 
 oop-example:
 	cargo build -p calculator --features oop_module
-	cargo run --bin hyperspot-server --features oop-example,users-info-example,static-authn,static-authz -- --config config/quickstart.yaml run
+	cargo run --bin hyperspot-server --features oop-example,users-info-example,static-authn,static-authz,static-tenants,static-credstore -- --config config/quickstart.yaml run
 
 # Run all quality checks
 check: .setup-stamp fmt cypilot-validate clippy lychee security dylint-test dylint gts-docs test
@@ -436,10 +441,9 @@ ci_docs: lychee
 ci: fmt clippy test-no-macros test-macros test-db deny test-users-info-pg lychee dylint dylint-test
 
 # Build the hyperspot-server release binary using the stable toolchain.
-# Features are required for E2E tests: users-info-example (example module),
-# static-tenants and static-authz (static plugin implementations).
+# Feature set is read from config/e2e-features.txt when present.
 build:
-	cargo +stable build --release --bin hyperspot-server --features users-info-example,static-tenants,static-authz
+	cargo +stable build --release --bin hyperspot-server $(E2E_ARGS)
 
 # Run all necessary quality checks and tests and then build the release binary
 all: build check test-sqlite e2e-local

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -11,11 +10,6 @@ pub struct OagwConfig {
     pub proxy_timeout_secs: u64,
     #[serde(default = "default_max_body_size_bytes")]
     pub max_body_size_bytes: usize,
-    /// Optional credentials to pre-load into the in-memory credential resolver.
-    /// Keys are secret references (e.g., `cred://openai-key`), values are secrets.
-    /// Intended for development and testing only.
-    #[serde(default)]
-    pub credentials: HashMap<String, String>,
 }
 
 impl Default for OagwConfig {
@@ -23,7 +17,6 @@ impl Default for OagwConfig {
         Self {
             proxy_timeout_secs: default_proxy_timeout_secs(),
             max_body_size_bytes: default_max_body_size_bytes(),
-            credentials: HashMap::new(),
         }
     }
 }
@@ -38,8 +31,7 @@ fn default_max_body_size_bytes() -> usize {
 
 /// Read-only runtime configuration exposed to handlers via `AppState`.
 ///
-/// Derived from [`OagwConfig`] at init time, excluding sensitive fields
-/// like credentials that are only needed during bootstrap.
+/// Derived from [`OagwConfig`] at init time.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub max_body_size_bytes: usize,
@@ -58,14 +50,6 @@ impl fmt::Debug for OagwConfig {
         f.debug_struct("OagwConfig")
             .field("proxy_timeout_secs", &self.proxy_timeout_secs)
             .field("max_body_size_bytes", &self.max_body_size_bytes)
-            .field(
-                "credentials",
-                &self
-                    .credentials
-                    .keys()
-                    .map(|k| (k.as_str(), "[REDACTED]"))
-                    .collect::<Vec<_>>(),
-            )
             .finish()
     }
 }
@@ -75,18 +59,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_redacts_credentials() {
-        let mut config = OagwConfig::default();
-        config
-            .credentials
-            .insert("cred://openai-key".into(), "sk-secret-value-12345".into());
-
+    fn debug_shows_timeout_and_body_size() {
+        let config = OagwConfig::default();
         let debug_output = format!("{config:?}");
-        assert!(
-            !debug_output.contains("sk-secret-value-12345"),
-            "Debug output must not contain credential values"
-        );
-        assert!(debug_output.contains("cred://openai-key"));
-        assert!(debug_output.contains("[REDACTED]"));
+        assert!(debug_output.contains("proxy_timeout_secs"));
+        assert!(debug_output.contains("max_body_size_bytes"));
     }
 }

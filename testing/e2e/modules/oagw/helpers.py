@@ -1,6 +1,7 @@
 """Shared helpers for OAGW E2E tests."""
 import re
 import uuid
+from typing import Optional
 
 import httpx
 
@@ -126,7 +127,7 @@ async def create_upstream(
     base_url: str,
     headers: dict,
     mock_url: str,
-    alias: str | None = None,
+    alias: Optional[str] = None,
     **kwargs,
 ) -> dict:
     """Create an upstream via the Management API and return the response JSON.

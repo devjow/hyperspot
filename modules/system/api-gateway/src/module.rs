@@ -205,7 +205,7 @@ impl ApiGateway {
                 .build()?;
 
             tracing::warn!(
-                "API Gateway auth is DISABLED: all requests will run with default tenant SecurityCtx. \
+                "API Gateway auth is DISABLED: all requests will run with default tenant SecurityContext. \
                  This mode bypasses authentication and is intended ONLY for single-user on-premises deployments without an IdP. \
                  Permission checks and secure ORM still apply. DO NOT use this mode in multi-tenant or production environments."
             );
@@ -535,7 +535,6 @@ impl ApiGateway {
 #[async_trait]
 impl modkit::Module for ApiGateway {
     async fn init(&self, ctx: &modkit::context::ModuleCtx) -> anyhow::Result<()> {
-        debug!("Module initialized with context");
         let cfg = ctx.config::<crate::config::ApiGatewayConfig>()?;
         self.config.store(Arc::new(cfg.clone()));
 

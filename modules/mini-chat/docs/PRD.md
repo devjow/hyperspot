@@ -69,6 +69,8 @@ Current gaps: no native chat experience within the platform; no way to query upl
 **Role**: End user who creates chats, sends messages, uploads documents, and receives AI responses. Belongs to a tenant and is subject to that tenant's license and quota policies.
 **Needs**: Real-time conversational AI; ability to ask questions about uploaded documents; persistent chat history; clear feedback when quotas are exceeded.
 
+### 2.2 System Actors
+
 #### Cleanup Scheduler
 
 **ID**: `cpt-cf-mini-chat-actor-cleanup-scheduler`
@@ -85,7 +87,7 @@ This PRD uses **P1/P2** to describe phased scope. The `p1`/`p2` tags on requirem
 
 ### 4.1 In Scope
 
-- Chat CRUD (create, list, get, delete) API; chat detail returns metadata + message_count (no embedded messages)
+- Chat CRUD (create, list, get, update title, delete) API; chat detail returns metadata + message_count (no embedded messages)
 - Paginated message history via cursor-based pagination with OData v4 query support
 - Attachment status polling endpoint
 - Real-time streamed AI responses (SSE)
@@ -93,7 +95,7 @@ This PRD uses **P1/P2** to describe phased scope. The `p1`/`p2` tags on requirem
 - Document upload and document-aware question answering via file search
 - Document summary on upload
 - Thread summary compression for long conversations
-- Per-user token-based rate limits across multiple periods (daily, monthly) tracked in real-time; premium models have stricter limits, standard-tier models have separate, higher limits; two-tier downgrade cascade (premium → standard); when all tiers are exhausted, the system rejects with `quota_exceeded`
+- Per-user credit-based rate limits across multiple periods (daily, monthly) tracked in real-time; credits are computed from provider-reported tokens using model credit multipliers from the active policy snapshot; premium models have stricter limits, standard-tier models have separate, higher limits; two-tier downgrade cascade (premium → standard); when all tiers are exhausted, the system rejects with `quota_exceeded`
 - Model selection per chat at creation time (locked for conversation lifetime)
 - Binary like/dislike reactions on assistant messages (persisted, API-accessible)
 - File search call limits per message and per user/day
@@ -133,11 +135,7 @@ This PRD uses **P1/P2** to describe phased scope. The `p1`/`p2` tags on requirem
 
 ### 4.3 Deferred (P2+)
 
-#### Group Chats / Collaboration
-
-- [ ] `p2` - **ID**: `cpt-cf-mini-chat-fr-group-chats`
-
-Group chats and chat sharing (projects) are deferred to P2+ and are out of scope for P1.
+- Group chats and chat sharing (projects) are deferred to P2+ and are out of scope for P1 (see `cpt-cf-mini-chat-fr-group-chats`).
 
 ## 5. Functional Requirements
 
@@ -147,7 +145,7 @@ Group chats and chat sharing (projects) are deferred to P2+ and are out of scope
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-fr-chat-crud`
 
-The system MUST allow authenticated users to create, list, retrieve, and delete chats. Each chat belongs to exactly one user within one tenant. At creation, the user MAY specify a model from the model catalog; if omitted, the default is resolved via the `is_default` premium model algorithm (see `cpt-cf-mini-chat-fr-model-selection`). The selected model is locked for the chat lifetime (see `cpt-cf-mini-chat-constraint-model-locked-per-chat`). Chat content (messages, attachments, summaries, citations) MUST be accessible only to the owning user within their tenant. Listing returns chats for the current user ordered by most recent activity. Retrieval returns chat metadata (including selected model) and `message_count`; messages are NOT embedded in the chat detail response — the UI MUST call `GET /v1/chats/{id}/messages` to load conversation history with cursor pagination. Deletion soft-deletes the chat and triggers cleanup of associated external resources.
+The system MUST allow authenticated users to create, list, retrieve, update title, and delete chats. Each chat belongs to exactly one user within one tenant. At creation, the user MAY specify a model from the model catalog; if omitted, the default is resolved via the `is_default` premium model algorithm (see `cpt-cf-mini-chat-fr-model-selection`). The selected model is locked for the chat lifetime (see `cpt-cf-mini-chat-constraint-model-locked-per-chat`). Chat content (messages, attachments, summaries, citations) MUST be accessible only to the owning user within their tenant. Listing returns chats for the current user ordered by most recent activity. Retrieval returns chat metadata (including selected model) and `message_count`; messages are NOT embedded in the chat detail response — the UI MUST call `GET /v1/chats/{id}/messages` to load conversation history with cursor pagination. The user MAY rename a chat by updating its `title` via `PATCH /v1/chats/{id}`. Only `title` is updatable in P1; the endpoint MUST NOT modify `model`, `is_temporary`, or any other field. Updating the title sets `updated_at` to the current time; `message_count` is unaffected. The update does not touch messages or attachments. Deletion soft-deletes the chat and triggers cleanup of associated external resources.
 
 **Rationale**: Users need to manage their conversations - create new ones, resume existing ones, and remove ones they no longer need.
 **Actors**: `cpt-cf-mini-chat-actor-chat-user`
@@ -298,7 +296,11 @@ The system MUST reject upload requests that would exceed any per-chat limit with
 
 The system MUST compress older conversation history into a summary when the conversation exceeds defined thresholds (message count, token count, or turn count). Thread summary access MUST be limited to the owning user within their tenant. The summary MUST preserve key facts, decisions, names, and document references. Summarized messages are retained in storage but replaced by the summary in the LLM context.
 
-**Rationale**: Long conversations would exceed LLM context limits and increase costs without compression.
+**P1 scope — simple summarization**: The background worker calls the LLM with a summarization prompt and stores the result. If the provider call fails, the previous summary is kept and the message batch is not marked as compressed. No quality gate (length or entropy validation) is applied in P1.
+
+**P2+ scope — quality gate**: Length and entropy validation with automatic regeneration on obviously-bad summaries is deferred to P2+. See DESIGN.md `cpt-cf-mini-chat-seq-thread-summary` for the full P2+ specification.
+
+**Rationale**: Long conversations would exceed LLM context limits and increase costs without compression. The simple P1 variant prevents context window exhaustion while keeping implementation risk low.
 **Actors**: `cpt-cf-mini-chat-actor-chat-user`
 
 #### Temporary Chats (P2)
@@ -357,11 +359,13 @@ Reactions are persisted in backend storage (`message_reactions` table) and acces
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-fr-quota-enforcement`
 
-The system MUST enforce per-user token-based rate limits across multiple time periods (daily, monthly). Rate limits apply per user and track model usage in real-time per tier. Premium models have stricter limits; standard-tier models have separate, higher limits. Tracked metrics: input tokens, output tokens, file search calls, web search calls, per-tier model calls (premium, standard), image inputs, image upload bytes.
+The system MUST enforce per-user credit-based rate limits across multiple time periods (daily, monthly). Credits are computed from provider-reported token usage using the model credit multipliers from the active policy snapshot. Rate limits apply per user and track model usage in real-time per tier. Premium models have stricter limits; standard-tier models have separate, higher limits. Tracked metrics: input tokens, output tokens, credits, file search calls, web search calls, per-tier model calls (premium, standard), image inputs, image upload bytes.
 
 **Tier availability rule**: a tier is considered available only if it has remaining quota in **all** configured periods (daily, monthly) for that tier. If any single period is exhausted, the entire tier is treated as exhausted and the system MUST auto-downgrade to the next tier in the cascade (premium → standard). When all tier quotas are exhausted across all periods, the system MUST reject with `quota_exceeded` (HTTP 429).
 
 Quota counting MUST use two phases: Preflight (reserve) before the provider call, and commit actual usage after completion.
+
+The provider-reported token usage (`usage.input_tokens`, `usage.output_tokens`) is the source of truth; the system converts it to credits deterministically using the applied policy version.
 
 **Period reset rules**: Daily and monthly periods are calendar-based in UTC, resetting at midnight UTC (daily) and 1st-of-month midnight UTC (monthly). Additional periods (4-hourly, weekly) and per-tenant timezone configuration are deferred to P2+.
 
@@ -453,9 +457,8 @@ When a chat is deleted, the system MUST mark attachments for asynchronous cleanu
 
 **P1 scope**:
 
-- Mini Chat enforces token-based quotas (daily, monthly) and performs downgrade: premium → standard → reject (`quota_exceeded`).
-- Credits and pricing conversion are owned by CyberChatManager — not by Mini Chat.
-- Integration is asynchronous: Mini Chat emits a usage event (via EventManager) after each turn reaches a terminal state. CyberChatManager consumes events and updates credit balances.
+- Mini Chat enforces credit-based quotas (daily, monthly) and performs downgrade: premium → standard → reject (`quota_exceeded`).
+- Integration is asynchronous: Mini Chat enqueues a usage event in a transactional outbox after each turn reaches a terminal state. A background dispatcher publishes it via the selected `minichat-policy-plugin` plugin (`publish_usage(payload)`). CyberChatManager consumes these events and updates credit balances.
 - Usage events MUST be idempotent (keyed by `turn_id` / `request_id`).
 - No synchronous billing RPC is required during message execution.
 - All LLM invocations that take a quota reserve produce exactly one terminal billing event (completed, failed, or aborted), ensuring no credit drift under disconnect or crash scenarios. Pre-reserve failures (validation, authorization, quota preflight rejection) are not part of reserve settlement and do not require a billing event.
@@ -470,7 +473,47 @@ When a chat is deleted, the system MUST mark attachments for asynchronous cleanu
 - They MUST emit usage events attributed to a system bucket (or system actor) and MUST follow the same provider-id sanitization rules as user-initiated turns.
 - They MUST still obey global cost controls (tenant-level token budgets, kill switches) but are not part of per-user quota enforcement.
 
-**Deferred to P2+**: detailed billing integration contracts (event schemas, RPC interfaces, outbox requirements, credit proxy endpoints). See DESIGN.md section 5 for additional context.
+**P1 mandatory**: the transactional usage outbox (`modkit_outbox_events`), CAS-guarded finalization, and the orphan turn watchdog are P1 requirements — they are required for billing event completeness (see DESIGN.md sections 5.2–5.5 and [outbox-pattern.md](features/outbox-pattern.md)).
+
+**Deferred to P2+**: detailed billing integration contracts (formal event payload schemas, RPC interfaces, credit proxy endpoints). See DESIGN.md section 5.6 for the full deferral list.
+
+### 5.7 Collaboration (P2+)
+
+#### Group Chats
+
+- [ ] `p2` - **ID**: `cpt-cf-mini-chat-fr-group-chats`
+
+Group chats and chat sharing (projects) are deferred to P2+ and are out of scope for P1.
+
+**Rationale**: Collaborative chat scenarios require shared access control, presence awareness, and conflict resolution that add significant complexity beyond the P1 single-user model.
+**Actors**: `cpt-cf-mini-chat-actor-chat-user`
+
+### 5.8 UX Recovery Contract (P1)
+
+#### UX Recovery
+
+- [ ] `p1` - **ID**: `cpt-cf-mini-chat-fr-ux-recovery`
+
+The UI experience MUST be resilient to SSE disconnects and idempotency conflicts.
+
+##### Disconnect before terminal event
+
+- If the SSE stream disconnects before `done`/`error`, the UI MUST treat the send as indeterminate and MUST NOT auto-retry `POST /messages:stream` with the same `request_id`.
+- After disconnect, the UI MUST call `GET /v1/chats/{chat_id}/turns/{request_id}` to determine whether the turn completed.
+- The UI MUST show a user-visible banner with the exact text: `Connection lost. Message delivery is uncertain. You can resend.`
+- If the user chooses to resend, the UI MUST generate a new `request_id`.
+
+##### 409 Conflict (active generation)
+
+- On `409 Conflict` for `(chat_id, request_id)`, the UI MUST show a user-visible banner with the exact text: `A response is already in progress for this message. Please wait.`
+
+##### Completed replay (idempotent replay)
+
+- If the server replays a completed generation for an existing `(chat_id, request_id)`, the UI MUST render the response without duplicating the message in the timeline.
+- The UI MUST show a non-blocking banner with the exact text: `Recovered a previously completed response.`
+
+**Rationale**: Users need deterministic recovery paths after network interruptions to avoid duplicate messages, lost responses, or confusion about message delivery state.
+**Actors**: `cpt-cf-mini-chat-actor-chat-user`
 
 ## 6. Non-Functional Requirements
 
@@ -480,7 +523,7 @@ When a chat is deleted, the system MUST mark attachments for asynchronous cleanu
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-nfr-tenant-isolation`
 
-Tenant data MUST never be accessible to users from another tenant. All data queries, file operations, and vector store searches MUST be scoped by tenant. The API MUST NOT accept raw external resource identifiers (file IDs, vector store IDs) from clients.
+Tenant data MUST never be accessible to users from another tenant. All data queries, file operations, and vector store searches MUST be scoped by tenant. The API MUST NOT accept or return raw external resource identifiers (file IDs, vector store IDs, provider response IDs, or any other provider-scoped identifier) from or to clients. All client-visible identifiers MUST be internal UUIDs only (`chat_id`, `attachment_id`, `message_id`, `request_id`). Error messages returned to clients MUST NOT contain provider identifiers; provider error messages that include provider-scoped IDs MUST be sanitized before being returned.
 
 Parent tenant / MSP administrators MUST NOT have access to chat content. Admin visibility is limited to aggregated usage and operational metrics.
 
@@ -661,27 +704,15 @@ Prometheus labels MUST NOT include high-cardinality identifiers such as `tenant_
 - `mini_chat_time_to_abort_ms` p99 < 200 ms
 - Provider cleanup target completion within 1 hour under normal conditions (eventual with retry)
 
-### 6.3 UX Recovery Contract (P1)
+### 6.3 RAG Scalability (P1)
 
-- [ ] `p1` - **ID**: `cpt-cf-mini-chat-fr-ux-recovery`
+- [ ] `p1` - **ID**: `cpt-cf-mini-chat-nfr-rag-scalability`
 
-The UI experience MUST be resilient to SSE disconnects and idempotency conflicts.
+RAG retrieval costs and quality MUST remain bounded as document volume grows within a chat. The system MUST enforce per-chat document count, total file size, and indexed chunk limits (see `cpt-cf-mini-chat-fr-per-chat-doc-limits`). Retrieval parameters (top-k, max retrieved tokens per turn) MUST be configurable. Each chat with documents MUST use a dedicated per-chat vector store to ensure isolation and predictable retrieval latency.
 
-#### Disconnect before terminal event
-
-- If the SSE stream disconnects before `done`/`error`, the UI MUST treat the send as indeterminate and MUST NOT auto-retry `POST /messages:stream` with the same `request_id`.
-- After disconnect, the UI MUST call `GET /v1/chats/{chat_id}/turns/{request_id}` to determine whether the turn completed.
-- The UI MUST show a user-visible banner with the exact text: `Connection lost. Message delivery is uncertain. You can resend.`
-- If the user chooses to resend, the UI MUST generate a new `request_id`.
-
-#### 409 Conflict (active generation)
-
-- On `409 Conflict` for `(chat_id, request_id)`, the UI MUST show a user-visible banner with the exact text: `A response is already in progress for this message. Please wait.`
-
-#### Completed replay (idempotent replay)
-
-- If the server replays a completed generation for an existing `(chat_id, request_id)`, the UI MUST render the response without duplicating the message in the timeline.
-- The UI MUST show a non-blocking banner with the exact text: `Recovered a previously completed response.`
+**Threshold**: Per-chat limit enforcement with zero breaches; `mini_chat_file_search_latency_ms` p95 within configured threshold
+**Rationale**: Unbounded document ingestion degrades retrieval relevance and inflates per-turn costs via excessive chunk processing.
+**Architecture Allocation**: See DESIGN.md section 1.2 (NFR Allocation Matrix) and section on per-chat vector stores
 
 ### 6.4 Resilience and Recovery (P1)
 
@@ -763,12 +794,15 @@ Support and UX recovery flows MUST be able to query authoritative turn state bac
 
 **Ordering (P1)**: `ping* delta* tool* citations? (done | error)`. Zero or more `ping` events may appear at any point. `delta` and `tool` events may interleave in any order. At most one `citations` event, emitted after all `delta` events and before the terminal event. Exactly one terminal event (`done` or `error`) ends the stream. Broader interleaving (multiple `citations` events interleaved with content) is forward-compatible for P2+.
 
+**Stream close**: the server MUST close the SSE connection immediately after emitting the terminal event. No further events are permitted after the terminal `done` or `error`.
+
 **Error model (Option A)**: If the request fails validation, authorization, or quota preflight before streaming begins, the server MUST return a normal JSON error response with the appropriate HTTP status and MUST NOT open an SSE stream. If the stream has started, the server MUST report failure via a terminal `event: error`.
 
 **Error Codes**:
 
 | Code | HTTP Status | Description |
 |------|-------------|-------------|
+| `invalid_request` | 400 | Request body fails validation (e.g. missing required field, value out of range) |
 | `feature_not_licensed` | 403 | Tenant lacks `ai_chat` feature |
 | `insufficient_permissions` | 403 | Subject lacks permission for the requested action (AuthZ Resolver denied) |
 | `chat_not_found` | 404 | Chat does not exist or not accessible under current authorization constraints |
