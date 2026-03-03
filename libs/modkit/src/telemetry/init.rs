@@ -21,6 +21,7 @@ use opentelemetry_sdk::{
     trace::{Sampler, SdkTracerProvider},
 };
 
+use super::config::MetricsConfig;
 #[cfg(feature = "otel")]
 use super::config::TracingConfig;
 #[cfg(feature = "otel")]
@@ -32,7 +33,7 @@ use tonic::metadata::{MetadataKey, MetadataMap, MetadataValue};
 
 /// Build resource with service name and custom attributes
 #[cfg(feature = "otel")]
-fn build_resource(cfg: &TracingConfig) -> Resource {
+pub(crate) fn build_resource(cfg: &TracingConfig) -> Resource {
     let service_name = cfg.service_name.as_deref().unwrap_or("hyperspot");
     let mut attrs = vec![KeyValue::new("service.name", service_name.to_owned())];
 
@@ -102,7 +103,7 @@ fn build_http_exporter(
     if let Some(t) = timeout {
         b = b.with_timeout(t);
     }
-    if let Some(hmap) = build_headers_from_cfg_and_env(cfg) {
+    if let Some(hmap) = build_headers_from_cfg_and_env(cfg.exporter.as_ref()) {
         b = b.with_headers(hmap);
     }
     #[allow(clippy::expect_used)]
@@ -122,7 +123,7 @@ fn build_grpc_exporter(
     if let Some(t) = timeout {
         b = b.with_timeout(t);
     }
-    if let Some(md) = build_metadata_from_cfg_and_env(cfg) {
+    if let Some(md) = build_metadata_from_cfg_and_env(cfg.exporter.as_ref()) {
         b = b.with_metadata(md);
     }
     b.build().context("build OTLP gRPC exporter")
@@ -185,14 +186,14 @@ pub fn init_tracing(
 }
 
 #[cfg(feature = "otel")]
-fn build_headers_from_cfg_and_env(
-    cfg: &TracingConfig,
+pub(crate) fn build_headers_from_cfg_and_env(
+    exporter: Option<&crate::telemetry::config::Exporter>,
 ) -> Option<std::collections::HashMap<String, String>> {
     use std::collections::HashMap;
     let mut out: HashMap<String, String> = HashMap::new();
 
     // From config file
-    if let Some(exp) = &cfg.exporter
+    if let Some(exp) = exporter
         && let Some(hdrs) = &exp.headers
     {
         for (k, v) in hdrs {
@@ -213,8 +214,11 @@ fn build_headers_from_cfg_and_env(
 }
 
 #[cfg(feature = "otel")]
-fn extend_metadata_from_source<'a, I>(md: &mut MetadataMap, source: I, context: &'static str)
-where
+pub(crate) fn extend_metadata_from_source<'a, I>(
+    md: &mut MetadataMap,
+    source: I,
+    context: &'static str,
+) where
     I: Iterator<Item = (&'a str, &'a str)>,
 {
     for (k, v) in source {
@@ -235,11 +239,13 @@ where
 }
 
 #[cfg(feature = "otel")]
-fn build_metadata_from_cfg_and_env(cfg: &TracingConfig) -> Option<MetadataMap> {
+pub(crate) fn build_metadata_from_cfg_and_env(
+    exporter: Option<&crate::telemetry::config::Exporter>,
+) -> Option<MetadataMap> {
     let mut md = MetadataMap::new();
 
     // From config file
-    if let Some(exp) = &cfg.exporter
+    if let Some(exp) = exporter
         && let Some(hdrs) = &exp.headers
     {
         let iter = hdrs.iter().map(|(k, v)| (k.as_str(), v.as_str()));
@@ -286,6 +292,55 @@ pub fn shutdown_tracing() {
     tracing::info!("Tracing shutdown (no-op)");
 }
 
+/// Gracefully shut down OpenTelemetry metrics.
+/// In opentelemetry 0.31 there is no global `shutdown_meter_provider()`.
+/// Keep a handle to `SdkMeterProvider` in your app state and call `shutdown()`
+/// during graceful shutdown. This function remains a no-op for compatibility.
+#[cfg(feature = "otel")]
+pub fn shutdown_metrics() {
+    tracing::info!("Metrics shutdown: no-op (keep a provider handle to call `shutdown()`).");
+}
+
+#[cfg(not(feature = "otel"))]
+pub fn shutdown_metrics() {
+    tracing::info!("Metrics shutdown (no-op)");
+}
+
+// ===== init_metrics (feature = "otel") =========================================
+
+/// Initialize OpenTelemetry metrics by registering the given
+/// [`SdkMeterProvider`] as the global meter provider.
+///
+/// The provider is expected to be fully configured (exporter, views, resource,
+/// etc.) by the caller before being passed in — this function only makes it
+/// globally available.
+///
+/// # Errors
+/// Returns an error if [`MetricsConfig::enabled`] is `false`.
+#[cfg(feature = "otel")]
+#[allow(clippy::needless_pass_by_value)]
+pub fn init_metrics(
+    cfg: &MetricsConfig,
+    provider: opentelemetry_sdk::metrics::SdkMeterProvider,
+) -> anyhow::Result<()> {
+    if !cfg.enabled {
+        return Err(anyhow::anyhow!("metrics is disabled"));
+    }
+    global::set_meter_provider(provider);
+    tracing::info!("OpenTelemetry metrics initialized successfully");
+    Ok(())
+}
+
+/// Initialize OpenTelemetry metrics (no-op when otel feature is disabled).
+///
+/// # Errors
+/// This function always returns an error when the otel feature is disabled.
+#[cfg(not(feature = "otel"))]
+pub fn init_metrics(_cfg: &MetricsConfig, _provider: ()) -> anyhow::Result<()> {
+    tracing::info!("Metrics configuration provided but runtime feature is disabled");
+    Err(anyhow::anyhow!("otel feature is disabled"))
+}
+
 // ===== connectivity probe =====================================================
 
 /// Build a tiny, separate OTLP pipeline and export a single span to verify connectivity.
@@ -325,7 +380,7 @@ pub fn otel_connectivity_probe(cfg: &super::config::TracingConfig) -> anyhow::Re
             .with_http()
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(endpoint);
-        if let Some(h) = build_headers_from_cfg_and_env(cfg) {
+        if let Some(h) = build_headers_from_cfg_and_env(cfg.exporter.as_ref()) {
             b = b.with_headers(h);
         }
         b.build()
@@ -334,7 +389,7 @@ pub fn otel_connectivity_probe(cfg: &super::config::TracingConfig) -> anyhow::Re
         let mut b = opentelemetry_otlp::SpanExporter::builder()
             .with_tonic()
             .with_endpoint(endpoint);
-        if let Some(md) = build_metadata_from_cfg_and_env(cfg) {
+        if let Some(md) = build_metadata_from_cfg_and_env(cfg.exporter.as_ref()) {
             b = b.with_metadata(md);
         }
         b.build()
@@ -532,7 +587,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_headers_from_cfg_and_env(&cfg);
+        let result = build_headers_from_cfg_and_env(cfg.exporter.as_ref());
         // Should be None if no headers configured and no env var
         // (unless OTEL_EXPORTER_OTLP_HEADERS is set, which we can't control in tests)
         assert!(result.is_none() || result.is_some());
@@ -555,7 +610,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_headers_from_cfg_and_env(&cfg);
+        let result = build_headers_from_cfg_and_env(cfg.exporter.as_ref());
         assert!(result.is_some());
         let result_headers = result.unwrap();
         assert_eq!(
@@ -572,7 +627,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_metadata_from_cfg_and_env(&cfg);
+        let result = build_metadata_from_cfg_and_env(cfg.exporter.as_ref());
         // Should be None if no headers configured and no env var
         assert!(result.is_none() || result.is_some());
     }
@@ -594,7 +649,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_metadata_from_cfg_and_env(&cfg);
+        let result = build_metadata_from_cfg_and_env(cfg.exporter.as_ref());
         assert!(result.is_some());
         let metadata = result.unwrap();
         assert!(!metadata.is_empty());
@@ -618,7 +673,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_metadata_from_cfg_and_env(&cfg);
+        let result = build_metadata_from_cfg_and_env(cfg.exporter.as_ref());
         assert!(result.is_some());
         let metadata = result.unwrap();
         assert_eq!(metadata.len(), 2);
@@ -642,7 +697,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_metadata_from_cfg_and_env(&cfg);
+        let result = build_metadata_from_cfg_and_env(cfg.exporter.as_ref());
         assert!(result.is_some());
         let metadata = result.unwrap();
         // Should only have the valid header
@@ -653,5 +708,34 @@ mod tests {
     fn test_shutdown_tracing_does_not_panic() {
         // Should not panic regardless of feature state
         shutdown_tracing();
+    }
+
+    #[test]
+    #[cfg(feature = "otel")]
+    fn test_init_metrics_disabled() {
+        use crate::telemetry::config::MetricsConfig;
+        let cfg = MetricsConfig {
+            enabled: false,
+            exporter: None,
+            ..Default::default()
+        };
+        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder().build();
+        let result = init_metrics(&cfg, provider);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("disabled"));
+    }
+
+    #[test]
+    #[cfg(feature = "otel")]
+    fn test_init_metrics_enabled() {
+        use crate::telemetry::config::MetricsConfig;
+        let cfg = MetricsConfig {
+            enabled: true,
+            exporter: None,
+            ..Default::default()
+        };
+        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder().build();
+        let result = init_metrics(&cfg, provider);
+        assert!(result.is_ok());
     }
 }

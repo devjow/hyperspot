@@ -90,6 +90,14 @@ async fn main() -> Result<()> {
     // Register custom panic hook to reroute panic backtrace into tracing.
     init_panic_tracing();
 
+    // Initialize OpenTelemetry metrics (if configured and enabled)
+    #[cfg(feature = "otel")]
+    if config.tracing.metrics.enabled
+        && let Err(e) = modkit::bootstrap::host::init_metrics_provider(&config.tracing)
+    {
+        tracing::error!(error = %e, "OpenTelemetry metrics not initialized");
+    }
+
     // One-time connectivity probe
     #[cfg(feature = "otel")]
     if config.tracing.enabled
