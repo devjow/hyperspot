@@ -506,7 +506,6 @@ mod tests {
         let client = modkit_http::HttpClient::builder()
             .timeout(Duration::from_secs(5))
             .retry(None)
-            .allow_insecure_http()
             .build()
             .expect("failed to create test HTTP client");
 

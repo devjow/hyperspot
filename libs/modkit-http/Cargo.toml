@@ -21,9 +21,6 @@ workspace = true
 default = []
 # OpenTelemetry integration for distributed tracing
 otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
-# Allow insecure HTTP in release builds (for integration testing only)
-# By default, allow_insecure_http() is only available in debug builds
-allow-insecure-http = []
 
 [dependencies]
 # Core dependencies
