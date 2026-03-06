@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, time::Duration};
+use std::{fmt, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,11 +12,6 @@ pub struct OagwConfig {
     pub max_body_size_bytes: usize,
     #[serde(default)]
     pub allow_http_upstream: bool,
-    /// Optional credentials to pre-load into the in-memory credential resolver.
-    /// Keys are secret references (e.g., `cred://openai-key`), values are secrets.
-    /// Intended for development and testing only.
-    #[serde(default)]
-    pub credentials: HashMap<String, String>,
     /// TTL in seconds for cached OAuth2 access tokens.
     /// Default: 300 (5 minutes). Kept short because there is currently no
     /// cache-invalidation mechanism — a revoked or rotated token remains
@@ -35,7 +30,6 @@ impl Default for OagwConfig {
             proxy_timeout_secs: default_proxy_timeout_secs(),
             max_body_size_bytes: default_max_body_size_bytes(),
             allow_http_upstream: false,
-            credentials: HashMap::new(),
             token_cache_ttl_secs: default_token_cache_ttl_secs(),
             token_cache_capacity: default_token_cache_capacity(),
         }

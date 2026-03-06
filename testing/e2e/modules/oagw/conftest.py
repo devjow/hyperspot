@@ -28,7 +28,7 @@ def mock_upstream_url():
 @pytest.fixture
 def tenant_id():
     """Fixed tenant UUID for test isolation."""
-    return "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    return "00000000-df51-5b42-9538-d2b56b7ee953"
 
 
 @pytest.fixture

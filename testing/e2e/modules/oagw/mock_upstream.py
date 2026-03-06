@@ -261,7 +261,7 @@ class MockUpstreamServer:
                     writer.close()
                 except RuntimeError:
                     # Event loop may already be closing/shutdown.
-                    return
+                    pass
                 try:
                     await writer.wait_closed()
                 except (ConnectionError, RuntimeError):
