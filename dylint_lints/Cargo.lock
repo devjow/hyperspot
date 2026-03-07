@@ -946,6 +946,69 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
+name = "de0101_no_serde_in_contract"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+ "lint_utils",
+ "serde",
+]
+
+[[package]]
+name = "de0102_no_toschema_in_contract"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+ "lint_utils",
+ "utoipa",
+]
+
+[[package]]
+name = "de0103_no_http_types_in_contract"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+ "http",
+ "lint_utils",
+]
+
+[[package]]
+name = "de0104_no_api_dto_in_contract"
+version = "0.1.0"
+dependencies = [
+ "cf-modkit",
+ "cf-modkit-macros",
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+ "lint_utils",
+ "serde",
+ "utoipa",
+]
+
+[[package]]
+name = "de0110_no_schema_for_on_gts_structs"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+ "gts",
+ "gts-macros",
+ "lint_utils",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "de0201_dtos_only_in_api_rest"
 version = "0.1.0"
 dependencies = [
