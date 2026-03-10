@@ -9,6 +9,30 @@ release-plz updates this file in the Release PR.
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-credstore-plugin-v0.1.4...cf-static-credstore-plugin-v0.1.5) - 2026-03-10
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-macros, cf-modkit, cf-credstore-sdk
+
+## [0.1.7](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-authz-plugin-v0.1.6...cf-static-authz-plugin-v0.1.7) - 2026-03-10
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-macros, cf-modkit, cf-authz-resolver-sdk
+
+## [0.1.7](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-authn-plugin-v0.1.6...cf-static-authn-plugin-v0.1.7) - 2026-03-10
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-macros, cf-modkit, cf-authn-resolver-sdk
+
+## [0.1.9](https://github.com/cyberfabric/cyberfabric-core/compare/cf-single-tenant-tr-plugin-v0.1.8...cf-single-tenant-tr-plugin-v0.1.9) - 2026-03-10
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-odata, cf-modkit-macros, cf-modkit, cf-tenant-resolver-sdk
+
 ## [0.1.8](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-tr-plugin-v0.1.7...cf-static-tr-plugin-v0.1.8) - 2026-03-10
 
 ### Other
