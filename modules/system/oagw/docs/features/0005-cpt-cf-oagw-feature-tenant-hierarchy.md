@@ -63,7 +63,7 @@ Enables partner/customer hierarchies where partners share upstream access with c
 4. [ ] - `p2` - **IF** any sharing mode is invalid - `inst-share-4`
    1. [ ] - `p2` - **RETURN** 400 ValidationError with invalid field details - `inst-share-4a`
 5. [ ] - `p2` - Validate upstream fields per `cpt-cf-oagw-algo-domain-entity-validation` - `inst-share-5`
-6. [ ] - `p2` - DB: INSERT oagw_upstream with sharing mode columns (auth_sharing, rate_limit_sharing, plugins_sharing, tags_sharing, cors_sharing) - `inst-share-6`
+6. [ ] - `p2` - DB: INSERT oagw_upstream with sharing mode columns (auth_sharing, rate_limit_sharing, plugins_sharing, cors_sharing) - `inst-share-6`
 7. [ ] - `p2` - **IF** `(tenant_id, alias)` uniqueness constraint fails - `inst-share-7`
    1. [ ] - `p2` - **RETURN** 409 Conflict with alias collision details - `inst-share-7a`
 8. [ ] - `p2` - **RETURN** created upstream with sharing configuration - `inst-share-8`
@@ -188,7 +188,7 @@ Enables partner/customer hierarchies where partners share upstream access with c
       1. [ ] - `p2` - Merge auth: **IF** `auth_sharing == private`, skip; **IF** field is absent on current level, inherit from previous level; **IF** `auth_sharing: inherit` and descendant has override, use descendant auth; **IF** `auth_sharing: enforce`, use ancestor auth - `inst-merge-3a1`
       2. [ ] - `p2` - Merge rate_limit: **IF** `rate_limit_sharing == private`, skip; **IF** field is absent, inherit from previous level (no limit = unbounded); **IF** present, `effective = min(ancestor_enforced, current_effective)` — stricter always wins - `inst-merge-3a2`
       3. [ ] - `p2` - Merge plugins: **IF** `plugins_sharing == private`, skip; **IF** field is absent, inherit ancestor plugins; **IF** present, concatenate `ancestor.plugins + descendant.plugins`; enforced plugins cannot be removed - `inst-merge-3a3`
-      4. [ ] - `p2` - Merge tags: **IF** `tags_sharing == private`, skip; `effective_tags = union(ancestor_tags, descendant_tags)` — add-only semantics; absent tags treated as empty set - `inst-merge-3a4`
+      4. [ ] - `p2` - Merge tags: `effective_tags = union(ancestor_tags, descendant_tags)` — always add-only semantics; absent tags treated as empty set - `inst-merge-3a4`
       5. [ ] - `p2` - Merge CORS: **IF** `cors_sharing == private`, skip; **IF** field is absent, inherit from previous level; **IF** `cors_sharing: inherit`, union origins; **IF** `cors_sharing: enforce`, use ancestor CORS - `inst-merge-3a5`
 4. [ ] - `p2` - **RETURN** effective configuration with all three layers merged - `inst-merge-4`
 
@@ -206,7 +206,7 @@ Enables partner/customer hierarchies where partners share upstream access with c
 1. [ ] - `p2` - Obtain ancestor chain for requesting tenant (ordered: self → parent → ... → root) - `inst-shadow-1`
 2. [ ] - `p2` - **FOR EACH** tenant_id in chain (self first) - `inst-shadow-2`
    1. [ ] - `p2` - DB: SELECT from oagw_upstream WHERE tenant_id = :current AND alias = :alias - `inst-shadow-2a`
-   2. [ ] - `p2` - **IF** upstream found AND (tenant_id == requesting_tenant OR any per-field sharing flag — `auth.sharing`, `rate_limit.sharing`, `plugins.sharing`, `tags.sharing`, `cors.sharing` — is != `private`) - `inst-shadow-2b`
+   2. [ ] - `p2` - **IF** upstream found AND (tenant_id == requesting_tenant OR any per-field sharing flag — `auth_sharing`, `rate_limit_sharing`, `plugins_sharing`, `cors_sharing` — is != `private`) - `inst-shadow-2b`
       1. [ ] - `p2` - **IF** upstream is enabled - `inst-shadow-2b1`
          1. [ ] - `p2` - **RETURN** found upstream as selected match - `inst-shadow-2b1a`
       2. [ ] - `p2` - **ELSE** (upstream disabled) - `inst-shadow-2b2`
@@ -231,7 +231,7 @@ Enables partner/customer hierarchies where partners share upstream access with c
 3. [ ] - `p2` - **IF** required permission is `oagw:upstream:override_auth` - `inst-perm-3`
    1. [ ] - `p2` - Check token has `oagw:upstream:override_auth` AND ancestor auth sharing is `inherit` - `inst-perm-3a`
 4. [ ] - `p2` - **IF** required permission is `oagw:upstream:override_rate` - `inst-perm-4`
-   1. [ ] - `p2` - Check token has `oagw:upstream:override_rate` AND ancestor rate_limit sharing is `inherit` - `inst-perm-4a`
+   1. [ ] - `p2` - Check token has `oagw:upstream:override_rate` AND ancestor rate_limit_sharing is `inherit` - `inst-perm-4a`
 5. [ ] - `p2` - **IF** required permission is `oagw:upstream:add_plugins` - `inst-perm-5`
    1. [ ] - `p2` - Check token has `oagw:upstream:add_plugins` AND ancestor plugins sharing is `inherit` - `inst-perm-5a`
 6. [ ] - `p2` - **IF** permission check fails - `inst-perm-6`
@@ -248,7 +248,7 @@ Enables partner/customer hierarchies where partners share upstream access with c
 
 **Steps**:
 1. [ ] - `p2` - **IF** descendant has configured rate_limit, start with descendant's rate as candidate; **ELSE** set candidate to unbounded (no limit) - `inst-rate-1`
-2. [ ] - `p2` - **FOR EACH** ancestor with `rate_limit.sharing: enforce` - `inst-rate-2`
+2. [ ] - `p2` - **FOR EACH** ancestor with `rate_limit_sharing: enforce` - `inst-rate-2`
    1. [ ] - `p2` - `candidate = min(candidate, ancestor.rate_limit.rate)` — enforced ancestor always constrains, even if descendant is unbounded - `inst-rate-2a`
 3. [ ] - `p2` - **IF** route-level rate_limit is defined - `inst-rate-3`
    1. [ ] - `p2` - `candidate = min(candidate, route.rate_limit.rate)` - `inst-rate-3a`
@@ -264,7 +264,7 @@ Not applicable — sharing modes (`private`, `inherit`, `enforce`) are static co
 
 - [ ] `p2` - **ID**: `cpt-cf-oagw-dod-tenant-sharing-modes`
 
-The system **MUST** support `private`, `inherit`, and `enforce` sharing modes on upstream and route configuration fields (auth, rate_limit, plugins, tags, CORS). The default sharing mode **MUST** be `private`. Sharing modes **MUST** be stored as columns on `oagw_upstream` and `oagw_route` and validated during create/update operations. Route-level sharing follows the same semantics as upstream-level sharing and participates in the 3-layer merge per `cpt-cf-oagw-fr-config-layering`.
+The system **MUST** support `private`, `inherit`, and `enforce` sharing modes on upstream and route configuration fields (auth, rate_limit, plugins, CORS). Tags do not have a sharing mode — they always use add-only union semantics across the hierarchy. The default sharing mode **MUST** be `private`. Sharing modes **MUST** be stored as columns on `oagw_upstream` and `oagw_route` and validated during create/update operations. Route-level sharing follows the same semantics as upstream-level sharing and participates in the 3-layer merge per `cpt-cf-oagw-fr-config-layering`.
 
 **Implements**:
 - `cpt-cf-oagw-flow-tenant-share-upstream`

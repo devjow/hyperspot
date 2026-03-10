@@ -1,6 +1,6 @@
 CI := 1
 
-OPENAPI_URL ?= http://127.0.0.1:8087/openapi.json
+OPENAPI_URL ?= http://127.0.0.1:8087/cf/openapi.json
 OPENAPI_OUT ?= docs/api/api.json
 
 # E2E feature set (single source of truth: config/e2e-features.txt)
@@ -296,15 +296,16 @@ test-macros:
 
 ## Run SQLite integration tests
 test-sqlite:
-	cargo test -p cf-modkit-db --features sqlite,integration
+	cargo test -p cf-modkit-db --features sqlite,integration,preview-outbox
+	cargo build -p cf-modkit-db --examples --features sqlite,preview-outbox
 
 ## Run PostgreSQL integration tests
 test-pg:
-	cargo test -p cf-modkit-db --features pg,integration
+	cargo test -p cf-modkit-db --features pg,integration,preview-outbox
 
 ## Run MySQL integration tests
 test-mysql:
-	cargo test -p cf-modkit-db --features mysql,integration
+	cargo test -p cf-modkit-db --features mysql,integration,preview-outbox
 
 # Run all database integration tests
 test-db: test-sqlite test-pg test-mysql
@@ -415,7 +416,7 @@ fuzz-corpus: fuzz-install
 
 # -------- Main targets --------
 
-.PHONY: all check ci build quickstart example
+.PHONY: all check ci build quickstart example mini-chat
 
 # Start server with quickstart config
 quickstart:
@@ -425,6 +426,10 @@ quickstart:
 ## Run server with example module
 example:
 	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml run
+
+## Run server with mini-chat module
+mini-chat:
+	cargo run --bin hyperspot-server --features mini-chat,static-authn,static-authz,single-tenant,static-credstore -- --config config/mini-chat.yaml run
 
 oop-example:
 	cargo build -p calculator --features oop_module

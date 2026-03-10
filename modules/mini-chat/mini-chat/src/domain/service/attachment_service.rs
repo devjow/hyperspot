@@ -9,19 +9,19 @@ use super::DbProvider;
 
 /// Service handling file attachment operations.
 #[domain_model]
-pub struct AttachmentService {
+pub struct AttachmentService<CR: ChatRepository> {
     _db: Arc<DbProvider>,
     _attachment_repo: Arc<dyn AttachmentRepository>,
-    _chat_repo: Arc<dyn ChatRepository>,
+    _chat_repo: Arc<CR>,
     _vector_store_repo: Arc<dyn VectorStoreRepository>,
     _enforcer: PolicyEnforcer,
 }
 
-impl AttachmentService {
+impl<CR: ChatRepository> AttachmentService<CR> {
     pub(crate) fn new(
         db: Arc<DbProvider>,
         attachment_repo: Arc<dyn AttachmentRepository>,
-        chat_repo: Arc<dyn ChatRepository>,
+        chat_repo: Arc<CR>,
         vector_store_repo: Arc<dyn VectorStoreRepository>,
         enforcer: PolicyEnforcer,
     ) -> Self {

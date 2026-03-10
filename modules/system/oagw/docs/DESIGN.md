@@ -49,7 +49,7 @@ This design satisfies the requirements for centralized outbound traffic manageme
 |---|---|---|
 | **Transport** (`api/rest/`) | HTTP handling, request parsing, response serialization | Axum handlers, DTOs, extractors, OperationBuilder route registration |
 | **Domain** (`domain/`) | Business logic, service traits, repository contracts | `ControlPlaneService`, `DataPlaneService`, `AuthPlugin` trait, domain models |
-| **Infrastructure** (`infra/`) | External integrations, persistence, HTTP client | SeaORM repositories, reqwest HTTP client, plugin registry, type provisioning |
+| **Infrastructure** (`infra/`) | External integrations, persistence, proxy engine | SeaORM repositories, Pingora proxy bridge, plugin registry, type provisioning |
 | **SDK** (`oagw-sdk/`) | Public API for inter-module communication | `ServiceGatewayClientV1` trait, SDK models, error types |
 
 The module follows DDD-Light layering: domain layer has no infrastructure dependencies; infrastructure implements domain traits; transport layer maps between HTTP and domain types.
@@ -60,7 +60,7 @@ The module follows DDD-Light layering: domain layer has no infrastructure depend
 |---|---|
 | Rust / Axum | HTTP transport, async runtime |
 | SeaORM + `modkit-db` | Database persistence (PostgreSQL, MySQL, SQLite) |
-| reqwest | Outbound HTTP client (connection pooling, HTTP/2) |
+| Pingora | Reverse-proxy engine (connection pooling, HTTP/2, load balancing) |
 | Starlark | Custom plugin sandboxed execution |
 | `modkit-auth` | Bearer token authentication & authorization |
 | `cred_store` | Secret material retrieval by URI reference |
@@ -319,7 +319,7 @@ modules/system/oagw/
         │   ├── repo.rs    # Repository traits (UpstreamRepository, RouteRepository)
         │   └── error.rs   # DomainError
         └── infra/         # Infrastructure implementations
-            ├── proxy/     # DataPlaneServiceImpl (reqwest HTTP client)
+            ├── proxy/     # DataPlaneServiceImpl (Pingora in-memory bridge)
             ├── storage/   # Repository impls (SeaORM-based)
             ├── plugin/    # AuthPluginRegistry + built-in plugins (ApiKey, NoOp)
             └── type_provisioning.rs  # GTS type registration
@@ -369,8 +369,9 @@ Multi-tenant hierarchy with sharing modes (`private`/`inherit`/`enforce`) per co
 | Auth | Override if `inherit`; forced if `enforce` |
 | Rate Limits | `min(ancestor, descendant)` — stricter always wins |
 | Plugins | Concatenate: `ancestor.plugins + descendant.plugins` |
-| Tags | Union (add-only); descendants cannot remove inherited tags |
 | CORS | Union origins if `inherit`; forced if `enforce` |
+
+Tags do not have a sharing mode — they always use add-only union semantics: `effective_tags = union(ancestor_tags, descendant_tags)`. Descendants cannot remove inherited tags.
 
 Alias resolution walks tenant hierarchy from descendant to root; closest match wins (shadowing). Enforced ancestor constraints are never bypassed by shadowing.
 
@@ -676,7 +677,7 @@ Header may be stripped by intermediaries. For critical error handling, clients s
 | `api_ingress` | Internal | REST API hosting |
 | `modkit-db` | Internal | Database persistence (SeaORM, multi-backend) |
 | `modkit-auth` | Internal | Authentication & authorization |
-| `reqwest` | External | Outbound HTTP client |
+| `pingora` | External | Reverse-proxy engine (connection pooling, load balancing) |
 
 ### 3.5 Interactions & Sequences
 

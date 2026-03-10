@@ -294,9 +294,10 @@ Override rules:
 - **Auth**: With `sharing: inherit`, descendant with permission can use own credentials
 - **Rate limits**: Descendant can only be stricter: `effective = min(ancestor.enforced, descendant)`
 - **Plugins**: Descendant's plugins append; enforced plugins cannot be removed
-- **Tags (discovery metadata)**: Merged top-to-bottom with add-only semantics:
-  `effective_tags = union(ancestor_tags..., descendant_tags)`. Descendants can add tags but cannot remove inherited tags.
-  If upstream creation resolves to an existing upstream definition (binding-style flow), request tags are treated as tenant-local additions for effective discovery; they do not mutate ancestor tags.
+
+Tags do not have a sharing mode — they always use add-only union semantics:
+`effective_tags = union(ancestor_tags..., descendant_tags)`. Descendants can add tags but cannot remove inherited tags.
+If upstream creation resolves to an existing upstream definition (binding-style flow), request tags are treated as tenant-local additions for effective discovery; they do not mutate ancestor tags.
 
 **Example — Hierarchical Override**:
 

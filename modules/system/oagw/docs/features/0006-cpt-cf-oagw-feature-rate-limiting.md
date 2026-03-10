@@ -323,7 +323,7 @@ The system **MUST** compute effective rate limits by walking the tenant hierarch
 - `cpt-cf-oagw-flow-configure-rate-limits`
 
 **Touches**:
-- Entities: `Upstream` (rate_limit.sharing, rate_limit.budget)
+- Entities: `Upstream` (rate_limit_sharing, rate_limit.budget)
 
 ### Implement Circuit Breaker State Machine
 

@@ -5,7 +5,7 @@ use axum::extract::Path;
 use modkit::api::prelude::*;
 use modkit_security::SecurityContext;
 
-use crate::domain::service::AppServices;
+use crate::module::AppServices;
 
 use super::not_implemented;
 

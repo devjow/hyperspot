@@ -300,7 +300,7 @@ Tenant: sub-tenant
 2. Find Upstream B in sub-tenant (closest) → use this upstream
 3. Collect enforced configs from ancestors with same alias:
    - Root has Upstream A with alias "api.openai.com" 
-   - Root's rate_limit.sharing = "enforce" → collect
+   - Root's rate_limit_sharing = "enforce" → collect
 4. Merge: effective_rate = min(root.enforced:10000, sub:500) = 500
 5. Find tenant binding, apply merged config
 6. Forward request to Upstream B's server
@@ -324,12 +324,13 @@ Tenant: sub-tenant
 
 ### Configuration Sharing Modes
 
-Each binding field specifies sharing mode (`private`/`inherit`/`enforce`):
+Each binding field (except tags) specifies sharing mode (`private`/`inherit`/`enforce`):
 
 - **Auth**: Each tenant specifies own credentials via `cred_store` secret references
 - **Rate limits**: Merged with `min(parent, child)` — stricter always wins
 - **Plugins**: Concatenated (parent + child); enforced plugins cannot be removed
-- **Tags**: Union (add-only); descendants can add but not remove inherited tags
+
+Tags do not have a sharing mode — they always use add-only union semantics: `effective_tags = union(ancestor_tags, descendant_tags)`. Descendants can add but not remove inherited tags.
 
 ### Schema Changes
 

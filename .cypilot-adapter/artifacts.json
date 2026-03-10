@@ -112,7 +112,15 @@
       "name": "cyberfabric",
       "slug": "cf",
       "kit": "cf-sdlc",
-      "artifacts": [],
+      "artifacts": [
+        { "path": "docs/arch/errors/PRD.md", "kind": "PRD", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/DESIGN.md", "kind": "DESIGN", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/DECOMPOSITION.md", "kind": "DECOMPOSITION", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/ADR/0001-cpt-cf-adr-canonical-error-categories.md", "kind": "ADR", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/ADR/0002-cpt-cf-adr-gts-error-identification.md", "kind": "ADR", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/ADR/0003-cpt-cf-adr-rfc9457-wire-format.md", "kind": "ADR", "traceability": "DOCS-ONLY" },
+        { "path": "docs/arch/errors/ADR/0004-cpt-cf-adr-typed-enum-impl.md", "kind": "ADR", "traceability": "DOCS-ONLY" }
+      ],
       "artifacts_dir": "docs",
       "codebase": [
         { "name": "Apps", "path": "apps", "extensions": [".rs"] },

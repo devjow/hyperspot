@@ -222,28 +222,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "aws-lc-rs"
-version = "1.15.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b7b6141e96a8c160799cc2d5adecd5cbbe5054cb8c7c4af53da0f83bb7ad256"
-dependencies = [
- "aws-lc-sys",
- "zeroize",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b092fe214090261288111db7a2b2c2118e5a7f30dc2569f1732c4069a6840549"
-dependencies = [
- "cc",
- "cmake",
- "dunce",
- "fs_extra",
-]
-
-[[package]]
 name = "axum"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -549,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -594,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -614,7 +592,6 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
- "sqlx",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -626,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db-macros"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -637,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "axum 0.8.8",
  "http",
@@ -648,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors-macro"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -659,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-macros"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -670,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "base64",
  "bigdecimal",
@@ -689,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-sdk"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "cf-modkit-odata",
  "cf-modkit-security",
@@ -699,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-security"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "postcard",
@@ -711,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-utils"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "humantime",
  "serde",
@@ -720,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdk-directory"
-version = "0.1.15"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -728,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdks"
-version = "0.1.15"
+version = "0.1.18"
 dependencies = [
  "cf-system-sdk-directory",
 ]
@@ -790,15 +767,6 @@ dependencies = [
  "itertools 0.12.1",
  "rustc_apfloat",
  "serde",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1299,12 +1267,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "dunce"
-version = "1.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
 name = "dylint"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1608,12 +1570,6 @@ dependencies = [
  "lazy_static",
  "num",
 ]
-
-[[package]]
-name = "fs_extra"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "funty"
@@ -3496,20 +3452,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ring"
-version = "0.17.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
-dependencies = [
- "cc",
- "cfg-if",
- "getrandom 0.2.17",
- "libc",
- "untrusted",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "rkyv"
 version = "0.7.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3616,42 +3558,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls"
-version = "0.23.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c665f33d38cea657d9614f766881e4d510e0eda4239891eea56b4cadcf01801b"
-dependencies = [
- "aws-lc-rs",
- "once_cell",
- "ring",
- "rustls-pki-types",
- "rustls-webpki",
- "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "rustls-pki-types"
-version = "1.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be040f8b0a225e40375822a563fa9524378b9d63112f53e19ffff34df5d33fdd"
-dependencies = [
- "zeroize",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.103.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
-dependencies = [
- "aws-lc-rs",
- "ring",
- "rustls-pki-types",
- "untrusted",
 ]
 
 [[package]]
@@ -4199,7 +4105,6 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "rust_decimal",
- "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -4211,7 +4116,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -4972,12 +4876,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
-name = "untrusted"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5238,24 +5136,6 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.6",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

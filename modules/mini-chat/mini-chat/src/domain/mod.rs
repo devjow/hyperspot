@@ -3,5 +3,9 @@
 #![allow(unknown_lints)]
 #![allow(de0301_no_infra_in_domain)]
 
+pub mod error;
+pub mod model;
+pub mod models;
 pub mod repos;
 pub mod service;
+pub mod stream_events;

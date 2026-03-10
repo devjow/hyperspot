@@ -163,19 +163,20 @@ Notes:
 | `alias` | TEXT | No | Unique per tenant |
 | `protocol` | TEXT | No | GTS protocol identifier |
 | `enabled` | BOOL | No | |
-| `auth_sharing` | TEXT | No | `private\|inherit\|enforce` |
-| `rate_limit_sharing` | TEXT | No | `private\|inherit\|enforce` |
-| `plugins_sharing` | TEXT | No | `private\|inherit\|enforce` |
 | `schema_version` | INT | No | JSON schema version for JSON text columns in this table |
 | `server` | JSON text | No | Endpoints + protocol config |
 | `auth_plugin_ref` | TEXT | Yes | Canonical plugin identifier |
 | `auth_plugin_uuid` | UUID | Yes | Parsed UUID when custom |
 | `auth_config` | JSON text | Yes | Config only (no plugin id) |
+| `auth_sharing` | TEXT | No | `private\|inherit\|enforce` |
 | `headers` | JSON text | Yes | |
 | `cors` | JSON text | Yes | |
+| `cors_sharing` | TEXT | No | `private\|inherit\|enforce` |
 | `rate_limit` | JSON text | Yes | |
+| `rate_limit_sharing` | TEXT | No | `private\|inherit\|enforce` |
 | `created_at` | TIMESTAMP | No | |
 | `updated_at` | TIMESTAMP | No | |
+| `plugins_sharing` | TEXT | No | `private\|inherit\|enforce` |
 
 Constraints / indexes:
 
