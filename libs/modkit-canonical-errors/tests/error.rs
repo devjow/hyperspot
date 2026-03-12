@@ -1,11 +1,10 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::{CanonicalError, Problem, resource_error};
+use cf_modkit_errors::{CanonicalError, Problem};
 
 #[test]
 fn not_found_gts_type() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -17,8 +16,7 @@ fn not_found_gts_type() {
 
 #[test]
 fn not_found_status_code() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -27,8 +25,7 @@ fn not_found_status_code() {
 
 #[test]
 fn not_found_title() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -37,8 +34,7 @@ fn not_found_title() {
 
 #[test]
 fn display_includes_category_and_detail() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("User not found")
         .with_resource("user-123")
         .create();
@@ -47,8 +43,7 @@ fn display_includes_category_and_detail() {
 
 #[test]
 fn with_detail_overrides_default() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("custom detail")
         .with_resource("user-123")
         .create();
@@ -57,8 +52,7 @@ fn with_detail_overrides_default() {
 
 #[test]
 fn all_16_categories_convert_to_problem() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
 
     let errors: Vec<CanonicalError> = vec![
         R::cancelled().create(),
@@ -111,8 +105,7 @@ fn all_16_categories_convert_to_problem() {
 
 #[test]
 fn validate_all_gts_ids() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
 
     let errors = vec![
         R::cancelled().create(),

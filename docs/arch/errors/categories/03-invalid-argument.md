@@ -53,10 +53,7 @@ Field violation:
 **FieldViolations** — per-field validation errors:
 
 ```rust
-use cf_modkit_errors::resource_error;
-
-#[resource_error("gts.cf.core.users.user.v1~")]
-struct UserResourceError;
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
 let err = UserResourceError::invalid_argument()
     .with_field_violation("email", "must be a valid email address", "INVALID_EMAIL_FORMAT")

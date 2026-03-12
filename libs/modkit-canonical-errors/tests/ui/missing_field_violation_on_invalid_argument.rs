@@ -1,12 +1,8 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::resource_error;
-
-#[resource_error("gts.cf.core.users.user.v1~")]
-struct UserResourceError;
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
 fn main() {
     // invalid_argument requires at least one .with_field_violation() before .create()
-    let _err = UserResourceError::invalid_argument()
-        .create();
+    let _err = UserResourceError::invalid_argument().create();
 }

@@ -7,19 +7,18 @@ Canonical error types for CyberFabric modules, based on the [Google AIP-193](htt
 The `cf-modkit-canonical-errors` crate provides:
 
 - `CanonicalError` – a structured error type with category, message, and rich context
-- `#[resource_error]` – an attribute macro for declaring resource-scoped error types with generated constructors
+- `resource_error!` – a macro for declaring resource-scoped error types with generated constructors
 - Typed error-context structs for every canonical category (`InvalidArgument`, `NotFound`, `PermissionDenied`, `Internal`, etc.)
 - `Problem` – RFC-9457 problem detail representation for HTTP responses
 
 ## Usage
 
-### Resource-scoped errors (via attribute macro)
+### Resource-scoped errors (via macro)
 
 ```rust
-use cf_modkit_errors::{CanonicalError, resource_error};
+use cf_modkit_errors::CanonicalError;
 
-#[resource_error("gts.cf.mymod.widgets.widget.v1~")]
-struct WidgetResourceError;
+cf_modkit_errors::resource_error!(WidgetResourceError, "gts.cf.mymod.widgets.widget.v1~");
 
 // Not-found with a resource identifier
 let err = WidgetResourceError::not_found("Widget not found")

@@ -20,10 +20,7 @@
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::resource_error;
-
-#[resource_error("gts.cf.core.users.user.v1~")]
-struct UserResourceError;
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
 let err = UserResourceError::cancelled().create();
 ```

@@ -1,11 +1,10 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::{Problem, resource_error};
+use cf_modkit_errors::Problem;
 
 #[test]
 fn macro_not_found_has_correct_resource_type_and_resource_info() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct TestUserResourceError;
+    cf_modkit_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = TestUserResourceError::not_found("User not found")
         .with_resource("user-123")
@@ -25,8 +24,7 @@ fn macro_not_found_has_correct_resource_type_and_resource_info() {
 
 #[test]
 fn macro_permission_denied_has_correct_resource_type() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct TestUserResourceError;
+    cf_modkit_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = TestUserResourceError::permission_denied().create();
     assert_eq!(err.resource_type(), Some("gts.cf.core.users.user.v1~"));
@@ -38,8 +36,7 @@ fn macro_permission_denied_has_correct_resource_type() {
 
 #[test]
 fn problem_json_includes_resource_type_when_set() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct TestUserResourceError;
+    cf_modkit_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = TestUserResourceError::not_found("User not found")
         .with_resource("user-123")

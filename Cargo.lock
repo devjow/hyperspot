@@ -1390,23 +1390,12 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-canonical-errors"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
- "cf-modkit-canonical-errors-macros",
  "gts-id",
  "serde",
  "serde_json",
  "trybuild",
-]
-
-[[package]]
-name = "cf-modkit-canonical-errors-macros"
-version = "0.5.4"
-dependencies = [
- "gts-id",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]

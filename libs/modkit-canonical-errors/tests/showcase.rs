@@ -1,6 +1,6 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::{CanonicalError, Problem, resource_error};
+use cf_modkit_errors::{CanonicalError, Problem};
 
 // =========================================================================
 // Showcase tests — resource-scoped categories (macro-generated)
@@ -8,8 +8,7 @@ use cf_modkit_errors::{CanonicalError, Problem, resource_error};
 
 #[test]
 fn showcase_not_found() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::not_found("User not found")
         .with_resource("user-123")
@@ -34,8 +33,7 @@ fn showcase_not_found() {
 
 #[test]
 fn showcase_already_exists() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::already_exists("User already exists")
         .with_resource("alice@example.com")
@@ -60,8 +58,7 @@ fn showcase_already_exists() {
 
 #[test]
 fn showcase_data_loss() {
-    #[resource_error("gts.cf.core.files.file.v1~")]
-    struct FileResourceError;
+    cf_modkit_errors::resource_error!(FileResourceError, "gts.cf.core.files.file.v1~");
 
     let err = FileResourceError::data_loss("Data loss detected")
         .with_resource("01JFILE-ABC")
@@ -86,8 +83,7 @@ fn showcase_data_loss() {
 
 #[test]
 fn showcase_invalid_argument() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::invalid_argument()
         .with_field_violation("email", "must be a valid email address", "INVALID_FORMAT")
@@ -125,8 +121,7 @@ fn showcase_invalid_argument() {
 
 #[test]
 fn showcase_invalid_argument_format() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::invalid_argument()
         .with_format("Request body is not valid JSON")
@@ -152,8 +147,7 @@ fn showcase_invalid_argument_format() {
 
 #[test]
 fn showcase_invalid_argument_constraint() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::invalid_argument()
         .with_constraint("at most 10 tags allowed per resource")
@@ -179,8 +173,7 @@ fn showcase_invalid_argument_constraint() {
 
 #[test]
 fn showcase_invalid_argument_format_with_resource() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::invalid_argument()
         .with_resource("user-123")
@@ -208,8 +201,7 @@ fn showcase_invalid_argument_format_with_resource() {
 
 #[test]
 fn showcase_out_of_range() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::out_of_range("Page out of range")
         .with_field_violation(
@@ -244,8 +236,7 @@ fn showcase_out_of_range() {
 
 #[test]
 fn showcase_permission_denied() {
-    #[resource_error("gts.cf.core.tenants.tenant.v1~")]
-    struct TenantResourceError;
+    cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
 
     let err = TenantResourceError::permission_denied().create();
     let problem = Problem::from(err);
@@ -267,8 +258,7 @@ fn showcase_permission_denied() {
 
 #[test]
 fn showcase_aborted() {
-    #[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
-    struct UpstreamResourceError;
+    cf_modkit_errors::resource_error!(UpstreamResourceError, "gts.cf.oagw.upstreams.upstream.v1~");
 
     let err = UpstreamResourceError::aborted("Operation aborted due to concurrency conflict")
         .with_reason("OPTIMISTIC_LOCK_FAILURE")
@@ -293,8 +283,7 @@ fn showcase_aborted() {
 
 #[test]
 fn showcase_unimplemented() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::unimplemented("This operation is not implemented").create();
     let problem = Problem::from(err);
@@ -316,8 +305,7 @@ fn showcase_unimplemented() {
 
 #[test]
 fn showcase_failed_precondition() {
-    #[resource_error("gts.cf.core.tenants.tenant.v1~")]
-    struct TenantResourceError;
+    cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
 
     let err = TenantResourceError::failed_precondition()
         .with_precondition_violation(
@@ -371,8 +359,7 @@ fn showcase_internal() {
 
 #[test]
 fn showcase_deadline_exceeded() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::deadline_exceeded("Request timed out").create();
     let problem = Problem::from(err);
@@ -394,8 +381,7 @@ fn showcase_deadline_exceeded() {
 
 #[test]
 fn showcase_cancelled() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::cancelled().create();
     let problem = Problem::from(err);
@@ -443,8 +429,7 @@ fn showcase_unauthenticated() {
 
 #[test]
 fn showcase_resource_exhausted() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::resource_exhausted("Quota exceeded")
         .with_quota_violation(
@@ -500,8 +485,7 @@ fn showcase_unavailable() {
 
 #[test]
 fn showcase_unknown() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct UserResourceError;
+    cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
     let err = UserResourceError::unknown("Unexpected response from payment provider").create();
     let problem = Problem::from(err);

@@ -20,7 +20,6 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-cf-modkit-errors-macros = { workspace = true }
 
 [dev-dependencies]
 gts-id = { workspace = true }

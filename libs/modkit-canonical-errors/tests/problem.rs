@@ -1,11 +1,10 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::{CanonicalError, Problem, resource_error};
+use cf_modkit_errors::{CanonicalError, Problem};
 
 #[test]
 fn problem_from_not_found_has_correct_fields() {
-    #[resource_error("gts.cf.core.users.user.v1~")]
-    struct R;
+    cf_modkit_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();

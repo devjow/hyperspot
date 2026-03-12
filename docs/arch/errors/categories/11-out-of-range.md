@@ -29,10 +29,7 @@ Field violation:
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::resource_error;
-
-#[resource_error("gts.cf.library.books.book.v1~")]
-struct BookResourceError;
+cf_modkit_errors::resource_error!(BookResourceError, "gts.cf.library.books.book.v1~");
 
 let err = BookResourceError::out_of_range("Page out of range")
     .with_field_violation(

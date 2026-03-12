@@ -21,10 +21,7 @@
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::resource_error;
-
-#[resource_error("gts.cf.core.tenants.tenant.v1~")]
-struct TenantResourceError;
+cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
 
 let err = TenantResourceError::permission_denied().create();
 ```
