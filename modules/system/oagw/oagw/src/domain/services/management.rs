@@ -850,7 +850,10 @@ fn common_domain_suffix(hosts: &[String]) -> Option<String> {
     // Reject public suffixes (e.g. "co.uk", "com.au") that are not registrable
     // domains. A registrable domain has at least one label beyond the public
     // suffix (e.g. "vendor.co.uk" is registrable, "co.uk" is not).
-    psl::domain(candidate.as_bytes())?;
+    if psl::domain(candidate.as_bytes()).is_none() {
+        tracing::debug!(suffix = %candidate, "common suffix is a public suffix (not a registrable domain), alias must be explicit");
+        return None;
+    }
 
     Some(candidate)
 }
