@@ -359,7 +359,7 @@ bench-db-longhaul: bench-pg-longhaul bench-mysql-longhaul bench-mariadb-longhaul
 
 # -------- E2E tests --------
 
-.PHONY: e2e e2e-local e2e-local-smoke e2e-docker e2e-docker-smoke
+.PHONY: e2e e2e-local e2e-local-smoke e2e-mini-chat e2e-docker e2e-docker-smoke
 
 # Run E2E tests in Docker (default)
 e2e: e2e-docker
@@ -379,6 +379,14 @@ e2e-local:
 ## Run E2E smoke tests locally (only tests marked @pytest.mark.smoke)
 e2e-local-smoke:
 	python3 scripts/ci.py e2e-local --smoke
+
+MINI_CHAT_FEATURES = mini-chat,static-authn,static-authz,single-tenant,static-credstore
+
+## Run mini-chat E2E tests (separate binary with mini-chat features)
+e2e-mini-chat:
+	cargo build --bin hyperspot-server --features=$(MINI_CHAT_FEATURES)
+	E2E_BINARY=target/debug/hyperspot-server \
+		python3 -m pytest testing/e2e/modules/mini_chat/ --mode offline -vv
 
 # -------- Code coverage --------
 

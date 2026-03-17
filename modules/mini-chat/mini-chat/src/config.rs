@@ -99,6 +99,14 @@ pub struct ProviderEntry {
     /// registration during module init.
     #[expand_vars]
     pub host: String,
+    /// Upstream port. Defaults to `443` (HTTPS). Set to a non-standard port
+    /// for local/mock providers.
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// Use plain HTTP instead of HTTPS for this upstream. Defaults to `false`.
+    /// Only effective when the oagw `allow_http_upstream` option is also enabled.
+    #[serde(default)]
+    pub use_http: bool,
     /// API path template for the responses endpoint.
     /// Use `{model}` as placeholder for the deployment/model name.
     /// Defaults to `/v1/responses` (`OpenAI` native).
@@ -206,6 +214,9 @@ impl ProviderEntry {
         if self.host.trim().is_empty() {
             return Err(format!("provider '{provider_id}': host must not be empty"));
         }
+        if self.port == Some(0) {
+            return Err(format!("provider '{provider_id}': port must not be 0"));
+        }
         for (tid, tenant_override) in &self.tenant_overrides {
             if let Some(h) = &tenant_override.host
                 && h.trim().is_empty()
@@ -248,6 +259,8 @@ fn default_providers() -> HashMap<String, ProviderEntry> {
             kind: ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "api.openai.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: default_api_path(),
             auth_plugin_type: Some(
                 "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1".to_owned(),
@@ -966,6 +979,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
@@ -1029,6 +1044,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: Some("root-plugin".to_owned()),
             auth_config: Some(root_auth),
@@ -1084,6 +1101,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
@@ -1116,6 +1135,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
@@ -1152,6 +1173,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
@@ -1184,6 +1207,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
@@ -1214,6 +1239,8 @@ mod tests {
             kind: crate::infra::llm::ProviderKind::OpenAiResponses,
             upstream_alias: None,
             host: "default.openai.azure.com".to_owned(),
+            port: None,
+            use_http: false,
             api_path: "/v1/responses".to_owned(),
             auth_plugin_type: None,
             auth_config: None,
