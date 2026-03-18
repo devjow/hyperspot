@@ -1393,6 +1393,7 @@ name = "cf-modkit-canonical-errors"
 version = "0.5.8"
 dependencies = [
  "gts-id",
+ "sea-orm",
  "serde",
  "serde_json",
  "trybuild",

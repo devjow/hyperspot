@@ -100,6 +100,58 @@ fn all_16_categories_convert_to_problem() {
 }
 
 // =========================================================================
+// From impls for common library errors
+// =========================================================================
+
+#[test]
+fn from_io_error_produces_internal() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+    let err = CanonicalError::from(io_err);
+    assert_eq!(err.status_code(), 500);
+    assert_eq!(err.title(), "Internal");
+    assert_eq!(
+        err.gts_type(),
+        "gts.cf.core.errors.err.v1~cf.core.err.internal.v1~"
+    );
+}
+
+#[test]
+fn from_serde_json_error_produces_invalid_argument() {
+    let json_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+    let msg = json_err.to_string();
+    let err = CanonicalError::from(json_err);
+    assert_eq!(err.status_code(), 400);
+    assert_eq!(err.title(), "Invalid Argument");
+    assert_eq!(err.detail(), msg);
+    assert_eq!(
+        err.gts_type(),
+        "gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~"
+    );
+}
+
+#[test]
+fn question_mark_propagation_io() {
+    fn inner() -> Result<(), CanonicalError> {
+        let _: Vec<u8> = Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "access denied",
+        ))?;
+        Ok(())
+    }
+    let err = inner().unwrap_err();
+    assert_eq!(err.status_code(), 500);
+}
+
+#[test]
+fn question_mark_propagation_serde_json() {
+    fn inner() -> Result<serde_json::Value, CanonicalError> {
+        Ok(serde_json::from_str("{invalid")?)
+    }
+    let err = inner().unwrap_err();
+    assert_eq!(err.status_code(), 400);
+}
+
+// =========================================================================
 // GTS ID validation — ensures all IDs in the crate are valid GTS identifiers
 // =========================================================================
 

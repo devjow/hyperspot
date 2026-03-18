@@ -14,12 +14,17 @@ categories = ["rust-patterns"]
 [lib]
 name = "cf_modkit_errors"
 
+[features]
+default = []
+sea-orm = ["dep:sea-orm"]
+
 [lints]
 workspace = true
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+sea-orm = { workspace = true, optional = true }
 
 [dev-dependencies]
 gts-id = { workspace = true }

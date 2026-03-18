@@ -557,3 +557,27 @@ impl fmt::Display for CanonicalError {
 }
 
 impl std::error::Error for CanonicalError {}
+
+// ---------------------------------------------------------------------------
+// From impls for common library errors (? propagation)
+// ---------------------------------------------------------------------------
+
+impl From<std::io::Error> for CanonicalError {
+    fn from(err: std::io::Error) -> Self {
+        Self::__internal(Internal::new(err.to_string()))
+    }
+}
+
+impl From<serde_json::Error> for CanonicalError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::__invalid_argument(InvalidArgument::format(err.to_string()))
+            .with_detail(err.to_string())
+    }
+}
+
+#[cfg(feature = "sea-orm")]
+impl From<sea_orm::DbErr> for CanonicalError {
+    fn from(err: sea_orm::DbErr) -> Self {
+        Self::__internal(Internal::new(err.to_string()))
+    }
+}
