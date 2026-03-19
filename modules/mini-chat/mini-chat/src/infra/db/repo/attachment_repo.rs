@@ -301,7 +301,12 @@ impl crate::domain::repos::AttachmentRepository for AttachmentRepository {
             .scope_with(scope)
             .project_all(runner, |q| {
                 q.select_only()
-                    .column_as(Column::SizeBytes.sum(), "total")
+                    .column_as(
+                        Column::SizeBytes
+                            .sum()
+                            .cast_as(sea_orm::sea_query::Alias::new("bigint")),
+                        "total",
+                    )
                     .into_model::<SumRow>()
             })
             .await
