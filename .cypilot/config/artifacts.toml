@@ -1,6 +1,10 @@
 # Cypilot artifacts registry (migrated from v2)
 
 [[ignore]]
+reason = "Ignore rust-traits.md — reference document for planned Rust SDK contracts, not a Cypilot SDLC artifact."
+patterns = ["modules/system/resource-group/docs/rust-traits.md"]
+
+[[ignore]]
 reason = "Ignore 'modules/system' parent directory — not a module, only a grouping for system submodules."
 patterns = ["modules/system"]
 
