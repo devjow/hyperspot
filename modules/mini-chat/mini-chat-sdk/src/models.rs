@@ -29,6 +29,7 @@ pub struct KillSwitches {
     pub disable_web_search: bool,
     pub disable_file_search: bool,
     pub disable_images: bool,
+    pub disable_code_interpreter: bool,
 }
 
 /// A single model in the catalog (API: `PolicyModelCatalogItem`).
@@ -112,6 +113,8 @@ pub struct EstimationBudgets {
     pub tool_surcharge_tokens: u32,
     /// Fixed token overhead when `web_search` is enabled.
     pub web_search_surcharge_tokens: u32,
+    /// Fixed token overhead when `code_interpreter` is enabled.
+    pub code_interpreter_surcharge_tokens: u32,
     /// Minimum generation token budget guaranteed regardless of input estimates.
     pub minimal_generation_floor: u32,
 }
@@ -125,6 +128,7 @@ impl Default for EstimationBudgets {
             image_token_budget: 1000,
             tool_surcharge_tokens: 500,
             web_search_surcharge_tokens: 500,
+            code_interpreter_surcharge_tokens: 1000,
             minimal_generation_floor: 50,
         }
     }
@@ -169,7 +173,7 @@ pub struct ModelInputType {
 
 /// Tool support flags (API: `PolicyModelToolSupport`).
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelToolSupport {
     pub web_search: bool,
     pub file_search: bool,
@@ -324,6 +328,7 @@ mod tests {
         assert!(!ks.disable_web_search);
         assert!(!ks.disable_file_search);
         assert!(!ks.disable_images);
+        assert!(!ks.disable_code_interpreter);
     }
 
     // ── EstimationBudgets::default spec values ──
@@ -340,6 +345,7 @@ mod tests {
         assert_eq!(eb.image_token_budget, 1000);
         assert_eq!(eb.tool_surcharge_tokens, 500);
         assert_eq!(eb.web_search_surcharge_tokens, 500);
+        assert_eq!(eb.code_interpreter_surcharge_tokens, 1000);
         assert_eq!(eb.minimal_generation_floor, 50);
     }
 
@@ -534,6 +540,10 @@ mod tests {
             expected.web_search_surcharge_tokens
         );
         assert_eq!(
+            entry.estimation_budgets.code_interpreter_surcharge_tokens,
+            expected.code_interpreter_surcharge_tokens
+        );
+        assert_eq!(
             entry.estimation_budgets.minimal_generation_floor,
             expected.minimal_generation_floor
         );
@@ -603,6 +613,7 @@ mod tests {
             disable_web_search: true,
             disable_file_search: false,
             disable_images: true,
+            disable_code_interpreter: false,
         };
         let json = serde_json::to_value(&ks).unwrap();
         let deserialized: KillSwitches = serde_json::from_value(json).unwrap();
@@ -625,5 +636,6 @@ mod tests {
         assert!(!deserialized.disable_web_search);
         assert!(!deserialized.disable_file_search);
         assert!(!deserialized.disable_images);
+        assert!(!deserialized.disable_code_interpreter);
     }
 }

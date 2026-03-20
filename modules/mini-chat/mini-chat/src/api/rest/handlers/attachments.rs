@@ -11,7 +11,7 @@ use modkit_security::SecurityContext;
 
 use crate::api::rest::dto::AttachmentDetailDto;
 use crate::domain::mime_validation::{
-    infer_mime_from_extension, normalize_mime, remap_csv_to_plain, validate_mime,
+    MIME_OCTET_STREAM, infer_mime_from_extension, normalize_mime, remap_csv_to_plain, validate_mime,
 };
 use crate::module::AppServices;
 
@@ -177,7 +177,7 @@ pub(crate) async fn upload_attachment(
         })?;
 
     // 6. MIME validation (from field headers, before reading body bytes).
-    let effective_ct = if normalize_mime(&raw_ct) == "application/octet-stream" {
+    let effective_ct = if normalize_mime(&raw_ct) == MIME_OCTET_STREAM {
         infer_mime_from_extension(&filename).unwrap_or(&raw_ct)
     } else {
         &raw_ct

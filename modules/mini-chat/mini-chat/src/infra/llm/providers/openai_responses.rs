@@ -23,6 +23,9 @@ use crate::infra::llm::{
     TranslatedEvent, Usage,
 };
 
+/// Safety cap for code-interpreter log output forwarded to clients via SSE.
+const MAX_CODE_INTERPRETER_OUTPUT_CHARS: usize = 8_192;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Provider event types (internal)
 // ════════════════════════════════════════════════════════════════════════════
@@ -43,6 +46,11 @@ enum ProviderEvent {
     },
     ResponseWebSearchCallSearching,
     ResponseWebSearchCallCompleted,
+    ResponseCodeInterpreterCallInProgress,
+    ResponseCodeInterpreterCallCompleted {
+        /// Concatenated text from all `logs` output items.
+        output: String,
+    },
     ResponseCompleted {
         response: ResponseObject,
     },
@@ -216,6 +224,22 @@ struct ResponseIncompleteData {
     reason: String,
 }
 
+/// A single output item from `response.code_interpreter_call.completed`.
+#[derive(Deserialize)]
+struct CodeInterpreterOutputItem {
+    #[serde(default, rename = "type")]
+    output_type: String,
+    /// Present when `output_type == "logs"`.
+    #[serde(default)]
+    logs: String,
+}
+
+#[derive(Deserialize)]
+struct CodeInterpreterCompletedData {
+    #[serde(default)]
+    outputs: Vec<CodeInterpreterOutputItem>,
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // FromServerEvent
 // ════════════════════════════════════════════════════════════════════════════
@@ -265,6 +289,39 @@ impl FromServerEvent for ProviderEvent {
 
             "response.web_search_call.completed" => {
                 Ok(ProviderEvent::ResponseWebSearchCallCompleted)
+            }
+
+            "response.code_interpreter_call.in_progress" => {
+                Ok(ProviderEvent::ResponseCodeInterpreterCallInProgress)
+            }
+
+            "response.code_interpreter_call.interpreting" => {
+                // Intermediate event — no client-visible update needed.
+                Ok(ProviderEvent::Unknown {
+                    event_name: event_name.to_owned(),
+                })
+            }
+
+            "response.code_interpreter_call.completed" => {
+                let data: CodeInterpreterCompletedData = serde_json::from_str(&event.data)
+                    .map_err(|e| StreamingError::ServerEventsParse {
+                        detail: format!("failed to parse code interpreter completed: {e}"),
+                    })?;
+                let mut output = data
+                    .outputs
+                    .into_iter()
+                    .filter(|o| o.output_type == "logs")
+                    .map(|o| o.logs)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if output.chars().count() > MAX_CODE_INTERPRETER_OUTPUT_CHARS {
+                    output = output
+                        .chars()
+                        .take(MAX_CODE_INTERPRETER_OUTPUT_CHARS)
+                        .collect::<String>();
+                    output.push_str("...[truncated]");
+                }
+                Ok(ProviderEvent::ResponseCodeInterpreterCallCompleted { output })
             }
 
             "response.completed" => {
@@ -381,6 +438,22 @@ fn translate_provider_event(event: &ProviderEvent, accumulated_text: &str) -> Tr
                 phase: ToolPhase::Done,
                 name: "web_search",
                 details: serde_json::json!({}),
+            })
+        }
+
+        ProviderEvent::ResponseCodeInterpreterCallInProgress => {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase: ToolPhase::Start,
+                name: "code_interpreter",
+                details: serde_json::json!({}),
+            })
+        }
+
+        ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase: ToolPhase::Done,
+                name: "code_interpreter",
+                details: serde_json::json!({ "output": output }),
             })
         }
 
@@ -591,6 +664,13 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
             } => Some(serde_json::json!({
                 "type": "web_search",
                 "search_context_size": search_context_size
+            })),
+            LlmTool::CodeInterpreter { file_ids } => Some(serde_json::json!({
+                "type": "code_interpreter",
+                "container": {
+                    "type": "auto",
+                    "file_ids": file_ids
+                }
             })),
             LlmTool::Function { name, .. } => {
                 debug!(tool_name = %name, "Function tool not supported by Responses API, dropping");
@@ -1119,6 +1199,22 @@ mod tests {
     }
 
     #[test]
+    fn builder_code_interpreter_tool() {
+        let request = llm_request("gpt-4o")
+            .tool(LlmTool::CodeInterpreter {
+                file_ids: vec!["file-abc".into(), "file-def".into()],
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        assert_eq!(body["tools"][0]["type"], "code_interpreter");
+        assert_eq!(body["tools"][0]["container"]["type"], "auto");
+        assert_eq!(body["tools"][0]["container"]["file_ids"][0], "file-abc");
+        assert_eq!(body["tools"][0]["container"]["file_ids"][1], "file-def");
+    }
+
+    #[test]
     fn builder_max_tool_calls_and_max_num_results() {
         let request = llm_request("gpt-4o")
             .max_tool_calls(3)
@@ -1359,6 +1455,74 @@ mod tests {
     }
 
     #[test]
+    fn parse_code_interpreter_in_progress_event() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.in_progress".to_string()),
+            data: "{}".to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        assert!(matches!(
+            result,
+            ProviderEvent::ResponseCodeInterpreterCallInProgress
+        ));
+    }
+
+    #[test]
+    fn parse_code_interpreter_interpreting_event_is_ignored() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.interpreting".to_string()),
+            data: "{}".to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        assert!(matches!(result, ProviderEvent::Unknown { .. }));
+    }
+
+    #[test]
+    fn parse_code_interpreter_completed_event_extracts_logs() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.completed".to_string()),
+            data: r#"{"outputs":[{"type":"logs","logs":"result text"}]}"#.to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        match result {
+            ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+                assert_eq!(output, "result text");
+            }
+            _ => panic!("expected ResponseCodeInterpreterCallCompleted"),
+        }
+    }
+
+    #[test]
+    fn parse_code_interpreter_completed_event_ignores_file_outputs() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.completed".to_string()),
+            data: r#"{
+                "outputs": [
+                    {"type":"files","file_id":"file-abc"},
+                    {"type":"logs","logs":"only this"},
+                    {"type":"files","file_id":"file-def"}
+                ]
+            }"#
+            .to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        match result {
+            ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+                assert_eq!(output, "only this");
+            }
+            _ => panic!("expected ResponseCodeInterpreterCallCompleted"),
+        }
+    }
+
+    #[test]
     fn parse_response_completed_event() {
         let event = ServerEvent {
             event: Some("response.completed".to_string()),
@@ -1530,6 +1694,39 @@ mod tests {
             TranslatedEvent::Sse(ClientSseEvent::Tool { phase, name, .. }) => {
                 assert!(matches!(phase, ToolPhase::Done));
                 assert_eq!(name, "web_search");
+            }
+            _ => panic!("expected Sse(Tool)"),
+        }
+    }
+
+    #[test]
+    fn translate_code_interpreter_start() {
+        let event = ProviderEvent::ResponseCodeInterpreterCallInProgress;
+        let translated = translate_provider_event(&event, "");
+        match translated {
+            TranslatedEvent::Sse(ClientSseEvent::Tool { phase, name, .. }) => {
+                assert!(matches!(phase, ToolPhase::Start));
+                assert_eq!(name, "code_interpreter");
+            }
+            _ => panic!("expected Sse(Tool)"),
+        }
+    }
+
+    #[test]
+    fn translate_code_interpreter_done_with_output() {
+        let event = ProviderEvent::ResponseCodeInterpreterCallCompleted {
+            output: "42".into(),
+        };
+        let translated = translate_provider_event(&event, "");
+        match translated {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase,
+                name,
+                details,
+            }) => {
+                assert!(matches!(phase, ToolPhase::Done));
+                assert_eq!(name, "code_interpreter");
+                assert_eq!(details["output"], "42");
             }
             _ => panic!("expected Sse(Tool)"),
         }

@@ -14,6 +14,7 @@ use crate::domain::llm::{ContextMessage, FileSearchFilter, LlmMessage, LlmTool, 
 /// fit the assembled context within the available token budget.
 #[domain_model]
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TokenBudget {
     /// Total context window of the effective model (tokens).
     pub context_window: u32,
@@ -25,10 +26,14 @@ pub struct TokenBudget {
     pub tools_enabled: bool,
     /// Whether `web_search` is enabled (contributes web search surcharge).
     pub web_search_enabled: bool,
+    /// Whether `code_interpreter` is enabled — derived from non-empty file IDs
+    /// at the call site (contributes code interpreter surcharge).
+    pub code_interpreter_enabled: bool,
 }
 
 /// All inputs needed to assemble the LLM request context.
 #[domain_model]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ContextInput<'a> {
     /// System prompt from the model catalog (via preflight).
     pub system_prompt: &'a str,
@@ -54,6 +59,8 @@ pub struct ContextInput<'a> {
     pub web_search_context_size: crate::domain::llm::WebSearchContextSize,
     /// Max results for `file_search` tool (from CCM per-model config).
     pub file_search_max_num_results: u32,
+    /// File IDs for `code_interpreter`. Non-empty = tool is enabled.
+    pub code_interpreter_file_ids: Vec<String>,
     /// Token budget for context truncation. `None` = no truncation.
     pub token_budget: Option<TokenBudget>,
 }
@@ -108,6 +115,10 @@ pub fn compute_available_budget(budget: &TokenBudget) -> Result<u64, ContextAsse
         0
     } + if budget.web_search_enabled {
         u64::from(budget.budgets.web_search_surcharge_tokens)
+    } else {
+        0
+    } + if budget.code_interpreter_enabled {
+        u64::from(budget.budgets.code_interpreter_surcharge_tokens)
     } else {
         0
     };
@@ -174,6 +185,11 @@ pub fn assemble_context(
     if input.web_search_enabled {
         tools.push(LlmTool::WebSearch {
             search_context_size: input.web_search_context_size,
+        });
+    }
+    if !input.code_interpreter_file_ids.is_empty() {
+        tools.push(LlmTool::CodeInterpreter {
+            file_ids: input.code_interpreter_file_ids.clone(),
         });
     }
 
@@ -332,6 +348,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -356,6 +373,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -380,6 +398,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -404,6 +423,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -430,6 +450,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -467,6 +488,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -494,6 +516,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -518,6 +541,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -549,6 +573,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::High,
             file_search_max_num_results: 7,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -581,6 +606,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -600,6 +626,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Medium,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -622,6 +649,7 @@ mod tests {
             image_token_budget: 1000,
             tool_surcharge_tokens: 500,
             web_search_surcharge_tokens: 500,
+            code_interpreter_surcharge_tokens: 1000,
             minimal_generation_floor: 128,
         }
     }
@@ -633,6 +661,7 @@ mod tests {
             budgets: test_budgets(),
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
         }
     }
 
@@ -654,6 +683,7 @@ mod tests {
             budgets: test_budgets(),
             tools_enabled: true,
             web_search_enabled: true,
+            code_interpreter_enabled: false,
         };
         // available = 128_000 - 4096 - 500 (tool) - 500 (web) - 100 (overhead)
         let available = compute_available_budget(&budget).unwrap();
@@ -711,6 +741,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: Some(test_budget(context_window, 4096)),
         })
         .unwrap();
@@ -749,6 +780,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: Some(test_budget(context_window, 4096)),
         })
         .unwrap();
@@ -797,6 +829,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: Some(test_budget(context_window, 4096)),
         })
         .unwrap();
@@ -822,6 +855,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: Some(test_budget(5000, 4096)),
         });
 
@@ -852,6 +886,7 @@ mod tests {
             file_search_filters: None,
             web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
             file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
             token_budget: None,
         })
         .unwrap();
@@ -872,5 +907,71 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("50000"));
         assert!(msg.contains("10000"));
+    }
+
+    // 5.25: code_interpreter tool added when enabled and file_ids non-empty
+    #[test]
+    fn code_interpreter_tool_added_when_enabled_with_file_ids() {
+        let result = assemble_context(&ContextInput {
+            system_prompt: "",
+            web_search_guard: "",
+            file_search_guard: "",
+            thread_summary: None,
+            recent_messages: &[],
+            user_message: "analyze this",
+            web_search_enabled: false,
+            file_search_enabled: false,
+            vector_store_ids: &[],
+            file_search_filters: None,
+            web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
+            file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec!["file-abc123".to_owned()],
+            token_budget: None,
+        })
+        .unwrap();
+        assert_eq!(result.tools.len(), 1);
+        assert!(matches!(
+            &result.tools[0],
+            LlmTool::CodeInterpreter { file_ids } if file_ids == &["file-abc123"]
+        ));
+    }
+
+    // 5.26: code_interpreter tool not added when file_ids is empty
+    #[test]
+    fn code_interpreter_tool_not_added_when_no_file_ids() {
+        let result = assemble_context(&ContextInput {
+            system_prompt: "",
+            web_search_guard: "",
+            file_search_guard: "",
+            thread_summary: None,
+            recent_messages: &[],
+            user_message: "analyze this",
+            web_search_enabled: false,
+            file_search_enabled: false,
+            vector_store_ids: &[],
+            file_search_filters: None,
+            web_search_context_size: crate::domain::llm::WebSearchContextSize::Low,
+            file_search_max_num_results: 5,
+            code_interpreter_file_ids: vec![],
+            token_budget: None,
+        })
+        .unwrap();
+        assert!(result.tools.is_empty());
+    }
+
+    // 5.28: code_interpreter surcharge deducted from budget when enabled
+    #[test]
+    fn budget_with_code_interpreter_surcharge() {
+        let budget = TokenBudget {
+            context_window: 128_000,
+            max_output_tokens_applied: 4096,
+            budgets: test_budgets(),
+            tools_enabled: false,
+            web_search_enabled: false,
+            code_interpreter_enabled: true,
+        };
+        // available = 128_000 - 4096 - 1000 (code_interpreter) - 100 (overhead)
+        let available = compute_available_budget(&budget).unwrap();
+        assert_eq!(available, 128_000 - 4096 - 1000 - 100);
     }
 }

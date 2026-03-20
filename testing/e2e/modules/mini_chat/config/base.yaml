@@ -175,6 +175,7 @@ modules:
             image_token_budget: 1000
             tool_surcharge_tokens: 200
             web_search_surcharge_tokens: 500
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
             is_default: true
@@ -260,6 +261,7 @@ modules:
             image_token_budget: 1000
             tool_surcharge_tokens: 200
             web_search_surcharge_tokens: 500
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
             is_default: false
@@ -345,6 +347,7 @@ modules:
             image_token_budget: 500
             tool_surcharge_tokens: 150
             web_search_surcharge_tokens: 300
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
             is_default: false
@@ -430,6 +433,7 @@ modules:
             image_token_budget: 1000
             tool_surcharge_tokens: 200
             web_search_surcharge_tokens: 500
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
             is_default: false

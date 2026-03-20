@@ -567,6 +567,8 @@ async fn insert_attachment(
         status: Set(status),
         error_code: Set(None),
         attachment_kind: Set(kind),
+        for_file_search: Set(true),
+        for_code_interpreter: Set(false),
         doc_summary: Set(None),
         img_thumbnail: Set(thumb_bytes),
         img_thumbnail_width: Set(thumb_w),

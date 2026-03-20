@@ -169,6 +169,8 @@ pub struct ResolvedModel {
     /// System prompt sent as `instructions` in every LLM request for this model.
     /// Sourced from `ModelCatalogEntry.system_prompt` (per-model, per-policy-version).
     pub system_prompt: String,
+    /// Tool support flags captured at resolution time.
+    pub tool_support: mini_chat_sdk::ModelToolSupport,
 }
 
 impl From<&mini_chat_sdk::ModelCatalogEntry> for ResolvedModel {
@@ -192,6 +194,7 @@ impl From<&mini_chat_sdk::ModelCatalogEntry> for ResolvedModel {
             context_window: e.context_window,
             max_file_size_mb: e.general_config.max_file_size_mb,
             system_prompt: e.system_prompt.clone(),
+            tool_support: e.general_config.tool_support.clone(),
         }
     }
 }

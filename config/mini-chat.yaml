@@ -216,9 +216,10 @@ modules:
             image_token_budget: 1000
             tool_surcharge_tokens: 500
             web_search_surcharge_tokens: 500
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 50
           max_retrieved_chunks_per_turn: 5
-          max_tool_calls: 2
+          max_tool_calls: 10
           general_config:
             type: ""
             tier: "premium"
@@ -247,7 +248,7 @@ modules:
               web_search: true
               file_search: true
               image_generation: false
-              code_interpreter: false
+              code_interpreter: true
               computer_use: false
               mcp: false
             supported_endpoints:
@@ -302,9 +303,10 @@ modules:
             image_token_budget: 1000
             tool_surcharge_tokens: 500
             web_search_surcharge_tokens: 500
+            code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 50
           max_retrieved_chunks_per_turn: 5
-          max_tool_calls: 2
+          max_tool_calls: 10
           general_config:
             type: ""
             tier: "standard"
@@ -333,7 +335,7 @@ modules:
               web_search: false
               file_search: false
               image_generation: false
-              code_interpreter: false
+              code_interpreter: true
               computer_use: false
               mcp: false
             supported_endpoints:
@@ -361,6 +363,10 @@ modules:
           preference:
             is_default: false
             sort_order: 1
+
+  oagw:
+    config:
+      proxy_timeout_secs: 60
 
 # OpenTelemetry configuration (resource identity, tracing, metrics)
 opentelemetry:

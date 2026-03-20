@@ -125,6 +125,14 @@ impl From<DomainError> for Problem {
             .with_code("storage_limit_exceeded".to_owned())
             .with_trace_id(trace_id.unwrap_or_default()),
 
+            DomainError::ServiceUnavailable { message } => Problem::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "service_unavailable",
+                message.clone(),
+            )
+            .with_code("service_unavailable".to_owned())
+            .with_trace_id(trace_id.unwrap_or_default()),
+
             DomainError::ProviderError {
                 code,
                 sanitized_message,

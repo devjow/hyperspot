@@ -414,6 +414,7 @@ fn translate_chat_event(
 // LlmRequest → Chat Completions conversion
 // ════════════════════════════════════════════════════════════════════════════
 
+#[allow(clippy::cognitive_complexity)]
 fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::Value {
     let mut body = serde_json::json!({});
 
@@ -506,6 +507,10 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
             }
             LlmTool::WebSearch { .. } => {
                 debug!("WebSearch tool not supported by Chat Completions, dropping");
+                None
+            }
+            LlmTool::CodeInterpreter { .. } => {
+                debug!("CodeInterpreter tool not supported by Chat Completions, dropping");
                 None
             }
         })
@@ -1245,6 +1250,20 @@ mod tests {
                 max_num_results: None,
             })
             .message(LlmMessage::user("Hi"))
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn request_code_interpreter_dropped() {
+        let request = llm_request("gpt-4o")
+            .tool(LlmTool::CodeInterpreter {
+                file_ids: vec!["file-1".into()],
+            })
+            .message(LlmMessage::user("Run analysis"))
             .build_streaming();
 
         let body = build_request_body(&request, true);

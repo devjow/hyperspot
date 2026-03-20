@@ -25,8 +25,8 @@ use crate::domain::repos::{
 use crate::domain::stream_events::{DoneData, ErrorData, StreamEvent, StreamStartedData};
 use crate::infra::db::entity::chat_turn::{Model as TurnModel, TurnState};
 use crate::infra::llm::{
-    ClientSseEvent, LlmMessage, LlmProvider, LlmProviderError, LlmRequestBuilder, LlmTool,
-    TerminalOutcome, provider_resolver::ProviderResolver,
+    ClientSseEvent, Feature, LlmMessage, LlmProvider, LlmProviderError, LlmRequestBuilder, LlmTool,
+    RequestMetadata, RequestType, TerminalOutcome, provider_resolver::ProviderResolver,
 };
 
 use super::{DbProvider, actions, resources};
@@ -57,6 +57,25 @@ fn attachment_err(message: impl Into<String>) -> modkit_db::DbError {
     modkit_db::DbError::Other(anyhow::Error::new(InvalidAttachmentError {
         message: message.into(),
     }))
+}
+
+/// Determines the [`Feature`] variant from the set of tools attached to a
+/// request, used to populate [`RequestMetadata`] for observability.
+fn determine_feature(tools: &[LlmTool]) -> Feature {
+    let has_file_search = tools
+        .iter()
+        .any(|t| matches!(t, LlmTool::FileSearch { .. }));
+    let has_web_search = tools.iter().any(|t| matches!(t, LlmTool::WebSearch { .. }));
+    let has_ci = tools
+        .iter()
+        .any(|t| matches!(t, LlmTool::CodeInterpreter { .. }));
+    match (has_file_search, has_web_search, has_ci) {
+        (true, true, _) => Feature::FileSearchAndWebSearch,
+        (true, false, _) => Feature::FileSearch,
+        (false, true, _) => Feature::WebSearch,
+        (false, false, true) => Feature::CodeInterpreter,
+        _ => Feature::None,
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -301,6 +320,7 @@ fn normalize_error(err: &LlmProviderError) -> (String, String) {
 #[domain_model]
 struct PreflightResult {
     effective_model: String,
+    effective_provider_model_id: String,
     reserve_tokens: i64,
     max_output_tokens_applied: i32,
     reserved_credits_micro: i64,
@@ -314,6 +334,7 @@ struct PreflightResult {
     estimation_budgets: crate::config::EstimationBudgets,
     max_retrieved_chunks_per_turn: u32,
     max_tool_calls: u32,
+    tool_support: mini_chat_sdk::ModelToolSupport,
 }
 
 /// Convert a `PreflightDecision` into a flat `PreflightResult` or a `StreamError`.
@@ -324,6 +345,7 @@ fn flatten_preflight(
     match decision {
         PreflightDecision::Allow {
             effective_model,
+            effective_provider_model_id,
             reserve_tokens,
             max_output_tokens_applied,
             reserved_credits_micro,
@@ -334,9 +356,11 @@ fn flatten_preflight(
             estimation_budgets,
             max_retrieved_chunks_per_turn,
             max_tool_calls,
+            tool_support,
             ..
         } => Ok(PreflightResult {
             effective_model,
+            effective_provider_model_id,
             reserve_tokens,
             max_output_tokens_applied,
             reserved_credits_micro,
@@ -350,9 +374,11 @@ fn flatten_preflight(
             estimation_budgets,
             max_retrieved_chunks_per_turn,
             max_tool_calls,
+            tool_support,
         }),
         PreflightDecision::Downgrade {
             effective_model,
+            effective_provider_model_id,
             reserve_tokens,
             max_output_tokens_applied,
             reserved_credits_micro,
@@ -365,9 +391,11 @@ fn flatten_preflight(
             estimation_budgets,
             max_retrieved_chunks_per_turn,
             max_tool_calls,
+            tool_support,
             ..
         } => Ok(PreflightResult {
             effective_model,
+            effective_provider_model_id,
             reserve_tokens,
             max_output_tokens_applied,
             reserved_credits_micro,
@@ -381,6 +409,7 @@ fn flatten_preflight(
             estimation_budgets,
             max_retrieved_chunks_per_turn,
             max_tool_calls,
+            tool_support,
         }),
         PreflightDecision::Reject {
             error_code,
@@ -544,7 +573,6 @@ impl<
     ) -> Result<tokio::task::JoinHandle<StreamOutcome>, StreamError> {
         let ResolvedModel {
             model_id: model,
-            provider_model_id,
             provider_id,
             ..
         } = resolved_model;
@@ -618,6 +646,18 @@ impl<
             .await
             .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
 
+        // ── Pre-preflight attachment queries (for surcharge estimation) ──
+        let pre_ready_doc_count = self
+            .attachment_repo
+            .count_ready_documents(&conn, &scope, chat_id)
+            .await
+            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
+        let pre_ci_file_ids = self
+            .attachment_repo
+            .get_code_interpreter_file_ids(&conn, &scope, chat_id)
+            .await
+            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
+
         // ── Preflight quota evaluate (external I/O, no DB writes) ──
         let selected_model = model.clone();
         let computed = self
@@ -628,8 +668,9 @@ impl<
                 selected_model: selected_model.clone(),
                 utf8_bytes: content.len() as u64,
                 num_images: 0,
-                tools_enabled: false,
+                tools_enabled: pre_ready_doc_count > 0,
                 web_search_enabled,
+                code_interpreter_enabled: !pre_ci_file_ids.is_empty(),
                 max_output_tokens_cap: self.streaming_config.max_output_tokens,
             })
             .await
@@ -654,11 +695,7 @@ impl<
         let has_reserve_buckets = !computed.buckets.is_empty();
 
         // ── Retrieval mode determination ──
-        let ready_doc_count = self
-            .attachment_repo
-            .count_ready_documents(&conn, &scope, chat_id)
-            .await
-            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
+        let ready_doc_count = pre_ready_doc_count;
 
         let retrieval_mode = crate::domain::retrieval::determine_retrieval_mode(
             file_search_disabled,
@@ -702,6 +739,16 @@ impl<
                 .map_err(|e| StreamError::TurnCreationFailed { source: e })?
         } else {
             std::collections::HashMap::new()
+        };
+
+        // ── Code interpreter file IDs ──
+        let (ci_file_ids, code_interpreter_enabled) = if pf.tool_support.code_interpreter
+            && !computed.kill_switches.disable_code_interpreter
+        {
+            let enabled = !pre_ci_file_ids.is_empty();
+            (pre_ci_file_ids, enabled)
+        } else {
+            (Vec::new(), false)
         };
 
         // ── Single transaction: reserve + user message + turn ──
@@ -769,6 +816,7 @@ impl<
             budgets: pf.estimation_budgets,
             tools_enabled: file_search_enabled,
             web_search_enabled,
+            code_interpreter_enabled,
         });
         let assembled = self
             .gather_context(
@@ -783,6 +831,7 @@ impl<
                 None, // file_search_filters: wired by P4-6
                 self.streaming_config.web_search_context_size,
                 pf.max_retrieved_chunks_per_turn,
+                ci_file_ids,
                 token_budget,
             )
             .await?;
@@ -795,10 +844,11 @@ impl<
                 source: DomainError::internal(format!("provider resolution: {e}")),
             })?;
         // Build the full OAGW proxy path: {alias}{api_path} with {model} substituted.
-        // Use provider_model_id (the actual provider-facing model name) for the LLM request.
+        // Use effective provider_model_id (may differ from requested on downgrade).
+        let effective_provider_model_id = pf.effective_provider_model_id.clone();
         let api_path = resolved_provider
             .api_path
-            .replace("{model}", &provider_model_id);
+            .replace("{model}", &effective_provider_model_id);
         let proxy_path = format!("{}{api_path}", resolved_provider.upstream_alias);
 
         emit_stream_started(&tx, request_id, message_id).await;
@@ -811,7 +861,7 @@ impl<
             assembled.system_instructions,
             assembled.tools,
             model,
-            provider_model_id,
+            effective_provider_model_id,
             pf.max_output_tokens_applied.cast_unsigned(),
             pf.max_tool_calls,
             self.quota.web_search_max_calls_per_message(),
@@ -1053,6 +1103,7 @@ impl<
         file_search_filters: Option<crate::domain::llm::FileSearchFilter>,
         web_search_context_size: crate::domain::llm::WebSearchContextSize,
         file_search_max_num_results: u32,
+        code_interpreter_file_ids: Vec<String>,
         token_budget: Option<super::context_assembly::TokenBudget>,
     ) -> Result<super::context_assembly::AssembledContext, StreamError> {
         let conn = self
@@ -1129,6 +1180,7 @@ impl<
             file_search_filters,
             web_search_context_size,
             file_search_max_num_results,
+            code_interpreter_file_ids,
             token_budget,
         })
         .map_err(|e| StreamError::ContextBudgetExceeded {
@@ -1173,11 +1225,28 @@ impl<
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<tokio::task::JoinHandle<StreamOutcome>, StreamError> {
         let model = resolved_model.model_id;
-        let provider_model_id = resolved_model.provider_model_id;
         let provider_id = resolved_model.provider_id;
         let tenant_id = ctx.subject_tenant_id();
         let user_id = ctx.subject_id();
         let scope = AccessScope::for_tenant(tenant_id);
+
+        // ── Pre-preflight attachment queries (for surcharge estimation) ──
+        let conn = self
+            .db
+            .conn()
+            .map_err(|e| StreamError::TurnCreationFailed {
+                source: DomainError::from(e),
+            })?;
+        let pre_ready_doc_count = self
+            .attachment_repo
+            .count_ready_documents(&conn, &scope, chat_id)
+            .await
+            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
+        let pre_ci_file_ids = self
+            .attachment_repo
+            .get_code_interpreter_file_ids(&conn, &scope, chat_id)
+            .await
+            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
 
         // ── Preflight quota evaluate ────────────────────────────────────
         let selected_model = model;
@@ -1189,8 +1258,9 @@ impl<
                 selected_model: selected_model.clone(),
                 utf8_bytes: content.len() as u64,
                 num_images: 0,
-                tools_enabled: false,
+                tools_enabled: pre_ready_doc_count > 0,
                 web_search_enabled,
+                code_interpreter_enabled: !pre_ci_file_ids.is_empty(),
                 max_output_tokens_cap: self.streaming_config.max_output_tokens,
             })
             .await
@@ -1211,6 +1281,7 @@ impl<
 
         let period_starts = computed.periods.clone();
         let file_search_disabled = computed.kill_switches.disable_file_search;
+        let disable_code_interpreter = computed.kill_switches.disable_code_interpreter;
 
         // ── Write quota reserves ────────────────────────────────────────
         let quota_repo = Arc::clone(&self.quota.repo);
@@ -1262,17 +1333,7 @@ impl<
         }
 
         // ── Retrieval mode determination ──
-        let conn = self
-            .db
-            .conn()
-            .map_err(|e| StreamError::TurnCreationFailed {
-                source: DomainError::from(e),
-            })?;
-        let ready_doc_count = self
-            .attachment_repo
-            .count_ready_documents(&conn, &scope, chat_id)
-            .await
-            .map_err(|e| StreamError::TurnCreationFailed { source: e })?;
+        let ready_doc_count = pre_ready_doc_count;
 
         let retrieval_mode = crate::domain::retrieval::determine_retrieval_mode(
             file_search_disabled,
@@ -1315,6 +1376,15 @@ impl<
             std::collections::HashMap::new()
         };
 
+        // ── Code interpreter file IDs ──
+        let (ci_file_ids, code_interpreter_enabled) =
+            if pf.tool_support.code_interpreter && !disable_code_interpreter {
+                let enabled = !pre_ci_file_ids.is_empty();
+                (pre_ci_file_ids, enabled)
+            } else {
+                (Vec::new(), false)
+            };
+
         // ── Build finalization context + resolve provider + spawn ────────
         let message_id = Uuid::new_v4();
 
@@ -1352,6 +1422,7 @@ impl<
             budgets: pf.estimation_budgets,
             tools_enabled: file_search_enabled,
             web_search_enabled,
+            code_interpreter_enabled,
         });
         let assembled = self
             .gather_context(
@@ -1366,6 +1437,7 @@ impl<
                 None, // file_search_filters: wired by P4-6
                 self.streaming_config.web_search_context_size,
                 pf.max_retrieved_chunks_per_turn,
+                ci_file_ids,
                 token_budget,
             )
             .await?;
@@ -1377,9 +1449,10 @@ impl<
             .map_err(|e| StreamError::TurnCreationFailed {
                 source: DomainError::internal(format!("provider resolution: {e}")),
             })?;
+        let effective_provider_model_id = pf.effective_provider_model_id.clone();
         let api_path = resolved_provider
             .api_path
-            .replace("{model}", &provider_model_id);
+            .replace("{model}", &effective_provider_model_id);
         let proxy_path = format!("{}{api_path}", resolved_provider.upstream_alias);
 
         emit_stream_started(&tx, request_id, message_id).await;
@@ -1392,7 +1465,7 @@ impl<
             assembled.system_instructions,
             assembled.tools,
             pf.effective_model,
-            provider_model_id,
+            effective_provider_model_id,
             pf.max_output_tokens_applied.cast_unsigned(),
             pf.max_tool_calls,
             self.quota.web_search_max_calls_per_message(),
@@ -1486,9 +1559,20 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
         if let Some(instructions) = system_instructions {
             builder = builder.system_instructions(instructions);
         }
+        let feature = determine_feature(&tools);
         for tool in tools {
             builder = builder.tool(tool);
         }
+        let metadata = RequestMetadata {
+            tenant_id: ctx.subject_tenant_id().to_string(),
+            user_id: ctx.subject_id().to_string(),
+            chat_id: fin_ctx
+                .as_ref()
+                .map_or_else(String::new, |f| f.chat_id.to_string()),
+            request_type: RequestType::Chat,
+            feature,
+        };
+        builder = builder.metadata(metadata);
         let request = builder.build_streaming();
 
         // Call the provider to start streaming
@@ -2900,6 +2984,14 @@ mod tests {
             context_window: 128_000,
             max_file_size_mb: 25,
             system_prompt: String::new(),
+            tool_support: mini_chat_sdk::ModelToolSupport {
+                web_search: false,
+                file_search: false,
+                image_generation: false,
+                code_interpreter: false,
+                computer_use: false,
+                mcp: false,
+            },
         }
     }
 
@@ -4047,6 +4139,14 @@ mod tests {
                     context_window: 128_000,
                     max_file_size_mb: 25,
                     system_prompt: String::new(),
+                    tool_support: mini_chat_sdk::ModelToolSupport {
+                        web_search: false,
+                        file_search: false,
+                        image_generation: false,
+                        code_interpreter: false,
+                        computer_use: false,
+                        mcp: false,
+                    },
                 },
                 false,
                 Vec::new(),
@@ -4087,6 +4187,277 @@ mod tests {
             "should be original selected model"
         );
         assert_eq!(done.downgrade_from.as_deref(), Some("gpt-5"));
+    }
+
+    /// 11.4: On downgrade the LLM provider receives the **downgraded** model's
+    /// `provider_model_id`, not the originally-requested premium model's.
+    ///
+    /// Regression: before `effective_provider_model_id` was added to
+    /// `PreflightDecision`, the provider always received the premium model's
+    /// provider ID even after a quota downgrade, so users got premium
+    /// responses billed at standard rates.
+    #[tokio::test]
+    async fn downgrade_sends_effective_provider_model_id_to_llm() {
+        // ── Capturing provider that records the model from LlmRequest ──
+        #[domain_model]
+        struct CapturingProvider {
+            captured_model: std::sync::Mutex<Option<String>>,
+            inner: MockProvider,
+        }
+
+        impl CapturingProvider {
+            fn new(inner: MockProvider) -> Self {
+                Self {
+                    captured_model: std::sync::Mutex::new(None),
+                    inner,
+                }
+            }
+
+            fn captured_model(&self) -> String {
+                self.captured_model
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .expect("provider was never called")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl LlmProvider for CapturingProvider {
+            async fn stream(
+                &self,
+                ctx: SecurityContext,
+                request: LlmRequest<Streaming>,
+                upstream_alias: &str,
+                cancel: CancellationToken,
+            ) -> Result<ProviderStream, LlmProviderError> {
+                *self.captured_model.lock().unwrap() = Some(request.model().to_owned());
+                self.inner
+                    .stream(ctx, request, upstream_alias, cancel)
+                    .await
+            }
+
+            async fn complete(
+                &self,
+                _ctx: SecurityContext,
+                _request: LlmRequest<NonStreaming>,
+                _upstream_alias: &str,
+            ) -> Result<ResponseResult, LlmProviderError> {
+                unimplemented!("not needed for streaming tests")
+            }
+        }
+
+        let db = mock_db_provider(inmem_db().await);
+        let tenant_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let chat_id = Uuid::new_v4();
+        insert_test_chat(&db, tenant_id, user_id, chat_id).await;
+
+        let capturing = Arc::new(CapturingProvider::new(MockProvider::completed(&["Hi"])));
+        let provider: Arc<dyn LlmProvider> = Arc::clone(&capturing) as _;
+
+        // Catalog: premium "gpt-5" (provider_model_id = "provider-gpt-5")
+        //          standard "gpt-5-mini" (provider_model_id = "provider-gpt-5-mini")
+        let catalog = vec![
+            make_catalog_entry("gpt-5", mini_chat_sdk::ModelTier::Premium),
+            make_catalog_entry("gpt-5-mini", mini_chat_sdk::ModelTier::Standard),
+        ];
+
+        // Premium limits = 0 → forces downgrade to standard
+        let limits = mini_chat_sdk::UserLimits {
+            user_id: Uuid::nil(),
+            policy_version: 1,
+            standard: mini_chat_sdk::TierLimits {
+                limit_daily_credits_micro: 100_000_000,
+                limit_monthly_credits_micro: 1_000_000_000,
+            },
+            premium: mini_chat_sdk::TierLimits {
+                limit_daily_credits_micro: 0,
+                limit_monthly_credits_micro: 0,
+            },
+        };
+        let svc = build_stream_service_with_catalog(db, provider, catalog, limits);
+
+        let ctx = test_security_ctx_with_id(tenant_id, user_id);
+        let (tx, mut rx) = mpsc::channel(32);
+        let cancel = CancellationToken::new();
+
+        // Request premium "gpt-5" with its own provider_model_id.
+        // After downgrade the provider must NOT see this ID.
+        let handle = svc
+            .run_stream(
+                ctx,
+                chat_id,
+                Uuid::new_v4(),
+                "hello".into(),
+                ResolvedModel {
+                    model_id: "gpt-5".into(),
+                    provider_model_id: "gpt-5-2025-03-26".into(),
+                    provider_id: "openai".into(),
+                    display_name: "GPT 5".into(),
+                    tier: "premium".into(),
+                    multiplier_display: "2x".into(),
+                    description: None,
+                    multimodal_capabilities: vec![],
+                    context_window: 128_000,
+                    max_file_size_mb: 25,
+                    system_prompt: String::new(),
+                    tool_support: mini_chat_sdk::ModelToolSupport {
+                        web_search: false,
+                        file_search: false,
+                        image_generation: false,
+                        code_interpreter: false,
+                        computer_use: false,
+                        mcp: false,
+                    },
+                },
+                false,
+                Vec::new(),
+                cancel,
+                tx,
+            )
+            .await
+            .expect("should succeed (downgrade, not reject)");
+
+        // Drain events
+        while let Some(ev) = rx.recv().await {
+            if ev.is_terminal() {
+                break;
+            }
+        }
+        let _outcome = handle.await.expect("task should complete");
+
+        // The provider must have received the standard model's provider_model_id,
+        // NOT the premium "gpt-5-2025-03-26" from ResolvedModel.
+        assert_eq!(
+            capturing.captured_model(),
+            "provider-gpt-5-mini",
+            "provider should receive the downgraded model's provider_model_id, \
+             not the originally-requested premium model's"
+        );
+    }
+
+    /// 11.5: When a chat has ready file-search documents, preflight must
+    /// include `tool_surcharge_tokens` in the reservation estimate.
+    ///
+    /// Regression: `tools_enabled` was hardcoded to `false`, so
+    /// `tool_surcharge_tokens` was never added to the token estimate,
+    /// under-reserving quota for chats with attachments.
+    #[tokio::test]
+    async fn preflight_includes_tool_surcharge_when_documents_present() {
+        use crate::domain::service::test_helpers::{
+            InsertTestAttachmentParams, insert_test_attachment,
+        };
+
+        // ── Run 1: baseline — no documents ──
+        let db = mock_db_provider(inmem_db().await);
+        let tenant_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let chat_id_no_docs = Uuid::new_v4();
+        insert_test_chat(&db, tenant_id, user_id, chat_id_no_docs).await;
+
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::completed(&["Hi"]));
+        let catalog = vec![make_catalog_entry(
+            "gpt-5.2",
+            mini_chat_sdk::ModelTier::Standard,
+        )];
+        let svc =
+            build_stream_service_with_catalog(db.clone(), provider, catalog, permissive_limits());
+
+        let ctx = test_security_ctx_with_id(tenant_id, user_id);
+        let (tx, mut rx) = mpsc::channel(32);
+        let cancel = CancellationToken::new();
+
+        let handle = svc
+            .run_stream(
+                ctx,
+                chat_id_no_docs,
+                Uuid::new_v4(),
+                "hello".into(),
+                test_resolved_model(),
+                false,
+                Vec::new(),
+                cancel,
+                tx,
+            )
+            .await
+            .expect("run_stream without docs should succeed");
+
+        while let Some(ev) = rx.recv().await {
+            if ev.is_terminal() {
+                break;
+            }
+        }
+        let _outcome = handle.await.expect("task should complete");
+
+        let scope = AccessScope::allow_all();
+        let conn = db.conn().unwrap();
+        let turn_repo = TurnRepo;
+        let turn_no_docs = turn_repo
+            .find_latest_turn(&conn, &scope, chat_id_no_docs)
+            .await
+            .expect("find turn")
+            .expect("turn should exist");
+        let tokens_no_docs = turn_no_docs.reserve_tokens.unwrap();
+
+        // ── Run 2: with a ready file-search document ──
+        let chat_id_with_docs = Uuid::new_v4();
+        insert_test_chat(&db, tenant_id, user_id, chat_id_with_docs).await;
+
+        insert_test_attachment(
+            &db,
+            InsertTestAttachmentParams::ready_document(tenant_id, chat_id_with_docs),
+        )
+        .await;
+
+        let provider2: Arc<dyn LlmProvider> = Arc::new(MockProvider::completed(&["Hi"]));
+        let catalog2 = vec![make_catalog_entry(
+            "gpt-5.2",
+            mini_chat_sdk::ModelTier::Standard,
+        )];
+        let svc2 =
+            build_stream_service_with_catalog(db.clone(), provider2, catalog2, permissive_limits());
+
+        let ctx2 = test_security_ctx_with_id(tenant_id, user_id);
+        let (tx2, mut rx2) = mpsc::channel(32);
+        let cancel2 = CancellationToken::new();
+
+        let handle2 = svc2
+            .run_stream(
+                ctx2,
+                chat_id_with_docs,
+                Uuid::new_v4(),
+                "hello".into(),
+                test_resolved_model(),
+                false,
+                Vec::new(),
+                cancel2,
+                tx2,
+            )
+            .await
+            .expect("run_stream with docs should succeed");
+
+        while let Some(ev) = rx2.recv().await {
+            if ev.is_terminal() {
+                break;
+            }
+        }
+        let _outcome2 = handle2.await.expect("task should complete");
+
+        let turn_with_docs = turn_repo
+            .find_latest_turn(&conn, &scope, chat_id_with_docs)
+            .await
+            .expect("find turn")
+            .expect("turn should exist");
+        let tokens_with_docs = turn_with_docs.reserve_tokens.unwrap();
+
+        // The default tool_surcharge_tokens is 500. With a document present,
+        // reserve_tokens must be strictly higher than without.
+        assert!(
+            tokens_with_docs > tokens_no_docs,
+            "reserve_tokens with documents ({tokens_with_docs}) should exceed \
+             reserve_tokens without documents ({tokens_no_docs}) by tool_surcharge_tokens"
+        );
     }
 
     /// Non-existent chat returns `ChatNotFound`.

@@ -230,6 +230,13 @@ impl ModelResolver for MockModelResolver {
             .map(ResolvedModel::from)
             .ok_or_else(|| DomainError::model_not_found(model_id))
     }
+
+    async fn get_kill_switches(
+        &self,
+        _user_id: Uuid,
+    ) -> Result<mini_chat_sdk::KillSwitches, DomainError> {
+        Ok(mini_chat_sdk::KillSwitches::default())
+    }
 }
 
 // ── Test Helpers ──
@@ -613,6 +620,8 @@ pub struct InsertTestAttachmentParams {
     pub doc_summary: Option<String>,
     pub error_code: Option<String>,
     pub deleted_at: Option<OffsetDateTime>,
+    pub for_file_search: bool,
+    pub for_code_interpreter: bool,
 }
 
 impl InsertTestAttachmentParams {
@@ -632,6 +641,8 @@ impl InsertTestAttachmentParams {
             doc_summary: None,
             error_code: None,
             deleted_at: None,
+            for_file_search: true,
+            for_code_interpreter: false,
         }
     }
 }
@@ -653,6 +664,8 @@ pub async fn insert_test_attachment(db: &TestDb, params: InsertTestAttachmentPar
         status: Set(params.status),
         error_code: Set(params.error_code),
         attachment_kind: Set(params.kind),
+        for_file_search: Set(params.for_file_search),
+        for_code_interpreter: Set(params.for_code_interpreter),
         doc_summary: Set(params.doc_summary),
         img_thumbnail: Set(None),
         img_thumbnail_width: Set(None),

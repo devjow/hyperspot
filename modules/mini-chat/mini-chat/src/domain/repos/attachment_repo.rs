@@ -22,6 +22,8 @@ pub struct InsertAttachmentParams {
     pub size_bytes: i64,
     pub storage_backend: String,
     pub attachment_kind: String,
+    pub for_file_search: bool,
+    pub for_code_interpreter: bool,
 }
 
 /// Parameters for CAS transition `pending → uploaded`.
@@ -120,4 +122,11 @@ pub trait AttachmentRepository: Send + Sync {
         scope: &AccessScope,
         chat_id: Uuid,
     ) -> Result<HashMap<String, AttachmentRef>, DomainError>;
+    /// Returns provider file IDs for all ready `code_interpreter` attachments in a chat.
+    async fn get_code_interpreter_file_ids<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        chat_id: Uuid,
+    ) -> Result<Vec<String>, DomainError>;
 }

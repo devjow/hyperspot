@@ -11,15 +11,19 @@ Usage (from the repo root):
   python3 modules/mini-chat/scripts/smoke-test-api.py --no-sse                         # skip SSE streaming (no real API key)
   python3 modules/mini-chat/scripts/smoke-test-api.py --base-url http://host:port      # custom server address
   python3 modules/mini-chat/scripts/smoke-test-api.py --api-url-prefix /x              # custom route prefix
+  python3 modules/mini-chat/scripts/smoke-test-api.py --indexing-delay 10              # seconds to wait for provider indexing (default 5)
 """
 
 from __future__ import annotations
 
+import io
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
+import zipfile
 from typing import Any
 
 NO_SSE = "--no-sse" in sys.argv
@@ -40,6 +44,7 @@ def _parse_prefix() -> str:
 
 BASE = _parse_base_url()
 PREFIX = _parse_prefix()
+INDEXING_DELAY = int(_parse_arg("--indexing-delay", "5"))
 
 
 # -- Helpers ------------------------------------------------------------------
@@ -129,32 +134,77 @@ def multipart_upload(
     return status, parsed
 
 
-def sse_request(path: str, body: dict[str, Any]) -> tuple[list[str], str | None]:
+class SseResult:
+    """Parsed result of an SSE stream."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.msg_id: str | None = None
+        self.text: str = ""
+        self.tools: list[dict[str, Any]] = []
+        self.done_data: dict[str, Any] | None = None
+        self.has_error: bool = False
+
+    @property
+    def output(self) -> str:
+        return "\n".join(self.lines)
+
+    @property
+    def is_done(self) -> bool:
+        return self.done_data is not None
+
+
+def sse_request(path: str, body: dict[str, Any]) -> SseResult:
     """Send a POST request and read SSE events.
 
-    Returns (raw_lines, assistant_message_id | None).
+    Returns an ``SseResult`` with parsed text, tool calls, and metadata.
     """
     url = f"{BASE}{path}"
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
 
-    lines: list[str] = []
-    msg_id: str | None = None
+    result = SseResult()
+    current_event: str | None = None
+    text_parts: list[str] = []
 
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         for raw_line in resp:
             line = raw_line.decode().rstrip("\n")
-            lines.append(line)
-            if line.startswith("data:") and "message_id" in line:
-                try:
-                    payload = json.loads(line[len("data:"):].strip())
-                    if "message_id" in payload:
-                        msg_id = payload["message_id"]
-                except (json.JSONDecodeError, KeyError):
-                    pass
+            result.lines.append(line)
 
-    return lines, msg_id
+            if line.startswith("event:"):
+                current_event = line[len("event:"):].strip()
+                continue
+
+            if not line.startswith("data:"):
+                continue
+
+            payload_str = line[len("data:"):].strip()
+            try:
+                payload = json.loads(payload_str)
+            except json.JSONDecodeError:
+                continue
+
+            if current_event == "stream_started":
+                result.msg_id = payload.get("message_id")
+
+            elif current_event == "delta":
+                chunk = payload.get("content", "")
+                if chunk:
+                    text_parts.append(chunk)
+
+            elif current_event == "tool":
+                result.tools.append(payload)
+
+            elif current_event == "done":
+                result.done_data = payload
+
+            elif current_event == "error":
+                result.has_error = True
+
+    result.text = "".join(text_parts)
+    return result
 
 
 # -- Tests --------------------------------------------------------------------
@@ -238,19 +288,23 @@ def test_send_message(chat_id: str, content: str, label: str) -> str | None:
     if NO_SSE:
         skip("configure a real API key to test")
         return None
-    lines, msg_id = sse_request(
+    sse = sse_request(
         f"{PREFIX}/v1/chats/{chat_id}/messages:stream",
         {"content": content},
     )
-    output = "\n".join(lines)
-    print(output)
-    if "event: done" in output:
-        ok(f"Streamed successfully (msg_id: {msg_id})")
-    elif "event: error" in output:
+    print(sse.output)
+    print(f"  → {sse.text}")
+    if sse.tools:
+        print(f"  tools: {[t.get('name', '?') for t in sse.tools]}")
+    if sse.is_done:
+        if not sse.msg_id:
+            fail("Stream completed without stream_started.message_id")
+        ok(f"Streamed successfully (msg_id: {sse.msg_id})")
+    elif sse.has_error:
         fail("Stream returned error")
     else:
         fail("Unexpected SSE output")
-    return msg_id
+    return sse.msg_id
 
 
 def test_list_messages(chat_id: str, expected_count: int) -> list[dict[str, Any]]:
@@ -412,19 +466,21 @@ def test_send_message_with_attachment(
     if NO_SSE:
         skip("configure a real API key to test")
         return None
-    lines, msg_id = sse_request(
+    sse = sse_request(
         f"{PREFIX}/v1/chats/{chat_id}/messages:stream",
         {"content": "Summarize the attached file in one sentence.", "attachment_ids": [attachment_id]},
     )
-    output = "\n".join(lines)
-    print(output)
-    if "event: done" in output:
-        ok(f"Streamed with attachment (msg_id: {msg_id})")
-    elif "event: error" in output:
+    print(sse.output)
+    print(f"  → {sse.text}")
+    if sse.tools:
+        print(f"  tools: {[t.get('name', '?') for t in sse.tools]}")
+    if sse.is_done:
+        ok(f"Streamed with attachment (msg_id: {sse.msg_id})")
+    elif sse.has_error:
         fail("Stream returned error")
     else:
         fail("Unexpected SSE output")
-    return msg_id
+    return sse.msg_id
 
 
 def test_messages_have_attachments(chat_id: str) -> None:
@@ -446,6 +502,118 @@ def test_messages_have_attachments(chat_id: str) -> None:
     att = user_msgs_with_att[0]["attachments"][0]
     print(f"  attachment_id: {att['attachment_id']}, kind: {att['kind']}, filename: {att['filename']}")
     ok(f"Found {len(user_msgs_with_att)} user message(s) with attachments")
+
+
+def _build_minimal_xlsx() -> bytes:
+    """Create a minimal valid XLSX file (stdlib only) with a small data table."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            "</Types>",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            "</Relationships>",
+        )
+        zf.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            "</Relationships>",
+        )
+        zf.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+            ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            "<sheets>"
+            '<sheet name="Sales" sheetId="1" r:id="rId1"/>'
+            "</sheets></workbook>",
+        )
+        zf.writestr(
+            "xl/worksheets/sheet1.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            "<sheetData>"
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>Product</t></is></c>'
+            '<c r="B1" t="inlineStr"><is><t>Revenue</t></is></c></row>'
+            '<row r="2"><c r="A2" t="inlineStr"><is><t>Widget</t></is></c>'
+            '<c r="B2"><v>1500</v></c></row>'
+            '<row r="3"><c r="A3" t="inlineStr"><is><t>Gadget</t></is></c>'
+            '<c r="B3"><v>2300</v></c></row>'
+            "</sheetData></worksheet>",
+        )
+    return buf.getvalue()
+
+
+def test_upload_xlsx_attachment(chat_id: str) -> str:
+    """Upload an XLSX file and return the attachment id."""
+    bold("\n17. Upload XLSX attachment (code interpreter)")
+    content = _build_minimal_xlsx()
+    _, data = multipart_upload(
+        f"{PREFIX}/v1/chats/{chat_id}/attachments",
+        filename="sales-data.xlsx",
+        content=content,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        expect_status=201,
+    )
+    print(json.dumps(data, indent=2))
+    att_id = data["id"]
+    if not att_id:
+        fail("No attachment id returned")
+    if data["filename"] != "sales-data.xlsx":
+        fail(f"Expected filename='sales-data.xlsx', got '{data['filename']}'")
+    expected_ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if data["content_type"] != expected_ct:
+        fail(f"Expected content_type='{expected_ct}', got '{data['content_type']}'")
+    if data["kind"] != "document":
+        fail(f"Expected kind='document', got '{data['kind']}'")
+    if data["size_bytes"] != len(content):
+        fail(f"Expected size_bytes={len(content)}, got {data['size_bytes']}")
+    ok(f"Uploaded XLSX attachment: {att_id}")
+    return att_id
+
+
+def test_send_message_with_xlsx(chat_id: str, attachment_id: str) -> str | None:
+    """Send a message referencing the XLSX attachment (triggers code_interpreter)."""
+    bold("\n18. Send message with XLSX attachment (code interpreter, SSE)")
+    if NO_SSE:
+        skip("configure a real API key to test")
+        return None
+    sse = sse_request(
+        f"{PREFIX}/v1/chats/{chat_id}/messages:stream",
+        {
+            "content": "What is the total revenue? Just give me the number.",
+            "attachment_ids": [attachment_id],
+        },
+    )
+    print(sse.output)
+    print(f"  → {sse.text}")
+    tool_names = [t.get("name", "?") for t in sse.tools]
+    if tool_names:
+        print(f"  tools: {tool_names}")
+    if sse.is_done:
+        if "code_interpreter" not in tool_names:
+            fail(
+                f"Expected a code_interpreter tool event for the XLSX flow, got {tool_names}"
+            )
+        ok(f"Streamed with XLSX attachment (msg_id: {sse.msg_id})")
+    elif sse.has_error:
+        fail("Stream returned error")
+    else:
+        fail("Unexpected SSE output")
+    return sse.msg_id
 
 
 def test_delete_attachment_conflict(chat_id: str, attachment_id: str) -> None:
@@ -521,16 +689,33 @@ def main() -> None:
     test_reactions(chat_id, msg1_id)
     test_turns(chat_id, messages)
 
-    # -- Attachments --
+    # -- Attachments (file_search) --
     att_id = test_upload_attachment(chat_id)
     test_get_attachment(chat_id, att_id)
     test_upload_unsupported_type(chat_id)
+
+    # Wait for provider-side vector store indexing
+    if not NO_SSE and INDEXING_DELAY > 0:
+        print(f"\n  ⏳ Waiting {INDEXING_DELAY}s for provider-side indexing...")
+        time.sleep(INDEXING_DELAY)
+
     test_send_message_with_attachment(chat_id, att_id)
     test_messages_have_attachments(chat_id)
     test_delete_attachment_conflict(chat_id, att_id)
     test_delete_attachment(chat_id, att_id)
 
     test_delete_chat(chat_id)
+
+    # -- XLSX / Code Interpreter (separate chat to avoid tool competition) --
+    xlsx_chat_id = test_create_chat(model_id)
+    xlsx_att_id = test_upload_xlsx_attachment(xlsx_chat_id)
+
+    if not NO_SSE and INDEXING_DELAY > 0:
+        print(f"\n  ⏳ Waiting {INDEXING_DELAY}s for provider-side file upload...")
+        time.sleep(INDEXING_DELAY)
+
+    test_send_message_with_xlsx(xlsx_chat_id, xlsx_att_id)
+    test_delete_chat(xlsx_chat_id)
 
     bold("\nAll checks passed!")
 

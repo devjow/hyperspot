@@ -54,6 +54,8 @@ pub enum Feature {
     WebSearch,
     #[serde(rename = "file_search+web_search")]
     FileSearchAndWebSearch,
+    #[serde(rename = "code_interpreter")]
+    CodeInterpreter,
     #[serde(rename = "none")]
     None,
 }

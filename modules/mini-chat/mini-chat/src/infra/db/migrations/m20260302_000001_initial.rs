@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     cleanup_updated_at      TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL,
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    for_file_search         BOOLEAN NOT NULL DEFAULT false,
+    for_code_interpreter    BOOLEAN NOT NULL DEFAULT false,
     deleted_at              TIMESTAMPTZ,
     CHECK (attachment_kind IN ('document', 'image')),
     CHECK (status IN ('pending', 'uploaded', 'ready', 'failed'))
@@ -346,6 +348,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     cleanup_updated_at      TEXT,
     created_at              TEXT NOT NULL,
     updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    for_file_search         INTEGER NOT NULL DEFAULT 0,
+    for_code_interpreter    INTEGER NOT NULL DEFAULT 0,
     deleted_at              TEXT,
     CHECK (attachment_kind IN ('document', 'image')),
     CHECK (status IN ('pending', 'uploaded', 'ready', 'failed'))

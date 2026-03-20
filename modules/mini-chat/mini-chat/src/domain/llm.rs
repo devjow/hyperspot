@@ -140,6 +140,8 @@ pub enum LlmTool {
     WebSearch {
         search_context_size: WebSearchContextSize,
     },
+    /// Server-side code interpreter (provider manages Python sandbox).
+    CodeInterpreter { file_ids: Vec<String> },
     /// Generic function tool (for providers supporting function calling).
     Function {
         name: String,

@@ -1387,15 +1387,16 @@ sequenceDiagram
 
     Note over CS: Handler: resolve MIME from field headers (before body read)
     Note over CS: Handler: authz + model resolve → UploadLimits (min(ConfigMap, CCM per-model))
+    Note over CS: Service: resolve purposes from MIME, apply kill switch / capability filtering
     Note over CS: Handler: stream chunks with byte counter; abort 413 if limit exceeded
 
-    CS->>DB: Insert attachment metadata (status: pending, size_bytes=hint, attachment_kind from MIME)
+    CS->>DB: Insert attachment metadata (status: pending, size_bytes=hint, for_file_search, for_code_interpreter)
     CS->>OG: POST /outbound/llm/files (streaming multipart via OAGW SDK)
     OG->>OAI: Files API upload
     OAI-->>OG: provider_file_id
     OG-->>CS: provider_file_id
 
-    alt attachment_kind = document
+    alt purposes contain file_search AND attachment_kind = document
         CS->>OG: POST /outbound/llm/vector_stores/{chat_store}/files (add file)
         OG->>OAI: Add file to vector store
         OAI-->>OG: OK
@@ -1404,6 +1405,9 @@ sequenceDiagram
         opt Generate doc summary (background)
             CS->>CS: Enqueue doc summary task (requester_type=system)
         end
+    else purposes contain code_interpreter only
+        Note over CS: NOT added to vector store; available via<br/>code_interpreter tool_resources at stream time
+        CS->>DB: Update attachment (status: ready, provider_file_id)
     else attachment_kind = image
         Note over CS: NOT added to vector store; NOT summarized
         CS->>CS: Generate thumbnail (sync, best-effort)
@@ -1415,9 +1419,11 @@ sequenceDiagram
     AG-->>UI: 201 Created
 ```
 
-**Description**: File upload flow - the file is uploaded to the LLM provider (OpenAI or Azure OpenAI) via OAGW. The subsequent steps depend on attachment kind:
+**Description**: File upload flow - the file is uploaded to the LLM provider (OpenAI or Azure OpenAI) via OAGW. The subsequent steps depend on the attachment's resolved purposes (derived from MIME type, filtered by kill switches and model capabilities):
 
-- **Document** (`attachment_kind=document`): file is added to the chat's vector store (created on first upload), optionally summarized, and metadata is persisted locally. Status transitions: `pending` -> `ready` or `pending` -> `failed`.
+- **Document with `file_search` purpose** (most document types): file is added to the chat's vector store (created on first upload), optionally summarized, and metadata is persisted locally. Status transitions: `pending` -> `ready` or `pending` -> `failed`.
+- **Document with `code_interpreter` purpose only** (XLSX): file is uploaded to the provider via Files API but is NOT added to the vector store. It is available to the `code_interpreter` tool at stream time via `tools[].container.file_ids` in the provider request. Status transitions: `pending` -> `ready` or `pending` -> `failed`.
+- **Document with multiple purposes** (future): both the vector store indexing path and other purpose-specific paths execute independently. All matching purpose paths must succeed for the attachment to reach `ready`.
 - **Image** (`attachment_kind=image`): file is uploaded to the provider via Files API but is NOT added to the vector store and NOT summarized. After a successful provider upload, the server generates a preview thumbnail using the Rust `image` crate ([https://docs.rs/image/latest/image/](https://docs.rs/image/latest/image/)). Thumbnail generation is a synchronous step during image attachment processing (before transitioning to `ready`). The resulting thumbnail raw bytes are stored in the Mini Chat database (`attachments.img_thumbnail` BYTEA column). Status transitions: `pending` -> `ready` or `pending` -> `failed`. The image is available for multimodal input in subsequent Responses API calls via the internally stored `provider_file_id` (never exposed to clients). **Invariant**: `status=ready` implies `provider_file_id` is present AND the provider upload succeeded. If the provider file is deleted or becomes inaccessible (e.g., via cleanup), the attachment status MUST transition away from `ready` (to `failed` or be removed).
 
   **Thumbnail storage invariant**: thumbnails are stored only in Mini Chat database (`img_thumbnail` BYTEA). Thumbnails are never uploaded to or stored in provider Files API or external object storage in P1. Only the original image is uploaded to the provider.
@@ -1439,7 +1445,7 @@ sequenceDiagram
   | `thumbnail_max_pixels` | integer | 100000000 | Maximum source image pixel count (`width * height`) before skipping thumbnail generation (pre-screening heuristic) |
   | `thumbnail_max_decode_bytes` | integer | 33554432 | Maximum bytes the image decoder may consume before aborting (32 MiB). Security boundary against pixel-bomb attacks where malformed images advertise small header dimensions but expand to gigabytes on decode. |
 
-Attachment kind is derived from `content_type`: MIME types matching `image/png`, `image/jpeg`, or `image/webp` are classified as `image`; all other supported types are classified as `document`.
+Attachment kind is derived from `content_type`: MIME types matching `image/png`, `image/jpeg`, `image/webp`, or `image/gif` are classified as `image`; all other supported types are classified as `document`. Attachment purpose is derived from the validated MIME type: XLSX → `for_code_interpreter=true`; other document types → `for_file_search=true`; images have both flags `false` (handled as multimodal input). A single attachment may serve multiple purposes (both boolean columns can be `true`).
 
 **Attachment status polling**: After upload returns 201 with `status: pending`, the UI polls `GET /v1/chats/{id}/attachments/{attachment_id}` until the status transitions to `ready` or `failed`. `doc_summary` is server-generated asynchronously (background task, `requester_type=system`) and is null until processing completes; it is never provided by the client. `img_thumbnail` is server-generated during image upload processing; it appears only when `status=ready` and `kind=image` (null otherwise). If status is `failed`, the response includes an `error_code` field with a stable internal error code (no provider identifiers).
 
@@ -1997,7 +2003,9 @@ Soft-delete rules:
 | storage_backend | VARCHAR(32) | Internal storage routing: `azure` (default). Not exposed in public API. Does NOT store URLs. |
 | provider_file_id | VARCHAR(128) | LLM provider file ID - OpenAI `file-*` or Azure OpenAI `assistant-*` (nullable until upload completes). Internal-only; MUST NOT be exposed via any API response. |
 | status | VARCHAR(16) | `pending`, `ready`, `failed` |
-| attachment_kind | VARCHAR(16) | `document` or `image`. Derived from `content_type` on INSERT: MIME types `image/png`, `image/jpeg`, `image/webp` -> `image`; all others -> `document`. Stored explicitly for efficient query filtering. |
+| attachment_kind | VARCHAR(16) | `document` or `image`. Derived from `content_type` on INSERT: MIME types `image/png`, `image/jpeg`, `image/webp`, `image/gif` -> `image`; all others -> `document`. Stored explicitly for efficient query filtering. |
+| for_file_search | BOOLEAN | `true` when the attachment is routed for `file_search` processing. Derived from MIME type on INSERT. Actual indexing state is tracked by `status` and the vector-store linkage. Default `false`. |
+| for_code_interpreter | BOOLEAN | `true` when the attachment is routed for `code_interpreter` usage. Derived from MIME type on INSERT. Default `false`. |
 | doc_summary | TEXT | LLM-generated document summary (nullable; always NULL for `attachment_kind=image`) |
 | img_thumbnail | BYTEA | Server-generated preview thumbnail raw bytes (nullable; always NULL for `attachment_kind=document`). Stored as WebP. Maximum decoded size: `thumbnail_max_bytes` (default 131072 / 128 KiB). Stored only in this database; never uploaded to provider. |
 | img_thumbnail_width | INTEGER | Thumbnail width in pixels (nullable) |
@@ -2885,6 +2893,30 @@ Once document attachments exist, the backend includes the `file_search` tool on 
 **P1 constraint**: the backend MUST NOT infer document references from free-form user text. All attachment association is via `attachment_ids`, resolved to `attachment_id` values by the UI before the request is sent.
 
 Limits: per-turn file_search tool call limit is configurable per deployment (default: 2); max calls per day/user tracked in `quota_usage`.
+
+### Code Interpreter Tool Availability
+
+- [ ] `p1` - **ID**: `cpt-cf-mini-chat-design-code-interpreter`
+
+The `code_interpreter` tool is included in the Responses API request when the chat contains at least one ready attachment with `for_code_interpreter = true`. The backend queries for code interpreter file IDs via `attachments WHERE chat_id = :chat_id AND for_code_interpreter = true AND status = 'ready' AND deleted_at IS NULL` (under normal tenant access scope) and passes them as `tools[].container.file_ids` in the provider request.
+
+**Purpose routing and multi-purpose model**: Each attachment's purpose is derived from its MIME type by the domain-layer `resolve_purposes()` function and persisted as two boolean columns (`for_file_search`, `for_code_interpreter`) on the `attachments` row. Current assignments:
+
+| MIME type | `for_file_search` | `for_code_interpreter` | Vector store | Code interpreter |
+|-----------|-------------------|------------------------|--------------|------------------|
+| `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (XLSX) | `false` | `true` | No | Yes |
+| Other document types | `true` | `false` | Yes | No |
+| Image types | `false` | `false` | No | No |
+
+A single attachment may serve multiple purposes (both flags `true`). The upload flow executes all purpose-specific paths independently: vector store indexing for `for_file_search`, no additional upload step for `for_code_interpreter` (the file is already available to the tool via its `provider_file_id`).
+
+**Kill switch**: `disable_code_interpreter` (see B.2.3 Kill switches). When active:
+
+- Attachments where `for_code_interpreter` would be the only purpose are rejected at upload with a validation error.
+- Attachments with additional purposes have `for_code_interpreter` set to `false`; the upload proceeds with remaining purposes.
+- The `code_interpreter` tool is excluded from Responses API requests regardless of existing ready attachments.
+
+**Model capability gating**: If the effective model's `tool_support.code_interpreter` is `false`, the same filtering applies at upload time. At stream time, the tool is not included in the request.
 
 ### Web Search Configuration
 
@@ -6351,7 +6383,8 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
     "kill_switches": {
       "disable_web_search": false,
       "disable_file_search": false,
-      "disable_images": false
+      "disable_images": false,
+      "disable_code_interpreter": false
     }
   }
 }
@@ -6584,6 +6617,7 @@ All fields below are per-model entries inside the catalog.
 | `disable_web_search` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_web_search` |
 | `disable_file_search` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_file_search` |
 | `disable_images` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_images` |
+| `disable_code_interpreter` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_code_interpreter` |
 | `disable_premium_tier` | `bool` | — | **n/a** | Not present in current CCM API; design-only |
 | `force_standard_tier` | `bool` | — | **n/a** | Not present in current CCM API; design-only |
 
@@ -6700,6 +6734,10 @@ Estimation budgets are embedded **per-model** in the policy snapshot catalog. Ea
 The handler resolves the effective limit before streaming body bytes. If the CCM snapshot is unavailable, the system falls back to ConfigMap-only limits (safe — ConfigMap is always ≥ CCM).
 
 **Streaming upload**: The upload endpoint uses streaming multipart ingestion (`field.chunk()` loop) with incremental byte counting. Oversize files are rejected mid-stream with HTTP 413 (`file_too_large`) without buffering the full body. An Axum `DefaultBodyLimit` layer (25 MiB + 64 KiB overhead) acts as a coarse outer guard on the upload route, overriding the API gateway's default 16 MiB limit.
+
+| `disable_code_interpreter` (kill switch) | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_code_interpreter` |
+
+Note: per-model `max_file_size_mb` is available from **CCM API**: `GET /policies/{v}` → `snapshot.model_catalog[].general_config.max_file_size_mb`. Per-model `tool_support.code_interpreter` is available from `snapshot.model_catalog[].general_config.tool_support.code_interpreter`.
 
 ## B.9 Background workers
 

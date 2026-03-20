@@ -153,6 +153,14 @@ impl ModelResolver for ModelPolicyGateway {
             .map(ResolvedModel::from)
             .ok_or_else(|| DomainError::model_not_found(model_id))
     }
+
+    async fn get_kill_switches(
+        &self,
+        user_id: Uuid,
+    ) -> Result<mini_chat_sdk::KillSwitches, DomainError> {
+        let snapshot = self.current_snapshot(user_id).await?;
+        Ok(snapshot.kill_switches)
+    }
 }
 
 #[async_trait]

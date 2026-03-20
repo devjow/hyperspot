@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::config::RagConfig;
 use crate::domain::error::DomainError;
-use crate::domain::mime_validation::AttachmentKind;
+use crate::domain::mime_validation::{AttachmentKind, AttachmentPurpose};
 use crate::domain::ports::MiniChatMetricsPort;
 use crate::domain::ports::metric_labels::{kind as kind_label, upload_result};
 use crate::domain::ports::{
@@ -68,6 +68,18 @@ pub struct UploadLimits {
     pub max_image_bytes: u64,
 }
 
+/// Code interpreter availability for uploads.
+#[domain_model]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeInterpreterStatus {
+    /// Model supports CI and kill switch is off.
+    Allowed,
+    /// Model does not support CI or kill switch is on.
+    Denied,
+    /// Model resolution failed transiently — cannot determine CI support.
+    Unknown,
+}
+
 /// Pre-resolved context returned by `get_upload_context` so that
 /// `upload_file` can skip the duplicate authz + model resolution.
 #[domain_model]
@@ -78,6 +90,10 @@ pub struct UploadContext {
     pub limits: UploadLimits,
     /// Whether `text/csv` uploads should be remapped to `text/plain`.
     pub allow_csv_upload: bool,
+    /// Whether the resolved model supports `code_interpreter` and the kill
+    /// switch is not active. Pre-resolved to avoid duplicate model lookups.
+    /// `Unknown` when model resolution failed transiently.
+    pub code_interpreter_status: CodeInterpreterStatus,
 }
 
 // ── Error helpers for transaction boundary crossing ─────────────────────
@@ -214,33 +230,12 @@ impl<
         let config_image_bytes = u64::from(self.rag_config.uploaded_image_max_size_kb) * 1024;
 
         // CCM per-model limit (best-effort — fall back to ConfigMap on failure).
-        let (provider_id, storage_backend, ccm_bytes) = match self
-            .model_resolver
-            .resolve_model(ctx.subject_id(), Some(chat.model))
-            .await
-        {
-            Ok(resolved) => {
-                let backend = self
-                    .provider_resolver
-                    .resolve_storage_backend(&resolved.provider_id);
-                let ccm = u64::from(resolved.max_file_size_mb) * 1_048_576;
-                (resolved.provider_id, backend, Some(ccm))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    chat_id = %chat_id,
-                    error = %e,
-                    "model resolution failed for upload limits; using ConfigMap only"
-                );
-                // Fall back: use first configured provider as best guess.
-                // upload_file will re-attempt model resolution anyway.
-                let fallback_provider = "openai".to_owned();
-                let backend = self
-                    .provider_resolver
-                    .resolve_storage_backend(&fallback_provider);
-                (fallback_provider, backend, None)
-            }
-        };
+        let (provider_id, storage_backend, ccm_bytes, model_supports_ci) =
+            self.resolve_model_limits(ctx, chat_id, chat.model).await;
+
+        let code_interpreter_status = self
+            .resolve_ci_status(ctx, chat_id, model_supports_ci)
+            .await;
 
         let limits = UploadLimits {
             max_file_bytes: ccm_bytes.map_or(config_file_bytes, |ccm| config_file_bytes.min(ccm)),
@@ -254,7 +249,75 @@ impl<
             storage_backend,
             limits,
             allow_csv_upload: self.rag_config.allow_csv_upload,
+            code_interpreter_status,
         })
+    }
+
+    /// Resolve provider, storage backend, per-model byte limit, and CI support
+    /// from the model catalog. Falls back to ConfigMap-only on transient failure.
+    async fn resolve_model_limits(
+        &self,
+        ctx: &SecurityContext,
+        chat_id: Uuid,
+        model: String,
+    ) -> (String, String, Option<u64>, Option<bool>) {
+        match self
+            .model_resolver
+            .resolve_model(ctx.subject_id(), Some(model))
+            .await
+        {
+            Ok(resolved) => {
+                let backend = self
+                    .provider_resolver
+                    .resolve_storage_backend(&resolved.provider_id);
+                let ccm = u64::from(resolved.max_file_size_mb) * 1_048_576;
+                let ci = Some(resolved.tool_support.code_interpreter);
+                (resolved.provider_id, backend, Some(ccm), ci)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %chat_id,
+                    error = %e,
+                    "model resolution failed for upload limits; using ConfigMap only"
+                );
+                let fallback_provider = "openai".to_owned();
+                let backend = self
+                    .provider_resolver
+                    .resolve_storage_backend(&fallback_provider);
+                (fallback_provider, backend, None, None)
+            }
+        }
+    }
+
+    /// Determine code interpreter status from model capability and kill switch.
+    /// Fail-closed: kill switch lookup failure → `Denied`.
+    async fn resolve_ci_status(
+        &self,
+        ctx: &SecurityContext,
+        chat_id: Uuid,
+        model_supports_ci: Option<bool>,
+    ) -> CodeInterpreterStatus {
+        let disable = match self
+            .model_resolver
+            .get_kill_switches(ctx.subject_id())
+            .await
+        {
+            Ok(ks) => ks.disable_code_interpreter,
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %chat_id,
+                    error = %e,
+                    "kill-switch lookup failed; disabling code interpreter uploads"
+                );
+                return CodeInterpreterStatus::Denied;
+            }
+        };
+
+        match model_supports_ci {
+            None => CodeInterpreterStatus::Unknown,
+            Some(true) if !disable => CodeInterpreterStatus::Allowed,
+            _ => CodeInterpreterStatus::Denied,
+        }
     }
 
     /// Get attachment metadata by ID.
@@ -663,10 +726,45 @@ impl<
         let provider_id = upload_ctx.provider_id;
         let storage_backend = upload_ctx.storage_backend;
 
+        // Resolve purposes from the pre-validated MIME type.
+        let purposes = crate::domain::mime_validation::resolve_purposes(validated_mime);
+
         #[allow(clippy::cast_possible_wrap)]
         let hint_bytes = size_hint.map_or(0i64, |h| h as i64);
 
         let attachment_id = Uuid::now_v7();
+
+        // Code interpreter gating (pre-resolved in UploadContext).
+        // When CI is blocked, remove it from purposes rather than rejecting
+        // outright — the attachment may still serve other purposes (e.g.
+        // FileSearch). Only reject if no purposes remain after filtering.
+        // When CI status is Unknown (transient resolution failure), return 503
+        // so the client can retry rather than hard-rejecting the upload.
+        let purposes = if purposes.contains(&AttachmentPurpose::CodeInterpreter)
+            && upload_ctx.code_interpreter_status != CodeInterpreterStatus::Allowed
+        {
+            if upload_ctx.code_interpreter_status == CodeInterpreterStatus::Unknown {
+                return Err(DomainError::service_unavailable(
+                    "Unable to determine code interpreter support; please retry",
+                ));
+            }
+            let filtered: Vec<_> = purposes
+                .into_iter()
+                .filter(|p| *p != AttachmentPurpose::CodeInterpreter)
+                .collect();
+            if filtered.is_empty() {
+                return Err(DomainError::validation(
+                    "Code interpreter is currently unavailable",
+                ));
+            }
+            tracing::debug!(
+                %filename,
+                "CodeInterpreter purpose stripped; continuing with remaining purposes"
+            );
+            filtered
+        } else {
+            purposes
+        };
 
         let chat_scope = scope.ensure_owner(ctx.subject_id());
 
@@ -686,6 +784,8 @@ impl<
             size_bytes: hint_bytes,
             storage_backend: storage_backend.clone(),
             attachment_kind: kind_str,
+            for_file_search: purposes.contains(&AttachmentPurpose::FileSearch),
+            for_code_interpreter: purposes.contains(&AttachmentPurpose::CodeInterpreter),
         };
 
         let _row = self
@@ -826,8 +926,12 @@ impl<
             }
         }
 
-        // 5. Branch on kind
-        if is_document {
+        // 5. Execute purpose-specific paths (each fires independently).
+        // - FileSearch + document → vector store indexing
+        // - CodeInterpreter → (no extra step during upload; file is used at stream time)
+        // - Images → (no extra step; sent inline)
+        // When an attachment has multiple purposes, all matching paths execute.
+        if is_document && purposes.contains(&AttachmentPurpose::FileSearch) {
             // Get or create vector store
             let vs_id = match self
                 .get_or_create_vector_store(ctx.clone(), &scope, tenant_id, chat_id, &provider_id)

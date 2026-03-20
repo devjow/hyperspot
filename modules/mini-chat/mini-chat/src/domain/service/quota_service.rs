@@ -451,6 +451,7 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                 num_images: input.num_images,
                 tools_enabled: input.tools_enabled,
                 web_search_enabled: input.web_search_enabled,
+                code_interpreter_enabled: input.code_interpreter_enabled,
             },
             &self.estimation_budgets,
         );
@@ -649,6 +650,9 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                 web_search_surcharge_tokens: eff_entry
                                     .estimation_budgets
                                     .web_search_surcharge_tokens,
+                                code_interpreter_surcharge_tokens: eff_entry
+                                    .estimation_budgets
+                                    .code_interpreter_surcharge_tokens,
                                 minimal_generation_floor: eff_entry
                                     .estimation_budgets
                                     .minimal_generation_floor,
@@ -657,6 +661,9 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                             let preflight_decision = match decision {
                                 CascadeDecision::Allow { .. } => PreflightDecision::Allow {
                                     effective_model,
+                                    effective_provider_model_id: eff_entry
+                                        .provider_model_id
+                                        .clone(),
                                     reserve_tokens,
                                     max_output_tokens_applied,
                                     reserved_credits_micro: final_reserved,
@@ -669,6 +676,7 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                     max_retrieved_chunks_per_turn: eff_entry
                                         .max_retrieved_chunks_per_turn,
                                     max_tool_calls: eff_entry.max_tool_calls,
+                                    tool_support: eff_entry.general_config.tool_support.clone(),
                                 },
                                 CascadeDecision::Downgrade {
                                     downgrade_from,
@@ -676,6 +684,9 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                     ..
                                 } => PreflightDecision::Downgrade {
                                     effective_model,
+                                    effective_provider_model_id: eff_entry
+                                        .provider_model_id
+                                        .clone(),
                                     reserve_tokens,
                                     max_output_tokens_applied,
                                     reserved_credits_micro: final_reserved,
@@ -690,6 +701,7 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                     max_retrieved_chunks_per_turn: eff_entry
                                         .max_retrieved_chunks_per_turn,
                                     max_tool_calls: eff_entry.max_tool_calls,
+                                    tool_support: eff_entry.general_config.tool_support.clone(),
                                 },
                                 CascadeDecision::Reject => unreachable!(),
                             };
@@ -1773,6 +1785,7 @@ mod tests {
             num_images: 0,
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
             max_output_tokens_cap: 4096,
         }
     }
@@ -1972,6 +1985,7 @@ mod tests {
             image_token_budget: 2000,
             tool_surcharge_tokens: 1000,
             web_search_surcharge_tokens: 800,
+            code_interpreter_surcharge_tokens: 1000,
             minimal_generation_floor: 256,
         };
         let svc = make_test_service(Arc::clone(&db), snapshot, 1.10);
@@ -1990,6 +2004,7 @@ mod tests {
                 assert_eq!(estimation_budgets.image_token_budget, 2000);
                 assert_eq!(estimation_budgets.tool_surcharge_tokens, 1000);
                 assert_eq!(estimation_budgets.web_search_surcharge_tokens, 800);
+                assert_eq!(estimation_budgets.code_interpreter_surcharge_tokens, 1000);
                 assert_eq!(estimation_budgets.minimal_generation_floor, 256);
             }
             other => panic!("expected Allow, got {other:?}"),

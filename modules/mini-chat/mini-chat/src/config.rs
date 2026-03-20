@@ -427,6 +427,8 @@ pub struct EstimationBudgets {
     pub tool_surcharge_tokens: u32,
     #[serde(default = "default_web_surcharge")]
     pub web_search_surcharge_tokens: u32,
+    #[serde(default = "default_code_interpreter_surcharge")]
+    pub code_interpreter_surcharge_tokens: u32,
     #[serde(default = "default_min_gen_floor")]
     pub minimal_generation_floor: u32,
 }
@@ -440,6 +442,7 @@ impl Default for EstimationBudgets {
             image_token_budget: default_image_budget(),
             tool_surcharge_tokens: default_tool_surcharge(),
             web_search_surcharge_tokens: default_web_surcharge(),
+            code_interpreter_surcharge_tokens: default_code_interpreter_surcharge(),
             minimal_generation_floor: default_min_gen_floor(),
         }
     }
@@ -474,6 +477,9 @@ fn default_tool_surcharge() -> u32 {
 }
 fn default_web_surcharge() -> u32 {
     500
+}
+fn default_code_interpreter_surcharge() -> u32 {
+    1000
 }
 fn default_min_gen_floor() -> u32 {
     50

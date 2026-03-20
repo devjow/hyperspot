@@ -83,6 +83,22 @@ SCENARIOS: dict[str, Scenario] = {
             "text": "Based on docs",
         }],
     ),
+    "CODEINTERP:*": Scenario(
+        events=[
+            MockEvent("response.code_interpreter_call.in_progress", {}),
+            MockEvent("response.code_interpreter_call.interpreting", {}),
+            MockEvent("response.code_interpreter_call.completed", {
+                "outputs": [
+                    {"type": "logs", "logs": "Total: 42\nAverage: 7.0"},
+                ],
+            }),
+            MockEvent("response.output_text.delta", {"delta": "The spreadsheet "}),
+            MockEvent("response.output_text.delta", {"delta": "analysis shows "}),
+            MockEvent("response.output_text.delta", {"delta": "a total of 42."}),
+            MockEvent("response.output_text.done", {"text": "The spreadsheet analysis shows a total of 42."}),
+        ],
+        usage=Usage(input_tokens=300, output_tokens=20),
+    ),
     "Write*": Scenario(
         events=[
             MockEvent("response.output_text.delta", {"delta": "The history of "}),
@@ -170,4 +186,6 @@ def should_include_tool_event(event: MockEvent, body: dict) -> bool:
         return has_tool(body, "web_search")
     if "file_search" in et:
         return has_tool(body, "file_search")
+    if "code_interpreter" in et:
+        return has_tool(body, "code_interpreter")
     return True

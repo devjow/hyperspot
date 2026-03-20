@@ -20,6 +20,8 @@ pub struct Model {
     pub status: AttachmentStatus,
     pub error_code: Option<String>,
     pub attachment_kind: AttachmentKind,
+    pub for_file_search: bool,
+    pub for_code_interpreter: bool,
     #[sea_orm(column_type = "Text")]
     pub doc_summary: Option<String>,
     pub img_thumbnail: Option<Vec<u8>>,
