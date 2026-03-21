@@ -203,11 +203,32 @@ pub(crate) async fn upload_attachment(
     let file_stream: crate::domain::ports::FileStream =
         Box::pin(FieldStream::new(field, max_bytes));
 
-    // 8. Best-effort size_hint from Content-Length (enables aggregate check).
+    // 8b. Best-effort size_hint from Content-Length (enables aggregate check).
     let size_hint = headers
         .get(http::header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok());
+
+    // 8c. Pre-flight: reject obvious oversize uploads from Content-Length.
+    //     Content-Length includes multipart framing, so subtract the same
+    //     overhead budget used by the multer constraints (step 3).
+    //     FieldStream remains the authoritative check for borderline cases,
+    //     but this avoids a DB round-trip for clearly oversize uploads.
+    const MULTIPART_OVERHEAD: u64 = 64 * 1024;
+    if let Some(cl) = size_hint {
+        let estimated_file_bytes = cl.saturating_sub(MULTIPART_OVERHEAD);
+        if estimated_file_bytes > max_bytes {
+            let kind = if is_document { "document" } else { "image" };
+            return Err(Problem::new(
+                http::StatusCode::PAYLOAD_TOO_LARGE,
+                "file_too_large",
+                format!(
+                    "Uploaded {kind} (~{estimated_file_bytes} bytes) exceeds the {kind} size limit of {max_bytes} bytes"
+                ),
+            )
+            .with_code("file_too_large".to_owned()));
+        }
+    }
 
     // 9. Call domain service with pre-resolved context.
     let row = svc

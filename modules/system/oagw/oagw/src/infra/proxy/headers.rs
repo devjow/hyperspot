@@ -348,6 +348,39 @@ mod tests {
         assert_eq!(headers.get("x-custom").unwrap(), "keep");
     }
 
+    /// Client-supplied internal headers (including x-oagw-internal-resolved-addr)
+    /// must be stripped before service.rs injects its own values.
+    /// This prevents a malicious client from influencing upstream routing.
+    #[test]
+    fn strip_removes_spoofed_internal_context_headers() {
+        let mut headers = HeaderMap::new();
+        // Simulate a malicious client injecting all internal context headers.
+        headers.insert("x-oagw-internal-endpoint-host", "evil.com".parse().unwrap());
+        headers.insert("x-oagw-internal-endpoint-port", "9999".parse().unwrap());
+        headers.insert("x-oagw-internal-endpoint-scheme", "http".parse().unwrap());
+        headers.insert(
+            "x-oagw-internal-resolved-addr",
+            "1.2.3.4:443".parse().unwrap(),
+        );
+        headers.insert("x-oagw-internal-instance-uri", "/pwned".parse().unwrap());
+        headers.insert(
+            "x-oagw-internal-upstream-id",
+            "00000000-0000-0000-0000-000000000000".parse().unwrap(),
+        );
+        // Legitimate header that should survive.
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+
+        strip_internal_headers(&mut headers);
+
+        assert!(headers.get("x-oagw-internal-endpoint-host").is_none());
+        assert!(headers.get("x-oagw-internal-endpoint-port").is_none());
+        assert!(headers.get("x-oagw-internal-endpoint-scheme").is_none());
+        assert!(headers.get("x-oagw-internal-resolved-addr").is_none());
+        assert!(headers.get("x-oagw-internal-instance-uri").is_none());
+        assert!(headers.get("x-oagw-internal-upstream-id").is_none());
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer token");
+    }
+
     #[test]
     fn set_overwrites_existing() {
         let mut headers = HeaderMap::new();

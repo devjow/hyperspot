@@ -17,20 +17,22 @@ use tokio::sync::watch;
 
 use crate::config::TokenCacheConfig;
 use crate::domain::error::DomainError;
-use crate::domain::model::{Endpoint, PassthroughMode, PathSuffixMode, Scheme, Upstream};
+use crate::domain::model::{PassthroughMode, PathSuffixMode, Scheme, Upstream};
 use crate::domain::plugin::{
     AuthContext, GuardContext, GuardDecision, TransformErrorContext, TransformRequestContext,
     TransformResponseContext,
 };
 use crate::domain::rate_limit::RateLimiter;
-use crate::domain::services::{ControlPlaneService, DataPlaneService, EndpointSelector};
+use crate::domain::services::{
+    ControlPlaneService, DataPlaneService, EndpointSelector, SelectedEndpoint,
+};
 use crate::infra::plugin::{AuthPluginRegistry, GuardPluginRegistry, TransformPluginRegistry};
 use crate::infra::proxy::{actions, resources};
 
 use super::headers;
 use super::pingora_proxy::{
-    H_ENDPOINT_HOST, H_ENDPOINT_PORT, H_ENDPOINT_SCHEME, H_INSTANCE_URI, H_UPSTREAM_ID,
-    PingoraProxy,
+    H_ENDPOINT_HOST, H_ENDPOINT_PORT, H_ENDPOINT_SCHEME, H_INSTANCE_URI, H_RESOLVED_ADDR,
+    H_UPSTREAM_ID, PingoraProxy,
 };
 use super::{request_builder, session_bridge};
 
@@ -157,7 +159,7 @@ impl DataPlaneServiceImpl {
         upstream: &Upstream,
         req_headers: &http::HeaderMap,
         instance_uri: &str,
-    ) -> Result<Endpoint, DomainError> {
+    ) -> Result<SelectedEndpoint, DomainError> {
         let endpoints = &upstream.server.endpoints;
 
         if endpoints.is_empty() {
@@ -184,8 +186,8 @@ impl DataPlaneServiceImpl {
                 });
             }
 
-            // Find matching endpoint by host.
-            return endpoints
+            // Find matching endpoint by host (no LB — no resolved addr).
+            let endpoint = endpoints
                 .iter()
                 .find(|ep| ep.host.eq_ignore_ascii_case(target_host))
                 .cloned()
@@ -204,13 +206,23 @@ impl DataPlaneServiceImpl {
                         ),
                         instance: instance_uri.to_string(),
                     }
-                });
+                })?;
+            return Ok(SelectedEndpoint {
+                endpoint,
+                resolved_addr: None,
+            });
         }
 
         // Tier 2: Automatic selection.
         if endpoints.len() == 1 {
-            // Single-endpoint: use directly, no LB overhead.
-            return Ok(endpoints[0].clone());
+            // Single-endpoint: bypass LB. `resolved_addr` is None, so
+            // `upstream_peer` will fall back to DNS on the request path.
+            // Acceptable trade-off: single-endpoint upstreams don't benefit
+            // from health-checked LB selection anyway.
+            return Ok(SelectedEndpoint {
+                endpoint: endpoints[0].clone(),
+                resolved_addr: None,
+            });
         }
 
         // Multi-endpoint: round-robin via BackendSelector.
@@ -522,9 +534,10 @@ impl DataPlaneService for DataPlaneServiceImpl {
         }
 
         // 5a. Endpoint selection (D1 — two-tier).
-        let endpoint = self
+        let selected = self
             .select_endpoint(&upstream, &req_headers, &instance_uri)
             .await?;
+        let endpoint = &selected.endpoint;
 
         // 5b. Enforce HTTPS-only constraint (cpt-cf-oagw-constraint-https-only).
         if !self.allow_http_upstream && matches!(endpoint.scheme, Scheme::Http) {
@@ -556,7 +569,7 @@ impl DataPlaneService for DataPlaneServiceImpl {
             .map_or("/", |h| h.path.as_str());
         let remaining_suffix = path_suffix.strip_prefix(route_path).unwrap_or("");
         let url = request_builder::build_upstream_url(
-            &endpoint,
+            endpoint,
             route_path,
             remaining_suffix,
             &query_params,
@@ -582,6 +595,11 @@ impl DataPlaneService for DataPlaneServiceImpl {
         outbound_headers.insert(H_ENDPOINT_SCHEME, HeaderValue::from_static(scheme_str));
         if let Ok(v) = HeaderValue::from_str(&instance_uri) {
             outbound_headers.insert(H_INSTANCE_URI, v);
+        }
+        if let Some(addr) = selected.resolved_addr
+            && let Ok(v) = HeaderValue::from_str(&addr.to_string())
+        {
+            outbound_headers.insert(H_RESOLVED_ADDR, v);
         }
 
         let pipeline = ResponsePipelineCtx {
@@ -1161,9 +1179,16 @@ mod tests {
 
     #[async_trait]
     impl EndpointSelector for MockSelector {
-        async fn select(&self, _upstream_id: Uuid, endpoints: &[Endpoint]) -> Option<Endpoint> {
+        async fn select(
+            &self,
+            _upstream_id: Uuid,
+            endpoints: &[Endpoint],
+        ) -> Option<SelectedEndpoint> {
             let idx = self.call_count.fetch_add(1, Ordering::Relaxed) % endpoints.len();
-            Some(endpoints[idx].clone())
+            Some(SelectedEndpoint {
+                endpoint: endpoints[idx].clone(),
+                resolved_addr: None,
+            })
         }
 
         fn invalidate(&self, _upstream_id: Uuid) {}
@@ -1366,7 +1391,7 @@ mod tests {
         // after select_endpoint returns. Verify the endpoint is returned here (enforcement
         // is at a higher level).
         assert!(err.is_ok(), "select_endpoint should return the endpoint");
-        assert_eq!(err.unwrap().scheme, Scheme::Http);
+        assert_eq!(err.unwrap().endpoint.scheme, Scheme::Http);
     }
 
     // positive-2.2 (custom-header-routing): X-OAGW-Target-Host matches an endpoint.
@@ -1383,7 +1408,7 @@ mod tests {
             .select_endpoint(&upstream, &headers, "/test")
             .await
             .unwrap();
-        assert_eq!(result.host, "a.com");
+        assert_eq!(result.endpoint.host, "a.com");
         assert_eq!(selector.calls(), 0, "BackendSelector should not be called");
     }
 
@@ -1470,8 +1495,8 @@ mod tests {
             "BackendSelector should be called for multi-endpoint"
         );
         // MockSelector returns endpoints in order: [0], [1], [0], ...
-        assert_eq!(ep1.host, "a.com");
-        assert_eq!(ep2.host, "b.com");
+        assert_eq!(ep1.endpoint.host, "a.com");
+        assert_eq!(ep2.endpoint.host, "b.com");
     }
 
     // positive-1.1 (custom-header-routing): Single-endpoint bypass (no header, no BackendSelector call).
@@ -1486,7 +1511,7 @@ mod tests {
             .select_endpoint(&upstream, &headers, "/test")
             .await
             .unwrap();
-        assert_eq!(result.host, "only.com");
+        assert_eq!(result.endpoint.host, "only.com");
         assert_eq!(
             selector.calls(),
             0,
@@ -1507,7 +1532,7 @@ mod tests {
             .select_endpoint(&upstream, &headers, "/test")
             .await
             .unwrap();
-        assert_eq!(result.host, "a.com");
+        assert_eq!(result.endpoint.host, "a.com");
 
         // Invalid header not matching → UnknownTargetHost.
         let mut headers = HeaderMap::new();
