@@ -4,42 +4,40 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~`
 **HTTP Status**: 400
 **Title**: "Out of Range"
-**Context Type**: `Validation`
-**Use When**: A value is syntactically valid but outside the acceptable range (e.g., page number beyond last page, negative quantity).
+**Use When**: A value is syntactically valid but outside the acceptable range (e.g., age beyond allowed maximum, negative quantity).
 **Similar Categories**: `invalid_argument` — bad format vs valid format but out of range
-**Default Message**: "Value out of range" (FieldViolations) or the format/constraint string
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
-**Variant: FieldViolations**
-
-Violations:
-
 | Field | Type | Description |
 |-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `field_violations` | `Vec<FieldViolation>` | List of per-field out-of-range errors |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 Field violation:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `field` | `String` | Field path (e.g., `"page"`, `"quantity"`) |
+| `field` | `String` | Field path (e.g., `"age"`, `"quantity"`) |
 | `description` | `String` | Human-readable explanation |
 | `reason` | `String` | Machine-readable reason code (e.g., `OUT_OF_RANGE`) |
-
-**Variant: Format** — `{ "format": "<message>", "details": null }`
-
-**Variant: Constraint** — `{ "constraint": "<message>", "details": null }`
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, Validation};
+cf_modkit_errors::resource_error!(BookResourceError, "gts.cf.library.books.book.v1~");
 
-let err = CanonicalError::out_of_range(
-    Validation::constraint("Page 50 is beyond the last page (12)")
-);
+let err = BookResourceError::out_of_range("Page out of range")
+    .with_field_violation(
+        "page",
+        "Page 50 is beyond the last page (12)",
+        "OUT_OF_RANGE",
+    )
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -59,41 +57,18 @@ let err = CanonicalError::out_of_range(
         "title": { "const": "Out of Range" },
         "status": { "const": 400 },
         "context": {
-          "oneOf": [
-            {
-              "type": "object",
-              "required": ["field_violations"],
-              "properties": {
-                "resource_type": { "type": "string" },
-                "field_violations": {
-                  "type": "array",
-                  "items": { "$ref": "#/$defs/FieldViolation" }
-                },
-                "details": { "type": ["object", "null"] }
-              },
-              "additionalProperties": false
+          "type": "object",
+          "required": ["resource_type", "field_violations"],
+          "properties": {
+            "resource_type": { "type": "string" },
+            "resource_name": { "type": "string" },
+            "field_violations": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/FieldViolation" }
             },
-            {
-              "type": "object",
-              "required": ["format"],
-              "properties": {
-                "resource_type": { "type": "string" },
-                "format": { "type": "string" },
-                "details": { "type": ["object", "null"] }
-              },
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "required": ["constraint"],
-              "properties": {
-                "resource_type": { "type": "string" },
-                "constraint": { "type": "string" },
-                "details": { "type": ["object", "null"] }
-              },
-              "additionalProperties": false
-            }
-          ]
+            "extra": { "type": ["object", "null"] }
+          },
+          "additionalProperties": false
         }
       }
     }
@@ -120,10 +95,16 @@ let err = CanonicalError::out_of_range(
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~",
   "title": "Out of Range",
   "status": 400,
-  "detail": "Page 50 is beyond the last page (12)",
+  "detail": "Page out of range",
   "context": {
-    "resource_type": "gts.cf.core.users.user.v1~",
-    "constraint": "Page 50 is beyond the last page (12)"
+    "resource_type": "gts.cf.library.books.book.v1~",
+    "field_violations": [
+      {
+        "field": "page",
+        "description": "Page 50 is beyond the last page (12)",
+        "reason": "OUT_OF_RANGE"
+      }
+    ]
   }
 }
 ```

@@ -11,8 +11,8 @@
 //! 3. **Processor** — one long-lived task per partition reads from `outgoing`,
 //!    dispatches to the registered handler, and acks via cursor advance
 //!    (append-only — no deletes on the hot path).
-//! 4. **Reaper** — when a partition is idle, the processor bulk-deletes
-//!    processed outgoing and body rows.
+//! 4. **Vacuum** — a standalone background task (peer of the sequencer) that
+//!    garbage-collects processed outgoing and body rows across dirty partitions.
 //!
 //! # Processing modes
 //!
@@ -25,7 +25,7 @@
 //!
 //! ```ignore
 //! let handle = Outbox::builder(db)
-//!     .poll_interval(Duration::from_millis(100))
+//!     .profile(OutboxProfile::low_latency())
 //!     .queue("orders", Partitions::of(4))
 //!         .decoupled(my_handler)
 //!     .start().await?;
@@ -91,10 +91,14 @@ mod dialect;
 mod handler;
 mod manager;
 mod migrations;
-mod processor;
-mod sequencer;
+pub(crate) mod prioritizer;
+pub(crate) mod stats;
 mod strategy;
+#[doc(hidden)]
+pub mod taskward;
 mod types;
+mod validation;
+mod workers;
 
 #[cfg(test)]
 #[cfg(feature = "sqlite")]
@@ -110,6 +114,9 @@ pub use handler::{
 };
 pub use manager::{OutboxBuilder, OutboxHandle};
 pub use migrations::outbox_migrations;
-pub use types::{EnqueueMessage, OutboxError, OutboxMessageId, Partitions};
+pub use types::{
+    DecoupledConfig, EnqueueMessage, OutboxError, OutboxMessageId, OutboxProfile, Partitions,
+    WorkerTuning,
+};
 
 // Internal re-exports for tests and internal modules

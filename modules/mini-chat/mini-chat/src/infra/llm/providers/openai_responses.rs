@@ -16,12 +16,15 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
-use crate::infra::llm::request::{ContentPart as MessageContentPart, LlmTool};
+use crate::infra::llm::request::{ContentPart as MessageContentPart, FileSearchFilter, LlmTool};
 use crate::infra::llm::{
     Citation, CitationSource, ClientSseEvent, LlmProviderError, LlmRequest, NonStreaming,
     ProviderStream, RawDetail, ResponseResult, Streaming, TerminalOutcome, TextSpan, ToolPhase,
     TranslatedEvent, Usage,
 };
+
+/// Safety cap for code-interpreter log output forwarded to clients via SSE.
+const MAX_CODE_INTERPRETER_OUTPUT_CHARS: usize = 8_192;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Provider event types (internal)
@@ -43,6 +46,11 @@ enum ProviderEvent {
     },
     ResponseWebSearchCallSearching,
     ResponseWebSearchCallCompleted,
+    ResponseCodeInterpreterCallInProgress,
+    ResponseCodeInterpreterCallCompleted {
+        /// Concatenated text from all `logs` output items.
+        output: String,
+    },
     ResponseCompleted {
         response: ResponseObject,
     },
@@ -216,6 +224,22 @@ struct ResponseIncompleteData {
     reason: String,
 }
 
+/// A single output item from `response.code_interpreter_call.completed`.
+#[derive(Deserialize)]
+struct CodeInterpreterOutputItem {
+    #[serde(default, rename = "type")]
+    output_type: String,
+    /// Present when `output_type == "logs"`.
+    #[serde(default)]
+    logs: String,
+}
+
+#[derive(Deserialize)]
+struct CodeInterpreterCompletedData {
+    #[serde(default)]
+    outputs: Vec<CodeInterpreterOutputItem>,
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // FromServerEvent
 // ════════════════════════════════════════════════════════════════════════════
@@ -265,6 +289,39 @@ impl FromServerEvent for ProviderEvent {
 
             "response.web_search_call.completed" => {
                 Ok(ProviderEvent::ResponseWebSearchCallCompleted)
+            }
+
+            "response.code_interpreter_call.in_progress" => {
+                Ok(ProviderEvent::ResponseCodeInterpreterCallInProgress)
+            }
+
+            "response.code_interpreter_call.interpreting" => {
+                // Intermediate event — no client-visible update needed.
+                Ok(ProviderEvent::Unknown {
+                    event_name: event_name.to_owned(),
+                })
+            }
+
+            "response.code_interpreter_call.completed" => {
+                let data: CodeInterpreterCompletedData = serde_json::from_str(&event.data)
+                    .map_err(|e| StreamingError::ServerEventsParse {
+                        detail: format!("failed to parse code interpreter completed: {e}"),
+                    })?;
+                let mut output = data
+                    .outputs
+                    .into_iter()
+                    .filter(|o| o.output_type == "logs")
+                    .map(|o| o.logs)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if output.chars().count() > MAX_CODE_INTERPRETER_OUTPUT_CHARS {
+                    output = output
+                        .chars()
+                        .take(MAX_CODE_INTERPRETER_OUTPUT_CHARS)
+                        .collect::<String>();
+                    output.push_str("...[truncated]");
+                }
+                Ok(ProviderEvent::ResponseCodeInterpreterCallCompleted { output })
             }
 
             "response.completed" => {
@@ -384,8 +441,24 @@ fn translate_provider_event(event: &ProviderEvent, accumulated_text: &str) -> Tr
             })
         }
 
+        ProviderEvent::ResponseCodeInterpreterCallInProgress => {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase: ToolPhase::Start,
+                name: "code_interpreter",
+                details: serde_json::json!({}),
+            })
+        }
+
+        ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase: ToolPhase::Done,
+                name: "code_interpreter",
+                details: serde_json::json!({ "output": output }),
+            })
+        }
+
         ProviderEvent::ResponseCompleted { response } => {
-            let citations = extract_citations(response);
+            let citations = extract_citations(response, accumulated_text);
             let usage = Usage {
                 input_tokens: response.usage.input_tokens,
                 output_tokens: response.usage.output_tokens,
@@ -427,37 +500,53 @@ fn translate_provider_event(event: &ProviderEvent, accumulated_text: &str) -> Tr
 }
 
 /// Extract citations from a `ResponseCompleted`'s output annotations.
-fn extract_citations(response: &ResponseObject) -> Vec<Citation> {
+fn extract_citations(response: &ResponseObject, accumulated_text: &str) -> Vec<Citation> {
     let mut citations = Vec::new();
 
     for output_item in &response.output {
         for content_part in &output_item.content {
             for annotation in &content_part.annotations {
                 let citation = match annotation.r#type.as_str() {
-                    "file_citation" => Citation {
-                        source: CitationSource::File,
-                        title: annotation.title.clone(),
-                        url: None,
-                        attachment_id: annotation.file_id.clone(),
-                        snippet: annotation.text.clone().unwrap_or_default(),
-                        score: None,
-                        span: match (annotation.start_index, annotation.end_index) {
+                    "file_citation" | "url_citation" => {
+                        let snippet = annotation
+                            .text
+                            .clone()
+                            .or_else(|| {
+                                annotation.start_index.zip(annotation.end_index).and_then(
+                                    |(start, end)| {
+                                        accumulated_text.get(start..end).map(ToOwned::to_owned)
+                                    },
+                                )
+                            })
+                            .unwrap_or_default();
+                        let span = match (annotation.start_index, annotation.end_index) {
                             (Some(start), Some(end)) => Some(TextSpan { start, end }),
                             _ => None,
-                        },
-                    },
-                    "url_citation" => Citation {
-                        source: CitationSource::Web,
-                        title: annotation.title.clone(),
-                        url: annotation.url.clone(),
-                        attachment_id: None,
-                        snippet: annotation.text.clone().unwrap_or_default(),
-                        score: None,
-                        span: match (annotation.start_index, annotation.end_index) {
-                            (Some(start), Some(end)) => Some(TextSpan { start, end }),
-                            _ => None,
-                        },
-                    },
+                        };
+
+                        let is_file = annotation.r#type == "file_citation";
+                        Citation {
+                            source: if is_file {
+                                CitationSource::File
+                            } else {
+                                CitationSource::Web
+                            },
+                            title: annotation.title.clone(),
+                            url: if is_file {
+                                None
+                            } else {
+                                annotation.url.clone()
+                            },
+                            attachment_id: if is_file {
+                                annotation.file_id.clone()
+                            } else {
+                                None
+                            },
+                            snippet,
+                            score: None,
+                            span,
+                        }
+                    }
                     _ => continue,
                 };
                 citations.push(citation);
@@ -495,10 +584,15 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
                 // System messages are handled via the `instructions` field above.
                 crate::infra::llm::request::Role::System => unreachable!(),
             };
+            let is_assistant = role == "assistant";
             let content: Vec<serde_json::Value> = msg
                 .content
                 .iter()
                 .map(|part| match part {
+                    MessageContentPart::Text { text } if is_assistant => serde_json::json!({
+                        "type": "output_text",
+                        "text": text
+                    }),
                     MessageContentPart::Text { text } => serde_json::json!({
                         "type": "input_text",
                         "text": text
@@ -528,6 +622,10 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
         body["max_output_tokens"] = serde_json::json!(max_tokens);
     }
 
+    if let Some(max_calls) = request.max_tool_calls {
+        body["max_tool_calls"] = serde_json::json!(max_calls);
+    }
+
     // User field: "{tenant_id}:{user_id}"
     if let Some(ref identity) = request.user_identity {
         body["user"] = serde_json::json!(format!("{}:{}", identity.tenant_id, identity.user_id));
@@ -537,17 +635,42 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
         body["metadata"] = serde_json::to_value(metadata).unwrap_or_default();
     }
 
-    // Map tools: FileSearch → file_search, WebSearch → web_search_preview, Function → drop
+    // Map tools: FileSearch → file_search, WebSearch → web_search, Function → drop
     let tools: Vec<serde_json::Value> = request
         .tools
         .iter()
         .filter_map(|tool| match tool {
-            LlmTool::FileSearch { vector_store_ids } => Some(serde_json::json!({
-                "type": "file_search",
-                "vector_store_ids": vector_store_ids
+            LlmTool::FileSearch {
+                vector_store_ids,
+                filters,
+                max_num_results,
+            } => {
+                // Responses API uses flat format (vector_store_ids at top level),
+                // NOT nested inside a "file_search" key.
+                let mut tool = serde_json::json!({
+                    "type": "file_search",
+                    "vector_store_ids": vector_store_ids
+                });
+                if let Some(f) = filters {
+                    tool["filters"] = serialize_file_search_filter(f);
+                }
+                if let Some(n) = max_num_results {
+                    tool["max_num_results"] = serde_json::json!(n);
+                }
+                Some(tool)
+            }
+            LlmTool::WebSearch {
+                search_context_size,
+            } => Some(serde_json::json!({
+                "type": "web_search",
+                "search_context_size": search_context_size
             })),
-            LlmTool::WebSearch => Some(serde_json::json!({
-                "type": "web_search_preview"
+            LlmTool::CodeInterpreter { file_ids } => Some(serde_json::json!({
+                "type": "code_interpreter",
+                "container": {
+                    "type": "auto",
+                    "file_ids": file_ids
+                }
             })),
             LlmTool::Function { name, .. } => {
                 debug!(tool_name = %name, "Function tool not supported by Responses API, dropping");
@@ -569,6 +692,30 @@ fn build_request_body<M>(request: &LlmRequest<M>, stream: bool) -> serde_json::V
     }
 
     body
+}
+
+/// Serialize a `FileSearchFilter` to the provider's wire JSON format.
+fn serialize_file_search_filter(filter: &FileSearchFilter) -> serde_json::Value {
+    match filter {
+        FileSearchFilter::Eq { key, value } => serde_json::json!({
+            "type": "eq",
+            "key": key,
+            "value": value,
+        }),
+        FileSearchFilter::In { key, values } => serde_json::json!({
+            "type": "in",
+            "key": key,
+            "values": values,
+        }),
+        FileSearchFilter::And(filters) => serde_json::json!({
+            "type": "and",
+            "filters": filters.iter().map(serialize_file_search_filter).collect::<Vec<_>>(),
+        }),
+        FileSearchFilter::Or(filters) => serde_json::json!({
+            "type": "or",
+            "filters": filters.iter().map(serialize_file_search_filter).collect::<Vec<_>>(),
+        }),
+    }
 }
 
 /// Serialize a request body to `Body::Bytes`.
@@ -713,8 +860,6 @@ impl crate::infra::llm::LlmProvider for OpenAiResponsesProvider {
         let response_obj: ResponseObject =
             serde_json::from_slice(&bytes).map_err(|_| parse_error_response(&bytes))?;
 
-        let citations = extract_citations(&response_obj);
-
         // Extract text content from output
         let content = response_obj
             .output
@@ -724,6 +869,11 @@ impl crate::infra::llm::LlmProvider for OpenAiResponsesProvider {
             .map(|part| part.text.as_str())
             .collect::<Vec<_>>()
             .join("");
+
+        // Note: citations here contain raw provider file_ids, not mapped attachment UUIDs.
+        // The non-streaming complete() path is not used for user-facing requests; if it
+        // ever is, map_citation_ids() must be applied by the caller.
+        let citations = extract_citations(&response_obj, &content);
 
         let usage = Usage {
             input_tokens: response_obj.usage.input_tokens,
@@ -750,7 +900,8 @@ impl crate::infra::llm::LlmProvider for OpenAiResponsesProvider {
 #[allow(clippy::str_to_string)]
 mod tests {
     use super::*;
-    use crate::infra::llm::request::{Feature, RequestMetadata, RequestType};
+    use crate::domain::llm::WebSearchContextSize;
+    use crate::infra::llm::request::{FeatureFlag, RequestMetadata, RequestType};
     use crate::infra::llm::{LlmMessage, LlmProvider, LlmTool, llm_request};
 
     use std::sync::Mutex;
@@ -890,23 +1041,15 @@ mod tests {
         ) -> Result<(), ServiceGatewayError> {
             unimplemented!()
         }
-        async fn resolve_upstream(
+        async fn resolve_proxy_target(
             &self,
             _: SecurityContext,
             _: &str,
-        ) -> Result<Upstream, ServiceGatewayError> {
-            unimplemented!()
-        }
-        async fn resolve_route(
-            &self,
-            _: SecurityContext,
-            _: uuid::Uuid,
             _: &str,
             _: &str,
-        ) -> Result<Route, ServiceGatewayError> {
+        ) -> Result<(Upstream, Route), ServiceGatewayError> {
             unimplemented!()
         }
-
         async fn proxy_request(
             &self,
             _ctx: SecurityContext,
@@ -979,7 +1122,7 @@ mod tests {
                 user_id: "def".into(),
                 chat_id: "ghi".into(),
                 request_type: RequestType::Chat,
-                feature: Feature::None,
+                features: vec![],
             })
             .build_streaming();
 
@@ -1004,24 +1147,127 @@ mod tests {
         let request = llm_request("gpt-4o")
             .tool(LlmTool::FileSearch {
                 vector_store_ids: vec!["vs-123".into()],
+                filters: None,
+                max_num_results: None,
             })
             .build_streaming();
 
         let body = build_request_body(&request, true);
 
         assert_eq!(body["tools"][0]["type"], "file_search");
+        // Responses API: flat format — vector_store_ids at top level, not nested
         assert_eq!(body["tools"][0]["vector_store_ids"][0], "vs-123");
+        assert!(body["tools"][0]["filters"].is_null());
+    }
+
+    #[test]
+    fn builder_file_search_tool_with_filter() {
+        let request = llm_request("gpt-4o")
+            .tool(LlmTool::FileSearch {
+                vector_store_ids: vec!["vs-123".into()],
+                filters: Some(FileSearchFilter::Eq {
+                    key: "attachment_id".into(),
+                    value: "abc-123".into(),
+                }),
+                max_num_results: None,
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        assert_eq!(body["tools"][0]["type"], "file_search");
+        // Responses API: flat format
+        let tool = &body["tools"][0];
+        assert_eq!(tool["vector_store_ids"][0], "vs-123");
+        assert_eq!(tool["filters"]["type"], "eq");
+        assert_eq!(tool["filters"]["key"], "attachment_id");
+        assert_eq!(tool["filters"]["value"], "abc-123");
     }
 
     #[test]
     fn builder_web_search_tool() {
         let request = llm_request("gpt-4o")
-            .tool(LlmTool::WebSearch)
+            .tool(LlmTool::WebSearch {
+                search_context_size: WebSearchContextSize::Low,
+            })
             .build_streaming();
 
         let body = build_request_body(&request, true);
 
-        assert_eq!(body["tools"][0]["type"], "web_search_preview");
+        assert_eq!(body["tools"][0]["type"], "web_search");
+        assert_eq!(body["tools"][0]["search_context_size"], "low");
+    }
+
+    #[test]
+    fn builder_code_interpreter_tool() {
+        let request = llm_request("gpt-4o")
+            .tool(LlmTool::CodeInterpreter {
+                file_ids: vec!["file-abc".into(), "file-def".into()],
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        assert_eq!(body["tools"][0]["type"], "code_interpreter");
+        assert_eq!(body["tools"][0]["container"]["type"], "auto");
+        assert_eq!(body["tools"][0]["container"]["file_ids"][0], "file-abc");
+        assert_eq!(body["tools"][0]["container"]["file_ids"][1], "file-def");
+    }
+
+    #[test]
+    fn builder_max_tool_calls_and_max_num_results() {
+        let request = llm_request("gpt-4o")
+            .max_tool_calls(3)
+            .tools(vec![
+                LlmTool::FileSearch {
+                    vector_store_ids: vec!["vs-001".into()],
+                    filters: None,
+                    max_num_results: Some(10),
+                },
+                LlmTool::WebSearch {
+                    search_context_size: WebSearchContextSize::High,
+                },
+            ])
+            .message(LlmMessage::user("test"))
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        // max_tool_calls at top level
+        assert_eq!(body["max_tool_calls"], 3);
+
+        // file_search tool has max_num_results
+        assert_eq!(body["tools"][0]["type"], "file_search");
+        assert_eq!(body["tools"][0]["max_num_results"], 10);
+
+        // web_search tool has search_context_size
+        assert_eq!(body["tools"][1]["type"], "web_search");
+        assert_eq!(body["tools"][1]["search_context_size"], "high");
+    }
+
+    #[test]
+    fn builder_max_tool_calls_absent_when_not_set() {
+        let request = llm_request("gpt-4o")
+            .message(LlmMessage::user("test"))
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+        assert!(body.get("max_tool_calls").is_none());
+    }
+
+    #[test]
+    fn builder_file_search_max_num_results_absent_when_none() {
+        let request = llm_request("gpt-4o")
+            .tool(LlmTool::FileSearch {
+                vector_store_ids: vec!["vs-001".into()],
+                filters: None,
+                max_num_results: None,
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+        assert_eq!(body["tools"][0]["type"], "file_search");
+        assert!(body["tools"][0].get("max_num_results").is_none());
     }
 
     #[test]
@@ -1030,15 +1276,19 @@ mod tests {
             .tools(vec![
                 LlmTool::FileSearch {
                     vector_store_ids: vec!["vs-123".into()],
+                    filters: None,
+                    max_num_results: None,
                 },
-                LlmTool::WebSearch,
+                LlmTool::WebSearch {
+                    search_context_size: WebSearchContextSize::Low,
+                },
             ])
             .metadata(RequestMetadata {
                 tenant_id: "t1".into(),
                 user_id: "u1".into(),
                 chat_id: "c1".into(),
                 request_type: RequestType::Chat,
-                feature: Feature::FileSearchAndWebSearch,
+                features: vec![FeatureFlag::FileSearch, FeatureFlag::WebSearch],
             })
             .build_streaming();
 
@@ -1046,8 +1296,54 @@ mod tests {
 
         assert_eq!(body["tools"].as_array().unwrap().len(), 2);
         assert_eq!(body["tools"][0]["type"], "file_search");
-        assert_eq!(body["tools"][1]["type"], "web_search_preview");
+        assert_eq!(body["tools"][1]["type"], "web_search");
         assert_eq!(body["metadata"]["feature"], "file_search+web_search");
+    }
+
+    #[test]
+    fn builder_code_interpreter_feature() {
+        let request = llm_request("gpt-4o")
+            .tools(vec![LlmTool::CodeInterpreter {
+                file_ids: vec!["file-1".into()],
+            }])
+            .metadata(RequestMetadata {
+                tenant_id: "t1".into(),
+                user_id: "u1".into(),
+                chat_id: "c1".into(),
+                request_type: RequestType::Chat,
+                features: vec![FeatureFlag::CodeInterpreter],
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+        assert_eq!(body["metadata"]["feature"], "code_interpreter");
+    }
+
+    #[test]
+    fn builder_file_search_and_code_interpreter_feature() {
+        let request = llm_request("gpt-4o")
+            .tools(vec![
+                LlmTool::FileSearch {
+                    vector_store_ids: vec!["vs-123".into()],
+                    filters: None,
+                    max_num_results: None,
+                },
+                LlmTool::CodeInterpreter {
+                    file_ids: vec!["file-1".into()],
+                },
+            ])
+            .metadata(RequestMetadata {
+                tenant_id: "t1".into(),
+                user_id: "u1".into(),
+                chat_id: "c1".into(),
+                request_type: RequestType::Chat,
+                features: vec![FeatureFlag::FileSearch, FeatureFlag::CodeInterpreter],
+            })
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+        assert_eq!(body["tools"].as_array().unwrap().len(), 2);
+        assert_eq!(body["metadata"]["feature"], "file_search+code_interpreter");
     }
 
     #[test]
@@ -1202,6 +1498,74 @@ mod tests {
             result,
             ProviderEvent::ResponseWebSearchCallCompleted
         ));
+    }
+
+    #[test]
+    fn parse_code_interpreter_in_progress_event() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.in_progress".to_string()),
+            data: "{}".to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        assert!(matches!(
+            result,
+            ProviderEvent::ResponseCodeInterpreterCallInProgress
+        ));
+    }
+
+    #[test]
+    fn parse_code_interpreter_interpreting_event_is_ignored() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.interpreting".to_string()),
+            data: "{}".to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        assert!(matches!(result, ProviderEvent::Unknown { .. }));
+    }
+
+    #[test]
+    fn parse_code_interpreter_completed_event_extracts_logs() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.completed".to_string()),
+            data: r#"{"outputs":[{"type":"logs","logs":"result text"}]}"#.to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        match result {
+            ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+                assert_eq!(output, "result text");
+            }
+            _ => panic!("expected ResponseCodeInterpreterCallCompleted"),
+        }
+    }
+
+    #[test]
+    fn parse_code_interpreter_completed_event_ignores_file_outputs() {
+        let event = ServerEvent {
+            event: Some("response.code_interpreter_call.completed".to_string()),
+            data: r#"{
+                "outputs": [
+                    {"type":"files","file_id":"file-abc"},
+                    {"type":"logs","logs":"only this"},
+                    {"type":"files","file_id":"file-def"}
+                ]
+            }"#
+            .to_string(),
+            id: None,
+            retry: None,
+        };
+        let result = ProviderEvent::from_server_event(event).unwrap();
+        match result {
+            ProviderEvent::ResponseCodeInterpreterCallCompleted { output } => {
+                assert_eq!(output, "only this");
+            }
+            _ => panic!("expected ResponseCodeInterpreterCallCompleted"),
+        }
     }
 
     #[test]
@@ -1382,6 +1746,39 @@ mod tests {
     }
 
     #[test]
+    fn translate_code_interpreter_start() {
+        let event = ProviderEvent::ResponseCodeInterpreterCallInProgress;
+        let translated = translate_provider_event(&event, "");
+        match translated {
+            TranslatedEvent::Sse(ClientSseEvent::Tool { phase, name, .. }) => {
+                assert!(matches!(phase, ToolPhase::Start));
+                assert_eq!(name, "code_interpreter");
+            }
+            _ => panic!("expected Sse(Tool)"),
+        }
+    }
+
+    #[test]
+    fn translate_code_interpreter_done_with_output() {
+        let event = ProviderEvent::ResponseCodeInterpreterCallCompleted {
+            output: "42".into(),
+        };
+        let translated = translate_provider_event(&event, "");
+        match translated {
+            TranslatedEvent::Sse(ClientSseEvent::Tool {
+                phase,
+                name,
+                details,
+            }) => {
+                assert!(matches!(phase, ToolPhase::Done));
+                assert_eq!(name, "code_interpreter");
+                assert_eq!(details["output"], "42");
+            }
+            _ => panic!("expected Sse(Tool)"),
+        }
+    }
+
+    #[test]
     fn translate_completed_returns_terminal() {
         let event = ProviderEvent::ResponseCompleted {
             response: ResponseObject {
@@ -1482,7 +1879,7 @@ mod tests {
                 output_tokens: 0,
             },
         };
-        let citations = extract_citations(&response);
+        let citations = extract_citations(&response, "");
         assert_eq!(citations.len(), 1);
         assert!(matches!(citations[0].source, CitationSource::File));
         assert_eq!(citations[0].title, "Report.pdf");
@@ -1516,7 +1913,7 @@ mod tests {
                 output_tokens: 0,
             },
         };
-        let citations = extract_citations(&response);
+        let citations = extract_citations(&response, "");
         assert_eq!(citations.len(), 1);
         assert!(matches!(citations[0].source, CitationSource::Web));
         assert_eq!(citations[0].url.as_deref(), Some("https://example.com"));
@@ -1540,8 +1937,99 @@ mod tests {
                 output_tokens: 0,
             },
         };
-        let citations = extract_citations(&response);
+        let citations = extract_citations(&response, "");
         assert!(citations.is_empty());
+    }
+
+    #[test]
+    fn extract_citations_url_citation_snippet_from_text_range() {
+        let accumulated = "0123456789The capital of France is Paris.";
+        let response = ResponseObject {
+            id: "resp-1".into(),
+            output: vec![OutputItem {
+                r#type: "message".into(),
+                content: vec![ResponseContentPart {
+                    r#type: "output_text".into(),
+                    text: accumulated.into(),
+                    annotations: vec![Annotation {
+                        r#type: "url_citation".into(),
+                        title: "Wikipedia".into(),
+                        url: Some("https://en.wikipedia.org/wiki/France".into()),
+                        file_id: None,
+                        start_index: Some(10),
+                        end_index: Some(31),
+                        text: None,
+                    }],
+                }],
+            }],
+            usage: RawUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            },
+        };
+        let citations = extract_citations(&response, accumulated);
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].snippet, "The capital of France");
+    }
+
+    #[test]
+    fn extract_citations_url_citation_snippet_from_annotation_text() {
+        let response = ResponseObject {
+            id: "resp-1".into(),
+            output: vec![OutputItem {
+                r#type: "message".into(),
+                content: vec![ResponseContentPart {
+                    r#type: "output_text".into(),
+                    text: "Hello world".into(),
+                    annotations: vec![Annotation {
+                        r#type: "url_citation".into(),
+                        title: "Example".into(),
+                        url: Some("https://example.com".into()),
+                        file_id: None,
+                        start_index: Some(0),
+                        end_index: Some(5),
+                        text: Some("explicit snippet".into()),
+                    }],
+                }],
+            }],
+            usage: RawUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            },
+        };
+        let citations = extract_citations(&response, "Hello world");
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].snippet, "explicit snippet");
+    }
+
+    #[test]
+    fn extract_citations_url_citation_no_text_no_indices() {
+        let response = ResponseObject {
+            id: "resp-1".into(),
+            output: vec![OutputItem {
+                r#type: "message".into(),
+                content: vec![ResponseContentPart {
+                    r#type: "output_text".into(),
+                    text: "Hello".into(),
+                    annotations: vec![Annotation {
+                        r#type: "url_citation".into(),
+                        title: "Example".into(),
+                        url: Some("https://example.com".into()),
+                        file_id: None,
+                        start_index: None,
+                        end_index: None,
+                        text: None,
+                    }],
+                }],
+            }],
+            usage: RawUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            },
+        };
+        let citations = extract_citations(&response, "Hello");
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].snippet, "");
     }
 
     // ── Integration tests: streaming ───────────────────────────────────────
@@ -1819,8 +2307,12 @@ mod tests {
             .tools(vec![
                 LlmTool::FileSearch {
                     vector_store_ids: vec!["vs-123".into()],
+                    filters: None,
+                    max_num_results: None,
                 },
-                LlmTool::WebSearch,
+                LlmTool::WebSearch {
+                    search_context_size: WebSearchContextSize::Low,
+                },
             ])
             .user_identity("t1", "u1")
             .metadata(RequestMetadata {
@@ -1828,7 +2320,7 @@ mod tests {
                 user_id: "u1".into(),
                 chat_id: "c1".into(),
                 request_type: RequestType::Chat,
-                feature: Feature::FileSearchAndWebSearch,
+                features: vec![FeatureFlag::FileSearch, FeatureFlag::WebSearch],
             })
             .build_streaming();
 
@@ -1854,8 +2346,60 @@ mod tests {
         assert_eq!(body["input"][0]["content"][0]["text"], "Hello");
         assert_eq!(body["tools"][0]["type"], "file_search");
         assert_eq!(body["tools"][0]["vector_store_ids"][0], "vs-123");
-        assert_eq!(body["tools"][1]["type"], "web_search_preview");
+        assert_eq!(body["tools"][1]["type"], "web_search");
         assert_eq!(body["metadata"]["tenant_id"], "t1");
         assert_eq!(body["metadata"]["feature"], "file_search+web_search");
+    }
+
+    // ── P5-K4: file_search wire format (Responses API = flat) ──
+
+    #[test]
+    fn file_search_wire_format_flat() {
+        let request = llm_request("gpt-4o")
+            .message(LlmMessage::user("test"))
+            .tools(vec![LlmTool::FileSearch {
+                vector_store_ids: vec!["vs-001".into(), "vs-002".into()],
+                filters: None,
+                max_num_results: None,
+            }])
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+
+        // Responses API: flat format — vector_store_ids at top level of tool object
+        let tool = &body["tools"][0];
+        assert_eq!(tool["type"], "file_search");
+        assert_eq!(tool["vector_store_ids"][0], "vs-001");
+        assert_eq!(tool["vector_store_ids"][1], "vs-002");
+    }
+
+    // ── P5-K5: file_search wire format with filters ──
+
+    #[test]
+    fn file_search_wire_format_with_filters() {
+        let filter = FileSearchFilter::In {
+            key: "attachment_id".to_owned(),
+            values: vec!["uuid-a".to_owned(), "uuid-b".to_owned()],
+        };
+
+        let request = llm_request("gpt-4o")
+            .message(LlmMessage::user("test"))
+            .tools(vec![LlmTool::FileSearch {
+                vector_store_ids: vec!["vs-001".into()],
+                filters: Some(filter),
+                max_num_results: None,
+            }])
+            .build_streaming();
+
+        let body = build_request_body(&request, true);
+        let tool = &body["tools"][0];
+
+        assert_eq!(tool["type"], "file_search");
+        // Responses API: flat format — everything at top level
+        assert_eq!(tool["vector_store_ids"][0], "vs-001");
+        assert_eq!(tool["filters"]["type"], "in");
+        assert_eq!(tool["filters"]["key"], "attachment_id");
+        assert_eq!(tool["filters"]["values"][0], "uuid-a");
+        assert_eq!(tool["filters"]["values"][1], "uuid-b");
     }
 }

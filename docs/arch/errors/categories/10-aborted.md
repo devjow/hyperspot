@@ -4,34 +4,28 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.aborted.v1~`
 **HTTP Status**: 409
 **Title**: "Aborted"
-**Context Type**: `ErrorInfo`
 **Use When**: The operation was aborted due to a concurrency conflict (optimistic locking failure, transaction conflict). The client can retry.
 **Similar Categories**: `already_exists` — duplicate on create vs conflict on update
-**Default Message**: "Operation aborted due to concurrency conflict"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `reason` | `String` | Machine-readable reason code (e.g., `OPTIMISTIC_LOCK_FAILURE`) |
-| `domain` | `String` | Logical grouping (e.g., `"cf.oagw"`) |
-| `metadata` | `HashMap<String, String>` | Arbitrary key-value pairs for additional context |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
-## Rust Definitions and Constructor Example
+## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, ErrorInfo};
-use std::collections::HashMap;
+cf_modkit_errors::resource_error!(UpstreamResourceError, "gts.cf.oagw.upstreams.upstream.v1~");
 
-let mut metadata = HashMap::new();
-metadata.insert("expected_version".to_string(), "3".to_string());
-metadata.insert("actual_version".to_string(), "5".to_string());
-
-let err = CanonicalError::aborted(
-    ErrorInfo::new("OPTIMISTIC_LOCK_FAILURE", "cf.oagw")
-        .with_metadata(metadata)
-);
+let err = UpstreamResourceError::aborted("Operation aborted due to concurrency conflict")
+    .with_reason("OPTIMISTIC_LOCK_FAILURE")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -52,26 +46,21 @@ let err = CanonicalError::aborted(
         "status": { "const": 409 },
         "context": {
           "type": "object",
-          "required": ["reason", "domain", "metadata"],
+          "required": ["resource_type", "reason"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
+            },
+            "resource_name": {
+              "type": "string",
+              "description": "Identifier of the associated resource (set via with_resource())"
             },
             "reason": {
               "type": "string",
               "description": "Machine-readable reason code (e.g., OPTIMISTIC_LOCK_FAILURE)"
             },
-            "domain": {
-              "type": "string",
-              "description": "Logical grouping (e.g., cf.oagw)"
-            },
-            "metadata": {
-              "type": "object",
-              "additionalProperties": { "type": "string" },
-              "description": "Arbitrary key-value pairs for additional context"
-            },
-            "details": {
+            "extra": {
               "type": ["object", "null"],
               "description": "Reserved for derived GTS type extensions (p3+); absent in p1"
             }
@@ -94,12 +83,7 @@ let err = CanonicalError::aborted(
   "detail": "Operation aborted due to concurrency conflict",
   "context": {
     "resource_type": "gts.cf.oagw.upstreams.upstream.v1~",
-    "reason": "OPTIMISTIC_LOCK_FAILURE",
-    "domain": "cf.oagw",
-    "metadata": {
-      "expected_version": "3",
-      "actual_version": "5"
-    }
+    "reason": "OPTIMISTIC_LOCK_FAILURE"
   }
 }
 ```

@@ -3,7 +3,6 @@ pub mod error;
 pub mod gts;
 pub mod models;
 pub mod plugin_api;
-
 pub use audit_models::{
     AttachmentKind, AttachmentMetadata, AuditUsageTokens, LatencyMs, LicenseDecision,
     PolicyDecisions, QuotaDecision, QuotaScope, RequesterType, ToolCalls, TurnAuditEvent,
@@ -14,6 +13,7 @@ pub use error::{MiniChatAuditPluginError, MiniChatModelPolicyPluginError, Publis
 pub use gts::{MiniChatAuditPluginSpecV1, MiniChatModelPolicyPluginSpecV1};
 pub use models::{
     EstimationBudgets, KillSwitches, ModelCatalogEntry, ModelGeneralConfig, ModelPreference,
-    ModelTier, PolicySnapshot, PolicyVersionInfo, TierLimits, UsageEvent, UsageTokens, UserLimits,
+    ModelTier, ModelToolSupport, PolicySnapshot, PolicyVersionInfo, TierLimits, UsageEvent,
+    UsageTokens, UserLicenseStatus, UserLimits,
 };
 pub use plugin_api::{MiniChatAuditPluginClientV1, MiniChatModelPolicyPluginClientV1};

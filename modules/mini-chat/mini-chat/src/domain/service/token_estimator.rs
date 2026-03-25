@@ -7,12 +7,13 @@ use crate::config::EstimationBudgets;
 
 /// Input to the token estimation function.
 #[domain_model]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::struct_excessive_bools)]
 pub struct EstimationInput {
     pub utf8_bytes: u64,
     pub num_images: u32,
     pub tools_enabled: bool,
     pub web_search_enabled: bool,
+    pub code_interpreter_enabled: bool,
 }
 
 /// Result of token estimation.
@@ -56,12 +57,18 @@ pub fn estimate_tokens(input: &EstimationInput, budgets: &EstimationBudgets) -> 
     } else {
         0
     };
+    let code_interpreter_surcharge = if input.code_interpreter_enabled {
+        u64::from(budgets.code_interpreter_surcharge_tokens)
+    } else {
+        0
+    };
 
     // Step 4: totals
     let estimated_input_tokens = estimated_text_tokens
         .saturating_add(image_surcharge)
         .saturating_add(tool_surcharge)
-        .saturating_add(web_search_surcharge);
+        .saturating_add(web_search_surcharge)
+        .saturating_add(code_interpreter_surcharge);
 
     EstimationResult {
         estimated_input_tokens,
@@ -80,6 +87,7 @@ mod tests {
             image_token_budget: 1000,
             tool_surcharge_tokens: 500,
             web_search_surcharge_tokens: 500,
+            code_interpreter_surcharge_tokens: 1000,
             minimal_generation_floor: 50,
         }
     }
@@ -91,6 +99,7 @@ mod tests {
             num_images: 0,
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &default_budgets());
 
@@ -106,6 +115,7 @@ mod tests {
             num_images: 3,
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &default_budgets());
 
@@ -121,6 +131,7 @@ mod tests {
             num_images: 0,
             tools_enabled: true,
             web_search_enabled: true,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &default_budgets());
 
@@ -135,6 +146,7 @@ mod tests {
             num_images: 2,
             tools_enabled: true,
             web_search_enabled: true,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &default_budgets());
 
@@ -150,11 +162,27 @@ mod tests {
             num_images: 0,
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &default_budgets());
 
         // base = 100 (overhead only), margin: ceil(100*110/100) = 110
         assert_eq!(result.estimated_input_tokens, 110);
+    }
+
+    #[test]
+    fn code_interpreter_surcharge() {
+        let input = EstimationInput {
+            utf8_bytes: 0,
+            num_images: 0,
+            tools_enabled: false,
+            web_search_enabled: false,
+            code_interpreter_enabled: true,
+        };
+        let result = estimate_tokens(&input, &default_budgets());
+
+        // base = 100, with margin = 110, + CI 1000
+        assert_eq!(result.estimated_input_tokens, 110 + 1000);
     }
 
     #[test]
@@ -169,6 +197,7 @@ mod tests {
             num_images: 0,
             tools_enabled: false,
             web_search_enabled: false,
+            code_interpreter_enabled: false,
         };
         let result = estimate_tokens(&input, &budgets);
 

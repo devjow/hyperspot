@@ -12,15 +12,20 @@ use crate::domain::models::NewChat;
 
 use crate::domain::repos::{
     InsertAssistantMessageParams, InsertUserMessageParams, MessageRepository as MessageRepoTrait,
+    ReactionRepository as ReactionRepoTrait, UpsertReactionParams,
 };
 use crate::domain::service::test_helpers::{
-    inmem_db, mock_db_provider, mock_enforcer, mock_model_resolver, mock_thread_summary_repo,
-    test_security_ctx,
+    MockThreadSummaryRepo, inmem_db, mock_db_provider, mock_enforcer, mock_model_resolver,
+    mock_tenant_only_enforcer, mock_thread_summary_repo, test_security_ctx,
+    test_security_ctx_with_id,
 };
-use crate::infra::db::entity::attachment::{ActiveModel as AttAm, Entity as AttEntity};
+use crate::infra::db::entity::attachment::{
+    ActiveModel as AttAm, AttachmentKind, AttachmentStatus, Entity as AttEntity,
+};
 use crate::infra::db::entity::message_attachment::{ActiveModel as MaAm, Entity as MaEntity};
 use crate::infra::db::repo::chat_repo::ChatRepository as OrmChatRepository;
 use crate::infra::db::repo::message_repo::MessageRepository as OrmMessageRepository;
+use crate::infra::db::repo::reaction_repo::ReactionRepository as OrmReactionRepository;
 
 use super::MessageService;
 use crate::domain::service::ChatService;
@@ -37,7 +42,7 @@ fn limit_cfg() -> modkit_db::odata::LimitCfg {
 fn build_chat_service(
     db_provider: Arc<crate::domain::service::DbProvider>,
     chat_repo: Arc<OrmChatRepository>,
-) -> ChatService<OrmChatRepository> {
+) -> ChatService<OrmChatRepository, MockThreadSummaryRepo> {
     ChatService::new(
         db_provider,
         chat_repo,
@@ -50,9 +55,44 @@ fn build_chat_service(
 fn build_message_service(
     db_provider: Arc<crate::domain::service::DbProvider>,
     chat_repo: Arc<OrmChatRepository>,
-) -> MessageService<OrmMessageRepository, OrmChatRepository> {
+) -> MessageService<OrmMessageRepository, OrmChatRepository, OrmReactionRepository> {
     let message_repo = Arc::new(OrmMessageRepository::new(limit_cfg()));
-    MessageService::new(db_provider, message_repo, chat_repo, mock_enforcer())
+    let reaction_repo = Arc::new(OrmReactionRepository);
+    MessageService::new(
+        db_provider,
+        message_repo,
+        chat_repo,
+        reaction_repo,
+        mock_enforcer(),
+    )
+}
+
+fn build_message_service_tenant_only_authz(
+    db_provider: Arc<crate::domain::service::DbProvider>,
+    chat_repo: Arc<OrmChatRepository>,
+) -> MessageService<OrmMessageRepository, OrmChatRepository, OrmReactionRepository> {
+    let message_repo = Arc::new(OrmMessageRepository::new(limit_cfg()));
+    let reaction_repo = Arc::new(OrmReactionRepository);
+    MessageService::new(
+        db_provider,
+        message_repo,
+        chat_repo,
+        reaction_repo,
+        mock_tenant_only_enforcer(),
+    )
+}
+
+fn build_chat_service_tenant_only_authz(
+    db_provider: Arc<crate::domain::service::DbProvider>,
+    chat_repo: Arc<OrmChatRepository>,
+) -> ChatService<OrmChatRepository, MockThreadSummaryRepo> {
+    ChatService::new(
+        db_provider,
+        chat_repo,
+        mock_thread_summary_repo(),
+        mock_tenant_only_enforcer(),
+        mock_model_resolver(),
+    )
 }
 
 // ── Tests ──
@@ -134,6 +174,9 @@ async fn list_messages_returns_messages_chronologically() {
         )
         .await
         .expect("insert_user_message failed");
+
+    // Ensure distinct created_at timestamps (insert_*_message uses now_utc()).
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
 
     message_repo
         .insert_assistant_message(
@@ -500,9 +543,9 @@ async fn insert_attachment(
     db_provider: &Arc<crate::domain::service::DbProvider>,
     tenant_id: Uuid,
     chat_id: Uuid,
-    kind: &str,
+    kind: AttachmentKind,
     filename: &str,
-    status: &str,
+    status: AttachmentStatus,
     img_thumbnail: Option<(Vec<u8>, i32, i32)>,
 ) -> Uuid {
     let now = OffsetDateTime::now_utc();
@@ -521,8 +564,11 @@ async fn insert_attachment(
         size_bytes: Set(1024),
         storage_backend: Set("azure".to_owned()),
         provider_file_id: Set(None),
-        status: Set(status.to_owned()),
-        attachment_kind: Set(kind.to_owned()),
+        status: Set(status),
+        error_code: Set(None),
+        attachment_kind: Set(kind),
+        for_file_search: Set(true),
+        for_code_interpreter: Set(false),
         doc_summary: Set(None),
         img_thumbnail: Set(thumb_bytes),
         img_thumbnail_width: Set(thumb_w),
@@ -534,6 +580,7 @@ async fn insert_attachment(
         last_cleanup_error: Set(None),
         cleanup_updated_at: Set(None),
         created_at: Set(now),
+        updated_at: Set(now),
         deleted_at: Set(None),
     };
     let conn = db_provider.conn().expect("conn");
@@ -618,9 +665,9 @@ async fn list_messages_returns_attachments() {
         &db_provider,
         tenant_id,
         chat.id,
-        "document",
+        AttachmentKind::Document,
         "report.pdf",
-        "ready",
+        AttachmentStatus::Ready,
         None,
     )
     .await;
@@ -628,9 +675,9 @@ async fn list_messages_returns_attachments() {
         &db_provider,
         tenant_id,
         chat.id,
-        "image",
+        AttachmentKind::Image,
         "photo.webp",
-        "ready",
+        AttachmentStatus::Ready,
         Some((vec![0xFF, 0xD8], 120, 80)),
     )
     .await;
@@ -782,9 +829,9 @@ async fn list_messages_mixed_messages_with_and_without_attachments() {
         &db_provider,
         tenant_id,
         chat.id,
-        "document",
+        AttachmentKind::Document,
         "notes.txt",
-        "ready",
+        AttachmentStatus::Ready,
         None,
     )
     .await;
@@ -834,5 +881,174 @@ async fn list_messages_mixed_messages_with_and_without_attachments() {
     assert!(
         asst_msg.attachments.is_empty(),
         "assistant message must have no attachments"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// my_reaction integration tests
+// ════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn list_messages_returns_my_reaction() {
+    use crate::domain::models::ReactionKind;
+
+    let db = inmem_db().await;
+    let db_provider = mock_db_provider(db);
+    let chat_repo = Arc::new(OrmChatRepository::new(limit_cfg()));
+
+    let chat_svc = build_chat_service(Arc::clone(&db_provider), Arc::clone(&chat_repo));
+    let msg_svc = build_message_service(Arc::clone(&db_provider), Arc::clone(&chat_repo));
+
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let ctx = test_security_ctx_with_id(tenant_id, user_id);
+
+    let chat = chat_svc
+        .create_chat(
+            &ctx,
+            NewChat {
+                model: None,
+                title: Some("Reaction test".to_owned()),
+                is_temporary: false,
+            },
+        )
+        .await
+        .expect("create_chat");
+
+    // Insert user + assistant messages
+    let scope = AccessScope::for_tenant(tenant_id);
+    let conn = db_provider.conn().expect("conn");
+    let message_repo = OrmMessageRepository::new(limit_cfg());
+    let request_id = Uuid::new_v4();
+
+    let user_msg_id = Uuid::now_v7();
+    message_repo
+        .insert_user_message(
+            &conn,
+            &scope,
+            InsertUserMessageParams {
+                id: user_msg_id,
+                tenant_id,
+                chat_id: chat.id,
+                request_id,
+                content: "Hello".to_owned(),
+            },
+        )
+        .await
+        .expect("insert_user_message");
+
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+
+    let asst_msg_id = Uuid::now_v7();
+    message_repo
+        .insert_assistant_message(
+            &conn,
+            &scope,
+            InsertAssistantMessageParams {
+                id: asst_msg_id,
+                tenant_id,
+                chat_id: chat.id,
+                request_id,
+                content: "Hi there!".to_owned(),
+                input_tokens: Some(10),
+                output_tokens: Some(20),
+                model: Some("gpt-5.2".to_owned()),
+                provider_response_id: None,
+            },
+        )
+        .await
+        .expect("insert_assistant_message");
+
+    // Add a "like" reaction on the assistant message
+    let reaction_repo = OrmReactionRepository;
+    let reaction_scope = AccessScope::allow_all();
+    reaction_repo
+        .upsert(
+            &conn,
+            &reaction_scope,
+            UpsertReactionParams {
+                id: Uuid::now_v7(),
+                tenant_id,
+                message_id: asst_msg_id,
+                user_id,
+                reaction: ReactionKind::Like,
+            },
+        )
+        .await
+        .expect("upsert reaction");
+
+    // list_messages should return my_reaction
+    let page = msg_svc
+        .list_messages(&ctx, chat.id, &ODataQuery::default())
+        .await
+        .expect("list_messages");
+
+    assert_eq!(page.items.len(), 2);
+
+    let user_msg = page
+        .items
+        .iter()
+        .find(|m| m.id == user_msg_id)
+        .expect("user msg");
+    assert_eq!(
+        user_msg.my_reaction, None,
+        "user message should have no reaction"
+    );
+
+    let asst_msg = page
+        .items
+        .iter()
+        .find(|m| m.id == asst_msg_id)
+        .expect("asst msg");
+    assert_eq!(
+        asst_msg.my_reaction,
+        Some(ReactionKind::Like),
+        "assistant message should have Like reaction"
+    );
+}
+
+// ── Tenant-only AuthZ: user isolation via ensure_owner ──
+
+#[tokio::test]
+async fn list_messages_tenant_only_authz_cross_owner_not_found() {
+    let db = inmem_db().await;
+    let db_provider = mock_db_provider(db);
+    let chat_repo = Arc::new(OrmChatRepository::new(limit_cfg()));
+
+    let tenant_id = Uuid::new_v4();
+    let user_a = Uuid::new_v4();
+    let user_b = Uuid::new_v4();
+    let ctx_a = test_security_ctx_with_id(tenant_id, user_a);
+    let ctx_b = test_security_ctx_with_id(tenant_id, user_b);
+
+    // User A creates a chat via a tenant-only authz chat service
+    let chat_svc =
+        build_chat_service_tenant_only_authz(Arc::clone(&db_provider), Arc::clone(&chat_repo));
+    let chat = chat_svc
+        .create_chat(
+            &ctx_a,
+            NewChat {
+                model: None,
+                title: Some("User A chat".to_owned()),
+                is_temporary: false,
+            },
+        )
+        .await
+        .expect("create_chat failed");
+
+    // User B (same tenant) tries to list messages in User A's chat
+    let msg_svc =
+        build_message_service_tenant_only_authz(Arc::clone(&db_provider), Arc::clone(&chat_repo));
+    let result = msg_svc
+        .list_messages(&ctx_b, chat.id, &ODataQuery::default())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-owner list_messages must fail with tenant-only authz"
+    );
+    assert!(
+        matches!(result.unwrap_err(), DomainError::ChatNotFound { .. }),
+        "Expected ChatNotFound for cross-owner access with tenant-only authz"
     );
 }

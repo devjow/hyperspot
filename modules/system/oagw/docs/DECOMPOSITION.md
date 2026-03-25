@@ -1,5 +1,22 @@
 # Decomposition: Outbound API Gateway (OAGW)
 
+
+<!-- toc -->
+
+- [1. Overview](#1-overview)
+- [2. Entries](#2-entries)
+  - [1. Core Domain & Storage Foundation - HIGH](#1-core-domain--storage-foundation---high)
+  - [2. Upstream & Route Management - HIGH](#2-upstream--route-management---high)
+  - [3. Plugin System - HIGH](#3-plugin-system---high)
+  - [4. HTTP Proxy Engine - HIGH](#4-http-proxy-engine---high)
+  - [5. Multi-Tenant Configuration Hierarchy - MEDIUM](#5-multi-tenant-configuration-hierarchy---medium)
+  - [6. Rate Limiting & Resilience - MEDIUM](#6-rate-limiting--resilience---medium)
+  - [7. Streaming & Protocol Support - MEDIUM](#7-streaming--protocol-support---medium)
+  - [8. Observability & Security Hardening - MEDIUM](#8-observability--security-hardening---medium)
+- [3. Feature Dependencies](#3-feature-dependencies)
+
+<!-- /toc -->
+
 **Overall implementation status:**
 - [ ] `p1` - **ID**: `cpt-cf-oagw-status-overall`
 
@@ -89,7 +106,7 @@ The OAGW design is decomposed into eight features organized along functional bou
 
 - [ ] `p1` - **ID**: `cpt-cf-oagw-feature-management-api`
 
-- **Purpose**: Implement Control Plane CRUD operations for upstreams and routes with REST API handlers, validation, enable/disable semantics, alias generation, and OData query support.
+- **Purpose**: Implement Control Plane CRUD operations for upstreams and routes with REST API handlers, validation, enable/disable semantics, alias enforcement, and OData query support.
 
 - **Depends On**: `cpt-cf-oagw-feature-domain-foundation`
 
@@ -97,7 +114,7 @@ The OAGW design is decomposed into eight features organized along functional bou
   - `ControlPlaneService` CRUD operations for upstreams and routes
   - REST handlers for `/api/oagw/v1/upstreams/*` and `/api/oagw/v1/routes/*`
   - DTOs with serde and utoipa annotations
-  - Alias generation and `(tenant_id, alias)` uniqueness enforcement
+  - Alias enforcement (auto-derived for hostnames, explicit for IPs) and `(tenant_id, alias)` uniqueness enforcement
   - Enable/disable semantics with ancestor inheritance
   - OData query support (`$filter`, `$select`, `$orderby`, `$top`, `$skip`)
   - RFC 9457 Problem Details error responses

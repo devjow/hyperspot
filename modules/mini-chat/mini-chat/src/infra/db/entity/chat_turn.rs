@@ -26,6 +26,7 @@ pub struct Model {
     pub max_output_tokens_applied: Option<i32>,
     pub reserved_credits_micro: Option<i64>,
     pub policy_version_applied: Option<i64>,
+    #[sea_orm(column_type = "String(StringLen::N(1024))", nullable)]
     pub effective_model: Option<String>,
     pub minimal_generation_floor_applied: Option<i32>,
     pub deleted_at: Option<OffsetDateTime>,

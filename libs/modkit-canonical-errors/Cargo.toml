@@ -1,0 +1,31 @@
+[package]
+name = "cf-modkit-canonical-errors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "ModKit canonical error types based on Google AIP-193 error model"
+readme = "README.md"
+keywords = ["cyberfabric", "cyberfabric-modkit"]
+categories = ["rust-patterns"]
+
+[lib]
+name = "modkit_canonical_errors"
+
+[features]
+default = []
+sea-orm = ["dep:sea-orm"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sea-orm = { workspace = true, optional = true }
+
+[dev-dependencies]
+gts-id = { workspace = true }
+trybuild = { workspace = true }

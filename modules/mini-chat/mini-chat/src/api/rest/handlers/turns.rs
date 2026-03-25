@@ -155,23 +155,10 @@ async fn start_mutation_stream(
     chat_id: uuid::Uuid,
     mutation: crate::domain::service::MutationResult,
 ) -> Response {
-    let chat = match svc.chats.get_chat(&ctx, chat_id).await {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(error = %e, "failed to fetch chat for mutation stream");
-            return Problem::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal Error",
-                "An internal error occurred",
-            )
-            .into_response();
-        }
-    };
-
-    let chat_model = chat.model.clone();
+    let chat_model = mutation.chat_model.clone();
     let resolved = match svc
         .models
-        .resolve_model(ctx.subject_id(), Some(chat.model))
+        .resolve_model(ctx.subject_id(), Some(mutation.chat_model))
         .await
     {
         Ok(r) => r,
@@ -203,6 +190,8 @@ async fn start_mutation_stream(
             mutation.new_turn_id,
             mutation.user_content,
             resolved,
+            false, // web_search_enabled: retry/edit defaults to disabled
+            mutation.snapshot_boundary,
             cancel.clone(),
             tx,
         )
@@ -272,16 +261,53 @@ fn mutation_error_to_problem(err: &MutationError) -> Problem {
 
 /// Caller is expected to be within an instrumented span that carries
 /// `chat_id` and `turn_request_id` fields.
+#[allow(clippy::cognitive_complexity)]
 fn stream_error_to_response(err: &StreamError) -> Response {
     match err {
         StreamError::QuotaExhausted {
             error_code,
             http_status,
+            quota_scope,
         } => {
-            info!(error_code = %error_code, http_status = *http_status, "quota exhausted, mutation rejected");
+            info!(error_code = %error_code, http_status = *http_status, quota_scope = %quota_scope, "quota exhausted, mutation rejected");
             let status =
                 StatusCode::from_u16(*http_status).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
-            Problem::new(status, "Quota Exhausted", error_code).into_response()
+            // TODO(P2): include `quota_scope` in the response body so clients can
+            // distinguish token vs web_search quota exhaustion (DESIGN.md §5.2).
+            Problem::new(status, error_code, error_code).into_response()
+        }
+        StreamError::WebSearchDisabled => {
+            info!(
+                reason = "kill_switch",
+                "web search disabled via kill switch, mutation rejected"
+            );
+            Problem::new(
+                StatusCode::BAD_REQUEST,
+                "web_search_disabled",
+                "Web search is currently disabled",
+            )
+            .into_response()
+        }
+        StreamError::InvalidAttachment { code, message } => {
+            info!(code = %code, message = %message, "invalid attachment in request");
+            Problem::new(StatusCode::BAD_REQUEST, code, message).into_response()
+        }
+        StreamError::ContextBudgetExceeded {
+            required_tokens,
+            available_tokens,
+        } => {
+            info!(
+                required_tokens,
+                available_tokens, "context budget exceeded, request rejected"
+            );
+            Problem::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "context_budget_exceeded",
+                format!(
+                    "Context requires {required_tokens} tokens but only {available_tokens} are available"
+                ),
+            )
+            .into_response()
         }
         other => {
             warn!(error = ?other, "post-mutation stream error");

@@ -4,21 +4,23 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~`
 **HTTP Status**: 400
 **Title**: "Invalid Argument"
-**Context Type**: `Validation`
 **Use When**: The client sent an invalid request — malformed fields, bad format, or constraint violations. Independent of system state.
 **Similar Categories**: `out_of_range` — value is valid format but outside acceptable range; `failed_precondition` — request is valid but system state prevents it
+**Resource-scoped error**: yes
 **Default Message**: "Request validation failed" (FieldViolations) or the format/constraint string
 
 ## Context Schema
 
 **Variant: FieldViolations**
 
-Validation:
+InvalidArgument:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `field_violations` | `Vec<FieldViolation>` | List of per-field validation errors |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 Field violation:
 
@@ -26,29 +28,53 @@ Field violation:
 |-------|------|-------------|
 | `field` | `String` | Field path (e.g., `"email"`, `"address.zip"`) |
 | `description` | `String` | Human-readable explanation |
-| `reason` | `String` | Machine-readable reason code (`REQUIRED`, `INVALID_FORMAT`, etc.) |
+| `reason` | `String` | Machine-readable reason code (`REQUIRED`, `INVALID_EMAIL_FORMAT`, etc.) |
 
-**Variant: Format** — `{ "format": "<message>", "details": null }`
+**Variant: Format**
 
-**Variant: Constraint** — `{ "constraint": "<message>", "details": null }`
+| Field | Type | Description |
+|-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
+| `format` | `String` | Human-readable format error message |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
-## Constructor Example
+**Variant: Constraint**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
+| `constraint` | `String` | Human-readable constraint violation message |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+
+## Constructor Examples
+
+**FieldViolations** — per-field validation errors:
 
 ```rust
-use cf_modkit_errors::{CanonicalError, Validation, FieldViolation};
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
-// Field violations:
-let err = CanonicalError::invalid_argument(
-    Validation::fields(vec![
-        FieldViolation::new("email", "must be a valid email address", "INVALID_FORMAT"),
-        FieldViolation::new("age", "must be at least 18", "OUT_OF_RANGE"),
-    ])
-);
+let err = UserResourceError::invalid_argument()
+    .with_field_violation("email", "must be a valid email address", "INVALID_EMAIL_FORMAT")
+    .with_field_violation("phone", "must match E.164 format (+1234567890)", "INVALID_PHONE_FORMAT")
+    .create();
+```
 
-// Or format error:
-let err = CanonicalError::invalid_argument(
-    Validation::format("Request body must be valid JSON")
-);
+**Format** — malformed input (e.g. unparseable body):
+
+```rust
+let err = UserResourceError::invalid_argument()
+    .with_format("request body is not valid JSON")
+    .create();
+```
+
+**Constraint** — structural constraint violation:
+
+```rust
+let err = UserResourceError::invalid_argument()
+    .with_constraint("at most 10 tags allowed per resource")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -71,34 +97,37 @@ let err = CanonicalError::invalid_argument(
           "oneOf": [
             {
               "type": "object",
-              "required": ["field_violations"],
+              "required": ["resource_type", "field_violations"],
               "properties": {
                 "resource_type": { "type": "string" },
+                "resource_name": { "type": "string" },
                 "field_violations": {
                   "type": "array",
                   "items": { "$ref": "#/$defs/FieldViolation" }
                 },
-                "details": { "type": ["object", "null"] }
+                "extra": { "type": ["object", "null"] }
               },
               "additionalProperties": false
             },
             {
               "type": "object",
-              "required": ["format"],
+              "required": ["resource_type", "format"],
               "properties": {
                 "resource_type": { "type": "string" },
+                "resource_name": { "type": "string" },
                 "format": { "type": "string" },
-                "details": { "type": ["object", "null"] }
+                "extra": { "type": ["object", "null"] }
               },
               "additionalProperties": false
             },
             {
               "type": "object",
-              "required": ["constraint"],
+              "required": ["resource_type", "constraint"],
               "properties": {
                 "resource_type": { "type": "string" },
+                "resource_name": { "type": "string" },
                 "constraint": { "type": "string" },
-                "details": { "type": ["object", "null"] }
+                "extra": { "type": ["object", "null"] }
               },
               "additionalProperties": false
             }
@@ -139,9 +168,9 @@ let err = CanonicalError::invalid_argument(
         "reason": "INVALID_FORMAT"
       },
       {
-        "field": "age",
-        "description": "must be at least 18",
-        "reason": "OUT_OF_RANGE"
+        "field": "phone",
+        "description": "must match E.164 format (+1234567890)",
+        "reason": "INVALID_FORMAT"
       }
     ]
   }

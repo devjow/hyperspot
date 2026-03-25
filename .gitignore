@@ -49,3 +49,9 @@ CLAUDE.local.md
 
 # PR review runtime data (fetched from GitHub, numeric PR folders)
 .prs/[0-9]*/
+
+# E2E test credentials and venv
+testing/e2e/.env.e2e
+testing/e2e/.env.e2e.*
+testing/e2e/.venv/
+testing/e2e/logs/

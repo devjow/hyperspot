@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use modkit_db::odata::{LimitCfg, paginate_odata};
-use modkit_db::secure::{DBRunner, SecureEntityExt, secure_insert};
+use modkit_db::secure::{DBRunner, SecureEntityExt, SecureUpdateExt, secure_insert};
 use modkit_odata::{ODataQuery, Page, SortDir};
 use modkit_security::AccessScope;
+use sea_orm::prelude::Expr;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType, Order, QueryFilter, QueryOrder,
     QuerySelect, RelationTrait, Set,
@@ -16,7 +17,9 @@ use uuid::Uuid;
 
 use crate::domain::error::DomainError;
 use crate::domain::models::{AttachmentSummary, ImgThumbnail};
-use crate::domain::repos::{InsertAssistantMessageParams, InsertUserMessageParams};
+use crate::domain::repos::{
+    InsertAssistantMessageParams, InsertUserMessageParams, SnapshotBoundary,
+};
 use crate::infra::db::entity::attachment::Column as AttCol;
 use crate::infra::db::entity::message::{
     ActiveModel, Column, Entity as MessageEntity, MessageRole, Model as MessageModel,
@@ -271,6 +274,136 @@ impl crate::domain::repos::MessageRepository for MessageRepository {
         }
         Ok(map)
     }
+    async fn soft_delete_by_request_id<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        chat_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<u64, DomainError> {
+        let now = OffsetDateTime::now_utc();
+        let result = MessageEntity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(Some(now)))
+            .filter(
+                Condition::all()
+                    .add(Column::ChatId.eq(chat_id))
+                    .add(Column::RequestId.eq(request_id))
+                    .add(Column::DeletedAt.is_null()),
+            )
+            .secure()
+            .scope_with(scope)
+            .exec(runner)
+            .await?;
+        Ok(result.rows_affected)
+    }
+
+    async fn snapshot_boundary<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        chat_id: Uuid,
+    ) -> Result<Option<SnapshotBoundary>, DomainError> {
+        let row = MessageEntity::find()
+            .filter(
+                Condition::all()
+                    .add(Column::ChatId.eq(chat_id))
+                    .add(Column::RequestId.is_not_null())
+                    .add(Column::DeletedAt.is_null()),
+            )
+            .secure()
+            .scope_with(scope)
+            .order_by(Column::CreatedAt, Order::Desc)
+            .order_by(Column::Id, Order::Desc)
+            .one(runner)
+            .await?;
+        Ok(row.map(|m| SnapshotBoundary {
+            created_at: m.created_at,
+            id: m.id,
+        }))
+    }
+
+    async fn recent_for_context<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        chat_id: Uuid,
+        limit: u32,
+        boundary: Option<SnapshotBoundary>,
+    ) -> Result<Vec<MessageModel>, DomainError> {
+        let mut cond = Condition::all()
+            .add(Column::ChatId.eq(chat_id))
+            .add(Column::RequestId.is_not_null())
+            .add(Column::DeletedAt.is_null());
+
+        if let Some(b) = boundary {
+            cond = cond.add(upper_bound_filter(b));
+        }
+
+        let mut rows = MessageEntity::find()
+            .filter(cond)
+            .secure()
+            .scope_with(scope)
+            .order_by(Column::CreatedAt, Order::Desc)
+            .order_by(Column::Id, Order::Desc)
+            .limit(u64::from(limit))
+            .all(runner)
+            .await?;
+        rows.reverse();
+        Ok(rows)
+    }
+
+    async fn recent_after_boundary<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        chat_id: Uuid,
+        lower_created_at: OffsetDateTime,
+        lower_id: Uuid,
+        limit: u32,
+        boundary: Option<SnapshotBoundary>,
+    ) -> Result<Vec<MessageModel>, DomainError> {
+        // Composite cursor: (created_at, id) > (lower_created_at, lower_id)
+        let lower_filter = Condition::any()
+            .add(Column::CreatedAt.gt(lower_created_at))
+            .add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(lower_created_at))
+                    .add(Column::Id.gt(lower_id)),
+            );
+
+        let mut cond = Condition::all()
+            .add(Column::ChatId.eq(chat_id))
+            .add(Column::RequestId.is_not_null())
+            .add(Column::DeletedAt.is_null())
+            .add(lower_filter);
+
+        if let Some(b) = boundary {
+            cond = cond.add(upper_bound_filter(b));
+        }
+
+        let mut rows = MessageEntity::find()
+            .filter(cond)
+            .secure()
+            .scope_with(scope)
+            .order_by(Column::CreatedAt, Order::Desc)
+            .order_by(Column::Id, Order::Desc)
+            .limit(u64::from(limit))
+            .all(runner)
+            .await?;
+        rows.reverse();
+        Ok(rows)
+    }
+}
+
+/// Composite upper-bound filter: `(created_at, id) <= (b.created_at, b.id)`.
+fn upper_bound_filter(b: SnapshotBoundary) -> Condition {
+    Condition::any()
+        .add(Column::CreatedAt.lt(b.created_at))
+        .add(
+            Condition::all()
+                .add(Column::CreatedAt.eq(b.created_at))
+                .add(Column::Id.lte(b.id)),
+        )
 }
 
 #[cfg(test)]

@@ -93,11 +93,17 @@ pub(crate) async fn stream_message(
         }
     };
 
+    // ── Extract web search flag from DTO ───────────────────────────────
+    let web_search_enabled = body.web_search.as_ref().is_some_and(|c| c.enabled);
+
     // ── Wire up streaming pipeline ─────────────────────────────────────
     let capacity = svc.stream.channel_capacity();
     let ping_secs = svc.stream.ping_interval_secs();
     let (tx, rx) = mpsc::channel::<StreamEvent>(capacity);
     let cancel = CancellationToken::new();
+
+    // Capture tenant_id before `ctx` is moved into `run_stream`.
+    let tenant_id = ctx.subject_tenant_id();
 
     info!(model = %resolved.model_id, provider_id = %resolved.provider_id, "starting SSE stream");
 
@@ -110,6 +116,8 @@ pub(crate) async fn stream_message(
             request_id,
             body.content,
             resolved,
+            web_search_enabled,
+            body.attachment_ids,
             cancel.clone(),
             tx,
         )
@@ -117,7 +125,7 @@ pub(crate) async fn stream_message(
     {
         Ok(handle) => handle,
         Err(StreamError::Replay { turn }) => {
-            return replay_response(&svc, &selected_model, &turn, ping_secs).await;
+            return replay_response(&svc, tenant_id, &selected_model, &turn, ping_secs).await;
         }
         Err(e) => return stream_error_response(&e),
     };
@@ -176,11 +184,77 @@ fn stream_error_response(err: &StreamError) -> Response {
         StreamError::QuotaExhausted {
             error_code,
             http_status,
+            quota_scope,
         } => {
-            info!(error_code = %error_code, http_status = *http_status, "quota exhausted, request rejected");
+            info!(error_code = %error_code, http_status = *http_status, quota_scope = %quota_scope, "quota exhausted, request rejected");
             let status =
                 StatusCode::from_u16(*http_status).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
-            Problem::new(status, "Quota Exhausted", error_code).into_response()
+            // TODO(P2): include `quota_scope` in the response body so clients can
+            // distinguish token vs web_search quota exhaustion (DESIGN.md §5.2).
+            Problem::new(status, error_code, error_code).into_response()
+        }
+        StreamError::WebSearchDisabled => {
+            info!(
+                reason = "kill_switch",
+                "web search disabled via kill switch, request rejected"
+            );
+            Problem::new(
+                StatusCode::BAD_REQUEST,
+                "web_search_disabled",
+                "Web search is currently disabled",
+            )
+            .into_response()
+        }
+        StreamError::ImagesDisabled => {
+            info!(
+                reason = "kill_switch",
+                "images disabled via kill switch, request rejected"
+            );
+            Problem::new(
+                StatusCode::BAD_REQUEST,
+                "images_disabled",
+                "Image inputs are currently disabled",
+            )
+            .into_response()
+        }
+        StreamError::TooManyImages { count, max } => {
+            info!(count, max, "too many image attachments in request");
+            Problem::new(
+                StatusCode::BAD_REQUEST,
+                "too_many_images",
+                format!("Request includes {count} images, maximum is {max}"),
+            )
+            .into_response()
+        }
+        StreamError::UnsupportedMedia => {
+            info!("model does not support image input, request rejected");
+            Problem::new(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media",
+                "The selected model does not support image input",
+            )
+            .into_response()
+        }
+        StreamError::InvalidAttachment { code, message } => {
+            info!(code = %code, message = %message, "invalid attachment in request");
+            Problem::new(StatusCode::BAD_REQUEST, code, message).into_response()
+        }
+        StreamError::ContextBudgetExceeded {
+            required_tokens,
+            available_tokens,
+        } => {
+            info!(
+                required_tokens,
+                available_tokens, "context budget exceeded, request rejected"
+            );
+            Problem::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "context_budget_exceeded",
+                format!(
+                    "Context requires {required_tokens} tokens but only {available_tokens} are available"
+                ),
+            )
+            .into_response()
         }
     }
 }
@@ -191,11 +265,12 @@ fn stream_error_response(err: &StreamError) -> Response {
 /// the same `SseRelay` infrastructure as normal streaming.
 async fn replay_response(
     svc: &AppServices,
+    tenant_id: uuid::Uuid,
     selected_model: &str,
     turn: &TurnModel,
     ping_secs: u64,
 ) -> Response {
-    let scope = modkit_security::AccessScope::allow_all().tenant_only();
+    let scope = modkit_security::AccessScope::for_tenant(tenant_id);
 
     let events = match replay::replay_turn(
         &svc.db,
@@ -220,6 +295,7 @@ async fn replay_response(
 
     let (tx, rx) = mpsc::channel::<StreamEvent>(4);
     tokio::spawn(async move {
+        drop(tx.send(events.stream_started).await);
         drop(tx.send(events.delta).await);
         drop(tx.send(events.done).await);
     });
@@ -360,7 +436,7 @@ impl Stream for SseRelay {
             Poll::Pending => {
                 // No event ready — check if ping timer fired
                 if this.ping_timer.poll_tick(cx).is_ready() {
-                    // Only emit pings in Idle or Pinging phase
+                    // Only emit pings in Started or Pinging phase
                     let kind = StreamEventKind::Ping;
                     match this.phase.try_advance(kind) {
                         Ok(new_phase) => {

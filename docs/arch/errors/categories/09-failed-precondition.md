@@ -4,9 +4,9 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.failed_precondition.v1~`
 **HTTP Status**: 400
 **Title**: "Failed Precondition"
-**Context Type**: `PreconditionFailure`
 **Use When**: The request is valid but the system is not in the required state to perform it (e.g., deleting a non-empty directory, operating on a resource in the wrong lifecycle state).
 **Similar Categories**: `invalid_argument` — request itself is bad vs system state prevents it
+**Resource-scoped error**: yes
 **Default Message**: "Operation precondition not met"
 
 ## Context Schema
@@ -15,10 +15,12 @@ Precondition failure:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `violations` | `Vec<PreconditionViolation>` | List of precondition violations |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
-Precondiion violation:
+Precondition violation:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -29,19 +31,15 @@ Precondiion violation:
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, PreconditionFailure, PreconditionViolation};
+cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
 
-let err = CanonicalError::failed_precondition(
-    PreconditionFailure {
-        violations: vec![
-            PreconditionViolation {
-                type_: "STATE".to_string(),
-                subject: "tenant.users".to_string(),
-                description: "Tenant must have zero active users before deletion".to_string(),
-            }
-        ]
-    }
-);
+let err = TenantResourceError::failed_precondition()
+    .with_precondition_violation(
+        "tenant.users",
+        "Tenant must have zero active users before deletion",
+        "STATE",
+    )
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -62,17 +60,21 @@ let err = CanonicalError::failed_precondition(
         "status": { "const": 400 },
         "context": {
           "type": "object",
-          "required": ["violations"],
+          "required": ["resource_type", "violations"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
+            },
+            "resource_name": {
+              "type": "string",
+              "description": "Identifier of the associated resource (set via with_resource())"
             },
             "violations": {
               "type": "array",
               "items": { "$ref": "#/$defs/PreconditionViolation" }
             },
-            "details": {
+            "extra": {
               "type": ["object", "null"],
               "description": "Reserved for derived GTS type extensions (p3+); absent in p1"
             }

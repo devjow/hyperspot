@@ -122,16 +122,7 @@ clippy:
 
 # Validate cypilot artifacts (specs, code, templates)
 cypilot-validate:
-	@if [ ! -d .cypilot/.git ] && [ ! -f .cypilot/.git ]; then \
-		echo "Initializing .cypilot submodule (first run)"; \
-		git submodule update --init --recursive -- .cypilot; \
-	elif git -C .cypilot symbolic-ref -q HEAD >/dev/null 2>&1; then \
-		echo "Skipping .cypilot update (branch checkout detected)"; \
-	else \
-		echo "Updating .cypilot via git submodule update (detached HEAD)"; \
-		git submodule update --init --recursive -- .cypilot; \
-	fi
-	@python3 .cypilot/skills/cypilot/scripts/cypilot.py validate && echo "OK. cypilot validation PASSED" || (echo "ERROR: cypilot validation FAILED"; exit 1)
+	@python3 .cypilot/.core/skills/cypilot/scripts/cypilot.py validate && echo "OK. cypilot validation PASSED" || (echo "ERROR: cypilot validation FAILED"; exit 1)
 
 # Run markdown checks with 'lychee'
 lychee:
@@ -161,6 +152,8 @@ gts-docs:
 	cargo run -p gts-docs-validator -- \
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
+		--exclude "modules/chat-engine/*" \
+		--exclude "**/helm/*/templates/*" \
 		docs modules libs examples
 
 ## Validate GTS docs with vendor check (ensures all IDs use vendor "x")
@@ -169,6 +162,7 @@ gts-docs-vendor:
 		--vendor x \
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
+		--exclude "modules/chat-engine/*" \
 		docs modules libs examples
 
 ## Validate GTS identifiers (release build)
@@ -176,6 +170,7 @@ gts-docs-release:
 	cargo run --release -p gts-docs-validator -- \
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
+		--exclude "modules/chat-engine/*" \
 		docs modules libs examples
 
 ## Validate GTS docs with vendor check (release build)
@@ -184,6 +179,7 @@ gts-docs-vendor-release:
 		--vendor x \
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
+		--exclude "modules/chat-engine/*" \
 		docs modules libs examples
 
 ## Run tests for GTS documentation validator
@@ -314,9 +310,52 @@ test-db: test-sqlite test-pg test-mysql
 test-users-info-pg:
 	cargo test -p users-info --features "integration" -- --nocapture
 
+# -------- Benchmarks --------
+
+.PHONY: bench-pg bench-pg-profiler bench-mysql bench-mariadb bench-sqlite bench-db \
+       bench-pg-longhaul bench-mysql-longhaul bench-mariadb-longhaul bench-sqlite-longhaul bench-db-longhaul
+
+## Run outbox throughput benchmarks against PostgreSQL
+bench-pg:
+	cargo bench -p cf-modkit-db --features pg,preview-outbox --bench outbox_throughput -- postgres
+
+## Run outbox throughput benchmarks against MySQL
+bench-mysql:
+	cargo bench -p cf-modkit-db --features mysql,preview-outbox --bench outbox_throughput -- mysql
+
+## Run outbox throughput benchmarks against MariaDB
+bench-mariadb:
+	cargo bench -p cf-modkit-db --features mysql,preview-outbox --bench outbox_throughput -- mariadb
+
+## Run outbox throughput benchmarks against SQLite
+bench-sqlite:
+	cargo bench -p cf-modkit-db --features sqlite,preview-outbox --bench outbox_throughput -- sqlite
+
+## Run outbox throughput benchmarks against all database engines
+bench-db: bench-pg bench-mysql bench-mariadb bench-sqlite
+
+## Run long-haul (1M+10M) outbox benchmarks against PostgreSQL
+bench-pg-longhaul:
+	cargo bench -p cf-modkit-db --features pg,preview-outbox --bench outbox_throughput -- postgres_longhaul
+
+## Run long-haul (1M+10M) outbox benchmarks against MySQL
+bench-mysql-longhaul:
+	cargo bench -p cf-modkit-db --features mysql,preview-outbox --bench outbox_throughput -- mysql_longhaul
+
+## Run long-haul (1M+10M) outbox benchmarks against MariaDB
+bench-mariadb-longhaul:
+	cargo bench -p cf-modkit-db --features mysql,preview-outbox --bench outbox_throughput -- mariadb_longhaul
+
+## Run long-haul (100K 1P) outbox benchmarks against SQLite
+bench-sqlite-longhaul:
+	cargo bench -p cf-modkit-db --features sqlite,preview-outbox --bench outbox_throughput -- sqlite_longhaul
+
+## Run long-haul outbox benchmarks against all database engines
+bench-db-longhaul: bench-pg-longhaul bench-mysql-longhaul bench-mariadb-longhaul bench-sqlite-longhaul
+
 # -------- E2E tests --------
 
-.PHONY: e2e e2e-local e2e-local-smoke e2e-docker e2e-docker-smoke
+.PHONY: e2e e2e-local e2e-local-smoke e2e-mini-chat e2e-docker e2e-docker-smoke
 
 # Run E2E tests in Docker (default)
 e2e: e2e-docker
@@ -336,6 +375,18 @@ e2e-local:
 ## Run E2E smoke tests locally (only tests marked @pytest.mark.smoke)
 e2e-local-smoke:
 	python3 scripts/ci.py e2e-local --smoke
+
+MINI_CHAT_FEATURES = mini-chat,static-authn,static-authz,single-tenant,static-credstore
+MINI_CHAT_K8S_FEATURES = $(MINI_CHAT_FEATURES),k8s
+
+MINI_CHAT_IMAGE ?= hyperspot-mini-chat
+MINI_CHAT_TAG   ?= latest
+
+## Run mini-chat E2E tests (separate binary with mini-chat features)
+e2e-mini-chat:
+	cargo build --bin hyperspot-server --features=$(MINI_CHAT_FEATURES)
+	E2E_BINARY=target/debug/hyperspot-server \
+		python3 -m pytest testing/e2e/modules/mini_chat/ --mode offline -vv
 
 # -------- Code coverage --------
 
@@ -416,7 +467,7 @@ fuzz-corpus: fuzz-install
 
 # -------- Main targets --------
 
-.PHONY: all check ci build quickstart example mini-chat
+.PHONY: all check ci build quickstart example mini-chat mini-chat-docker mini-chat-helm mini-chat-helm-template mini-chat-up mini-chat-down mini-chat-port-forward
 
 # Start server with quickstart config
 quickstart:
@@ -427,9 +478,99 @@ quickstart:
 example:
 	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml run
 
+# mini-chat targets are for running the mini-chat module locally and in Kubernetes, with options for building Docker images and deploying with Helm.
 ## Run server with mini-chat module
 mini-chat:
-	cargo run --bin hyperspot-server --features mini-chat,static-authn,static-authz,single-tenant,static-credstore -- --config config/mini-chat.yaml run
+	cargo run --bin hyperspot-server --features mini-chat,static-authn,static-authz,single-tenant,static-credstore,otel -- --config config/mini-chat.yaml run
+
+## Build mini-chat Docker image for K8s
+mini-chat-docker:
+	docker build \
+		-f modules/mini-chat/deploy/docker/mini-chat.Dockerfile \
+		--build-arg CARGO_FEATURES="$(MINI_CHAT_K8S_FEATURES)" \
+		-t $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) .
+
+## Deploy mini-chat Helm chart to local K8s cluster (build + load + install)
+mini-chat-helm: mini-chat-docker
+	@if command -v k3s >/dev/null 2>&1; then \
+		docker save $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) | sudo k3s ctr images import -; \
+	elif command -v minikube >/dev/null 2>&1; then \
+		minikube image load $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG); \
+	else \
+		echo "ERROR: k3s or minikube required"; exit 1; \
+	fi
+	helm upgrade --install mini-chat modules/mini-chat/deploy/helm/mini-chat/ \
+		--set secrets.azureOpenaiApiKey="$${AZURE_OPENAI_API_KEY}" \
+		--set secrets.azureOpenaiApiHost="$${AZURE_OPENAI_API_HOST}" \
+		--set postgres.host="$${PG_HOST:-postgres.default.svc.cluster.local}" \
+		--set postgres.password="$${PG_PASSWORD}"
+	@# Force pod restart so it picks up the freshly-loaded image
+	kubectl rollout restart deployment/mini-chat
+	kubectl rollout status deployment/mini-chat --timeout=120s
+
+## Render mini-chat Helm templates (dry-run)
+mini-chat-helm-template:
+	helm template mini-chat modules/mini-chat/deploy/helm/mini-chat/
+
+## One-command: ensure minikube is up, deploy latest chart, port-forward
+## Usage: make mini-chat-up
+## If image was rebuilt (make mini-chat-docker), re-run this to pick it up.
+mini-chat-up:
+	@# --- 1. Ensure cluster is running ---
+	@if command -v minikube >/dev/null 2>&1; then \
+		STATUS=$$(minikube status -f '{{.Host}}' 2>/dev/null || true); \
+		if [ "$$STATUS" != "Running" ]; then \
+			echo "Starting minikube..."; \
+			minikube start; \
+		fi; \
+	elif command -v k3s >/dev/null 2>&1; then \
+		: ; \
+	else \
+		echo "ERROR: minikube or k3s required"; exit 1; \
+	fi
+	@# --- 2. Load latest image if it exists locally ---
+	@if docker image inspect $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) >/dev/null 2>&1; then \
+		echo "Loading image $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) into cluster..."; \
+		if command -v minikube >/dev/null 2>&1; then \
+			minikube image load $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG); \
+		else \
+			docker save $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) | sudo k3s ctr images import -; \
+		fi; \
+	else \
+		echo "No local image found. Run 'make mini-chat-docker' first to build."; \
+		exit 1; \
+	fi
+	@# --- 3. Helm install/upgrade ---
+	@if [ -z "$${AZURE_OPENAI_API_KEY}" ] || [ -z "$${AZURE_OPENAI_API_HOST}" ]; then \
+		echo "WARNING: AZURE_OPENAI_API_KEY or AZURE_OPENAI_API_HOST not set."; \
+		echo "  export AZURE_OPENAI_API_KEY=... AZURE_OPENAI_API_HOST=..."; \
+	fi
+	helm upgrade --install mini-chat modules/mini-chat/deploy/helm/mini-chat/ \
+		--set secrets.azureOpenaiApiKey="$${AZURE_OPENAI_API_KEY}" \
+		--set secrets.azureOpenaiApiHost="$${AZURE_OPENAI_API_HOST}" \
+		--set postgres.host="$${PG_HOST:-postgres.default.svc.cluster.local}" \
+		--set postgres.password="$${PG_PASSWORD}"
+	@# --- 4. Rollout restart to guarantee the latest image is used ---
+	kubectl rollout restart deployment/mini-chat
+	kubectl rollout status deployment/mini-chat --timeout=120s
+	@echo ""
+	@echo "mini-chat is running. In a separate terminal run:"
+	@echo "  make mini-chat-port-forward"
+	@echo "Then access: http://localhost:8087/cf/mini-chat"
+
+## Persistent port-forward with auto-reconnect (run in a separate terminal)
+mini-chat-port-forward:
+	@echo "Port-forward: localhost:8087 -> svc/mini-chat:8087 (auto-reconnect, Ctrl+C to stop)"
+	@while true; do \
+		kubectl port-forward svc/mini-chat 8087:8087 2>&1 || true; \
+		echo "connection lost, reconnecting in 2s..."; \
+		sleep 2; \
+	done
+
+## Tear down mini-chat from the cluster
+mini-chat-down:
+	helm uninstall mini-chat 2>/dev/null || true
+	@echo "mini-chat uninstalled"
 
 oop-example:
 	cargo build -p calculator --features oop_module

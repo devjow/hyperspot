@@ -43,6 +43,9 @@ use sea_orm::{
 use super::types::OutboxError;
 use crate::secure::SeaOrmRunner;
 
+/// Default row limit applied to `dead_letter_list` when no explicit limit is set.
+const DEFAULT_DEAD_LETTER_LIMIT: u32 = 100;
+
 /// Dead letter lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeadLetterStatus {
@@ -538,7 +541,7 @@ fn build_select_query(
 ) -> (String, Vec<sea_orm::Value>) {
     let mut qb = QueryBuilder::new(SELECT_COLUMNS, backend);
     apply_filter(&mut qb, filter);
-    qb.finish(filter.scope.limit)
+    qb.finish(filter.scope.limit.or(Some(DEFAULT_DEAD_LETTER_LIMIT)))
 }
 
 fn build_count_query(
@@ -969,6 +972,32 @@ mod tests {
     #[test]
     fn status_invalid_parse() {
         assert!("unknown".parse::<DeadLetterStatus>().is_err());
+    }
+
+    // --- Default limit ---
+
+    #[test]
+    fn build_select_query_applies_default_limit() {
+        let filter = DeadLetterFilter::default(); // no explicit .limit()
+        let (sql, _) = build_select_query(DbBackend::Postgres, &filter);
+        assert!(
+            sql.contains("LIMIT 100"),
+            "default limit should be applied, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn build_select_query_respects_explicit_limit() {
+        let filter = DeadLetterFilter::default().limit(50);
+        let (sql, _) = build_select_query(DbBackend::Postgres, &filter);
+        assert!(
+            sql.contains("LIMIT 50"),
+            "explicit limit should override default, got: {sql}"
+        );
+        assert!(
+            !sql.contains("LIMIT 100"),
+            "default limit should not appear"
+        );
     }
 
     // --- Column list ---

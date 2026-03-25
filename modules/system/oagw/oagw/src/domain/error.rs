@@ -59,6 +59,15 @@ pub enum DomainError {
     #[error("{detail}")]
     RequestTimeout { detail: String, instance: String },
 
+    /// A guard plugin rejected the request with a specific status and error code.
+    #[error("guard rejected: {detail}")]
+    GuardRejected {
+        status: u16,
+        error_code: String,
+        detail: String,
+        instance: String,
+    },
+
     /// The request was denied by the authorization policy.
     #[error("access forbidden: {detail}")]
     Forbidden { detail: String },
@@ -118,6 +127,38 @@ impl From<RepositoryError> for DomainError {
             RepositoryError::NotFound { entity, id } => Self::NotFound { entity, id },
             RepositoryError::Conflict(detail) => Self::Conflict { detail },
             RepositoryError::Internal(message) => Self::Internal { message },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// From<TenantResolverError>
+// ---------------------------------------------------------------------------
+
+impl From<tenant_resolver_sdk::TenantResolverError> for DomainError {
+    fn from(e: tenant_resolver_sdk::TenantResolverError) -> Self {
+        use tenant_resolver_sdk::TenantResolverError;
+
+        match e {
+            TenantResolverError::TenantNotFound { tenant_id } => {
+                tracing::warn!(tenant_id = %tenant_id, "tenant not found during hierarchy resolution");
+                Self::NotFound {
+                    entity: "tenant",
+                    id: tenant_id.0,
+                }
+            }
+            TenantResolverError::Unauthorized => Self::Forbidden {
+                detail: "tenant resolver: unauthorized".to_string(),
+            },
+            TenantResolverError::NoPluginAvailable => Self::Internal {
+                message: "tenant resolver: no plugin available".to_string(),
+            },
+            TenantResolverError::ServiceUnavailable(msg) => Self::Internal {
+                message: format!("tenant resolver unavailable: {msg}"),
+            },
+            TenantResolverError::Internal(msg) => Self::Internal {
+                message: format!("tenant resolver internal error: {msg}"),
+            },
         }
     }
 }

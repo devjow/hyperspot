@@ -18,7 +18,7 @@ pub struct Model {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub user_id: Uuid,
-    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[sea_orm(column_type = "String(StringLen::N(1024))")]
     pub model: String,
     #[sea_orm(column_type = "String(StringLen::N(255))", nullable)]
     pub title: Option<String>,

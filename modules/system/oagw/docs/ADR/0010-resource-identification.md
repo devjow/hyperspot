@@ -6,6 +6,37 @@ decision-makers: OAGW Team
 
 # Resource Identification — UUID + Alias + Tags + Tenant Bindings
 
+
+<!-- toc -->
+
+- [Context and Problem Statement](#context-and-problem-statement)
+- [Decision Drivers](#decision-drivers)
+- [Considered Options](#considered-options)
+- [Decision Outcome](#decision-outcome)
+  - [Layer 1: Upstream Definition](#layer-1-upstream-definition)
+  - [Layer 2: Tenant Binding](#layer-2-tenant-binding)
+  - [Layer 3: Request Context](#layer-3-request-context)
+  - [Alias Resolution Rules](#alias-resolution-rules)
+  - [Alias Shadowing](#alias-shadowing)
+  - [Alias Compatibility Validation](#alias-compatibility-validation)
+  - [Configuration Sharing Modes](#configuration-sharing-modes)
+  - [Schema Changes](#schema-changes)
+  - [API Flow](#api-flow)
+  - [Proxy URL](#proxy-url)
+  - [Consequences](#consequences)
+  - [Confirmation](#confirmation)
+- [Pros and Cons of the Options](#pros-and-cons-of-the-options)
+  - [UUID-only identification](#uuid-only-identification)
+  - [UUID + Alias + Tags + Tenant Bindings](#uuid--alias--tags--tenant-bindings)
+  - [Human-readable slugs as primary IDs](#human-readable-slugs-as-primary-ids)
+- [More Information](#more-information)
+  - [Links](#links)
+- [Use Cases](#use-cases)
+  - [UC1: Tenant Hierarchy Configuration Merging](#uc1-tenant-hierarchy-configuration-merging)
+- [Traceability](#traceability)
+
+<!-- /toc -->
+
 **ID**: `cpt-cf-oagw-adr-resource-identification`
 
 ## Context and Problem Statement
@@ -97,7 +128,7 @@ Given endpoints: ["us.vendor.com", "eu.vendor.com", "ap.vendor.com"]
 
 **Examples**:
 
-**Single hostname (alias auto-generated)**:
+**Single hostname (alias auto-derived)**:
 
 ```json
 {
@@ -107,7 +138,7 @@ Given endpoints: ["us.vendor.com", "eu.vendor.com", "ap.vendor.com"]
 
 > System sets `alias = "api.openai.com"`
 
-**Multi-region with common suffix (alias auto-generated)**:
+**Multi-region with common suffix (alias auto-derived)**:
 
 ```json
 {
@@ -872,7 +903,7 @@ func mergeRateLimit(parent, child *RateLimitConfig, isOwn bool) *RateLimitConfig
 This decision directly addresses the following requirements or design elements:
 
 * `cpt-cf-oagw-fr-alias-resolution` — Alias resolution rules, shadowing, and compatibility validation
-* `cpt-cf-oagw-fr-upstream-mgmt` — UUID-based upstream identification with auto-generated aliases
+* `cpt-cf-oagw-fr-upstream-mgmt` — UUID-based upstream identification with auto-derived aliases
 * `cpt-cf-oagw-fr-hierarchical-config` — Tenant binding sharing modes and merge strategies
 * `cpt-cf-oagw-nfr-observability` — Access log correlation via binding ID and upstream ID
 * `cpt-cf-oagw-nfr-credential-isolation` — Auth config via `cred_store` secret references

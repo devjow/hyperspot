@@ -40,10 +40,10 @@ use static_credstore_plugin as _;
 use mini_chat as _;
 
 #[cfg(feature = "mini-chat")]
-use static_mini_chat_model_policy_plugin as _;
+use mini_chat::infra::plugins::static_audit as _;
 
 #[cfg(feature = "mini-chat")]
-use static_mini_chat_audit_plugin as _;
+use mini_chat::infra::plugins::static_model_policy as _;
 
 // === Example Features ===
 

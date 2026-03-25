@@ -29,6 +29,7 @@ pub struct KillSwitches {
     pub disable_web_search: bool,
     pub disable_file_search: bool,
     pub disable_images: bool,
+    pub disable_code_interpreter: bool,
 }
 
 /// A single model in the catalog (API: `PolicyModelCatalogItem`).
@@ -42,8 +43,10 @@ pub struct ModelCatalogEntry {
     /// Display name shown in UI (may differ from `name`).
     pub display_name: String,
     /// Short description of the model.
+    #[serde(default)]
     pub description: String,
     /// Model version string.
+    #[serde(default)]
     pub version: String,
     /// LLM provider CTI identifier.
     pub provider_id: String,
@@ -51,11 +54,14 @@ pub struct ModelCatalogEntry {
     /// `MiniChatConfig.providers`. Values: `"openai"`, `"azure_openai"`.
     pub provider_display_name: String,
     /// URL to model icon.
+    #[serde(default)]
     pub icon: String,
     /// Model tier (standard or premium).
     pub tier: ModelTier,
+    #[serde(default)]
     pub enabled: bool,
     /// Multimodal capability flags, e.g. `VISION_INPUT`, `IMAGE_GENERATION`.
+    #[serde(default)]
     pub multimodal_capabilities: Vec<String>,
     /// Maximum context window size in tokens.
     pub context_window: u32,
@@ -68,15 +74,28 @@ pub struct ModelCatalogEntry {
     /// Credit multiplier for output tokens (micro-credits per 1000 tokens).
     pub output_tokens_credit_multiplier_micro: u64,
     /// Human-readable multiplier display string (e.g. "1x", "3x").
+    #[serde(default)]
     pub multiplier_display: String,
     /// Per-model token estimation budgets for preflight reserve.
+    #[serde(default)]
     pub estimation_budgets: EstimationBudgets,
     /// Top-k chunks returned by similarity search per `file_search` call.
     pub max_retrieved_chunks_per_turn: u32,
+    /// Maximum tool calls the provider may make per request.
+    #[serde(default = "default_max_tool_calls")]
+    pub max_tool_calls: u32,
     /// Full general config captured at snapshot time.
     pub general_config: ModelGeneralConfig,
     /// Tenant preference settings captured at snapshot time.
-    pub preference: ModelPreference,
+    pub preference: Option<ModelPreference>,
+    /// System prompt sent as `instructions` in every LLM request for this model.
+    /// Empty string = no system instructions.
+    #[serde(default)]
+    pub system_prompt: String,
+    /// Prompt template used when generating thread summaries for this model.
+    /// Plumbed through the stack for future use by the summary generation job.
+    #[serde(default)]
+    pub thread_summary_prompt: String,
 }
 
 /// Per-model token estimation budget parameters (API: `PolicyModelEstimationBudgets`).
@@ -94,6 +113,8 @@ pub struct EstimationBudgets {
     pub tool_surcharge_tokens: u32,
     /// Fixed token overhead when `web_search` is enabled.
     pub web_search_surcharge_tokens: u32,
+    /// Fixed token overhead when `code_interpreter` is enabled.
+    pub code_interpreter_surcharge_tokens: u32,
     /// Minimum generation token budget guaranteed regardless of input estimates.
     pub minimal_generation_floor: u32,
 }
@@ -107,9 +128,14 @@ impl Default for EstimationBudgets {
             image_token_budget: 1000,
             tool_surcharge_tokens: 500,
             web_search_surcharge_tokens: 500,
+            code_interpreter_surcharge_tokens: 1000,
             minimal_generation_floor: 50,
         }
     }
+}
+
+fn default_max_tool_calls() -> u32 {
+    2
 }
 
 /// LLM API inference parameters (API: `PolicyModelApiParams`).
@@ -147,7 +173,7 @@ pub struct ModelInputType {
 
 /// Tool support flags (API: `PolicyModelToolSupport`).
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelToolSupport {
     pub web_search: bool,
     pub file_search: bool,
@@ -198,8 +224,6 @@ pub struct ModelGeneralConfig {
     /// CTI type identifier of the config.
     #[serde(rename = "type")]
     pub config_type: String,
-    /// Model tier CTI identifier.
-    pub tier: String,
     #[serde(with = "time::serde::rfc3339")]
     pub available_from: OffsetDateTime,
     pub max_file_size_mb: u32,
@@ -231,6 +255,14 @@ pub enum ModelTier {
     Standard,
     #[serde(alias = "premium")]
     Premium,
+}
+
+/// Whether a user holds an active `CyberChat` license (API: `CheckUserLicenseResponse`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserLicenseStatus {
+    /// `true` if the user's status is `active` in the `active_users` table for this tenant.
+    /// `false` if the user is not found, or has status `invited`, `deactivated`, or `deleted`.
+    pub active: bool,
 }
 
 /// Per-user credit allocations for a specific policy version.
@@ -276,6 +308,10 @@ pub struct UsageEvent {
     pub actual_credits_micro: i64,
     pub settlement_method: String,
     pub policy_version_applied: i64,
+    #[serde(default)]
+    pub web_search_calls: u32,
+    #[serde(default)]
+    pub code_interpreter_calls: u32,
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }
@@ -296,6 +332,7 @@ mod tests {
         assert!(!ks.disable_web_search);
         assert!(!ks.disable_file_search);
         assert!(!ks.disable_images);
+        assert!(!ks.disable_code_interpreter);
     }
 
     // ── EstimationBudgets::default spec values ──
@@ -312,6 +349,7 @@ mod tests {
         assert_eq!(eb.image_token_budget, 1000);
         assert_eq!(eb.tool_surcharge_tokens, 500);
         assert_eq!(eb.web_search_surcharge_tokens, 500);
+        assert_eq!(eb.code_interpreter_surcharge_tokens, 1000);
         assert_eq!(eb.minimal_generation_floor, 50);
     }
 
@@ -319,10 +357,41 @@ mod tests {
     // The upstream API sends `"type"` not `"config_type"`. If the rename
     // attribute is removed, deserialization from the real API breaks.
 
+    fn sample_catalog_entry() -> ModelCatalogEntry {
+        ModelCatalogEntry {
+            model_id: "test-model".to_owned(),
+            provider_model_id: "test-model-v1".to_owned(),
+            display_name: "Test Model".to_owned(),
+            description: String::new(),
+            version: String::new(),
+            provider_id: "default".to_owned(),
+            provider_display_name: "Default".to_owned(),
+            icon: String::new(),
+            tier: ModelTier::Standard,
+            enabled: true,
+            multimodal_capabilities: vec![],
+            context_window: 128_000,
+            max_output_tokens: 16_384,
+            max_input_tokens: 128_000,
+            input_tokens_credit_multiplier_micro: 1_000_000,
+            output_tokens_credit_multiplier_micro: 3_000_000,
+            multiplier_display: "1x".to_owned(),
+            estimation_budgets: EstimationBudgets::default(),
+            max_retrieved_chunks_per_turn: 5,
+            max_tool_calls: 2,
+            general_config: sample_general_config(),
+            preference: Some(ModelPreference {
+                is_default: false,
+                sort_order: 0,
+            }),
+            system_prompt: String::new(),
+            thread_summary_prompt: String::new(),
+        }
+    }
+
     fn sample_general_config() -> ModelGeneralConfig {
         ModelGeneralConfig {
             config_type: "model.general.v1".to_owned(),
-            tier: "premium".to_owned(),
             available_from: OffsetDateTime::UNIX_EPOCH,
             max_file_size_mb: 25,
             api_params: ModelApiParams {
@@ -403,7 +472,109 @@ mod tests {
         let deserialized: ModelGeneralConfig = serde_json::from_value(json).unwrap();
 
         assert_eq!(deserialized.config_type, original.config_type);
-        assert_eq!(deserialized.tier, original.tier);
+    }
+
+    // ── ModelCatalogEntry: optional fields default when absent ──
+    // Fields with `#[serde(default)]` must deserialize to sensible values
+    // when omitted from JSON, so partial configs don't fail to load.
+
+    #[test]
+    fn optional_fields_absent_in_json_deserialize_to_defaults() {
+        let mut json = serde_json::to_value(sample_catalog_entry()).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        obj.remove("description");
+        obj.remove("version");
+        obj.remove("icon");
+        obj.remove("enabled");
+        obj.remove("multimodal_capabilities");
+        obj.remove("multiplier_display");
+        obj.remove("estimation_budgets");
+        obj.remove("system_prompt");
+        obj.remove("thread_summary_prompt");
+        obj.remove("preference");
+
+        let entry: ModelCatalogEntry = serde_json::from_value(json).unwrap();
+        assert!(entry.description.is_empty());
+        assert!(entry.version.is_empty());
+        assert!(entry.icon.is_empty());
+        assert!(!entry.enabled);
+        assert!(entry.preference.is_none());
+        assert!(entry.multimodal_capabilities.is_empty());
+        assert!(entry.multiplier_display.is_empty());
+        assert_eq!(
+            entry.estimation_budgets.bytes_per_token_conservative,
+            EstimationBudgets::default().bytes_per_token_conservative
+        );
+        assert!(entry.system_prompt.is_empty());
+        assert!(entry.thread_summary_prompt.is_empty());
+    }
+
+    // ── ModelCatalogEntry: estimation_budgets serde contract ──
+    // `estimation_budgets` defaults to `EstimationBudgets::default()` when absent.
+
+    #[test]
+    fn estimation_budgets_absent_in_json_deserializes_to_default() {
+        let mut json = serde_json::to_value(sample_catalog_entry()).unwrap();
+        json.as_object_mut().unwrap().remove("estimation_budgets");
+
+        let entry: ModelCatalogEntry = serde_json::from_value(json).unwrap();
+        let expected = EstimationBudgets::default();
+        assert_eq!(
+            entry.estimation_budgets.bytes_per_token_conservative,
+            expected.bytes_per_token_conservative
+        );
+        assert_eq!(
+            entry.estimation_budgets.fixed_overhead_tokens,
+            expected.fixed_overhead_tokens
+        );
+        assert_eq!(
+            entry.estimation_budgets.safety_margin_pct,
+            expected.safety_margin_pct
+        );
+        assert_eq!(
+            entry.estimation_budgets.image_token_budget,
+            expected.image_token_budget
+        );
+        assert_eq!(
+            entry.estimation_budgets.tool_surcharge_tokens,
+            expected.tool_surcharge_tokens
+        );
+        assert_eq!(
+            entry.estimation_budgets.web_search_surcharge_tokens,
+            expected.web_search_surcharge_tokens
+        );
+        assert_eq!(
+            entry.estimation_budgets.code_interpreter_surcharge_tokens,
+            expected.code_interpreter_surcharge_tokens
+        );
+        assert_eq!(
+            entry.estimation_budgets.minimal_generation_floor,
+            expected.minimal_generation_floor
+        );
+    }
+
+    #[test]
+    fn system_prompt_absent_in_json_deserializes_to_empty() {
+        let mut json = serde_json::to_value(sample_catalog_entry()).unwrap();
+        json.as_object_mut().unwrap().remove("system_prompt");
+
+        let entry: ModelCatalogEntry = serde_json::from_value(json).unwrap();
+        assert!(
+            entry.system_prompt.is_empty(),
+            "missing system_prompt must deserialize to empty string"
+        );
+    }
+
+    #[test]
+    fn system_prompt_roundtrips() {
+        let mut entry = sample_catalog_entry();
+        entry.system_prompt = "You are a helpful assistant.".to_owned();
+
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["system_prompt"], "You are a helpful assistant.");
+
+        let deserialized: ModelCatalogEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.system_prompt, "You are a helpful assistant.");
     }
 
     // ── ModelTier serde representation ──
@@ -446,6 +617,7 @@ mod tests {
             disable_web_search: true,
             disable_file_search: false,
             disable_images: true,
+            disable_code_interpreter: false,
         };
         let json = serde_json::to_value(&ks).unwrap();
         let deserialized: KillSwitches = serde_json::from_value(json).unwrap();
@@ -468,5 +640,6 @@ mod tests {
         assert!(!deserialized.disable_web_search);
         assert!(!deserialized.disable_file_search);
         assert!(!deserialized.disable_images);
+        assert!(!deserialized.disable_code_interpreter);
     }
 }

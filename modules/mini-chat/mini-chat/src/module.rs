@@ -1,17 +1,29 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
+use authn_resolver_sdk::{AuthNResolverClient, ClientCredentialsRequest};
 use authz_resolver_sdk::AuthZResolverClient;
 use mini_chat_sdk::{MiniChatAuditPluginSpecV1, MiniChatModelPolicyPluginSpecV1};
 use modkit::api::OpenApiRegistry;
+use modkit::contracts::RunnableCapability;
 use modkit::{DatabaseCapability, Module, ModuleCtx, RestApiCapability};
+use std::time::Duration;
+
+use modkit_db::outbox::{DecoupledConfig, Outbox, OutboxHandle, Partitions};
 use oagw_sdk::ServiceGatewayClientV1;
 use sea_orm_migration::MigrationTrait;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use types_registry_sdk::{RegisterResult, TypesRegistryClient};
 
 use crate::api::rest::routes;
+use crate::background_workers::{self, WORKER_STOP_TIMEOUT, WorkerConfigs};
+use crate::config::ProviderEntry;
+use crate::domain::ports::MiniChatMetricsPort;
 use crate::domain::service::{AppServices as GenericAppServices, Repositories};
+use crate::infra::metrics::MiniChatMetricsMeter;
+use crate::infra::outbox::{AuditEventHandler, InfraOutboxEnqueuer, UsageEventHandler};
+use crate::infra::workers::WorkerHandles;
 
 pub(crate) type AppServices = GenericAppServices<
     TurnRepository,
@@ -19,9 +31,15 @@ pub(crate) type AppServices = GenericAppServices<
     QuotaUsageRepository,
     ReactionRepository,
     ChatRepository,
+    ThreadSummaryRepository,
+    AttachmentRepository,
+    VectorStoreRepository,
+    MessageAttachmentRepository,
 >;
+use crate::infra::audit_gateway::AuditGateway;
 use crate::infra::db::repo::attachment_repo::AttachmentRepository;
 use crate::infra::db::repo::chat_repo::ChatRepository;
+use crate::infra::db::repo::message_attachment_repo::MessageAttachmentRepository;
 use crate::infra::db::repo::message_repo::MessageRepository;
 use crate::infra::db::repo::quota_usage_repo::QuotaUsageRepository;
 use crate::infra::db::repo::reaction_repo::ReactionRepository;
@@ -37,12 +55,28 @@ pub const DEFAULT_URL_PREFIX: &str = "/mini-chat";
 /// The mini-chat module: multi-tenant AI chat with SSE streaming.
 #[modkit::module(
     name = "mini-chat",
-    deps = ["types-registry", "authz-resolver", "oagw"],
-    capabilities = [db, rest],
+    deps = ["types-registry", "authn-resolver", "authz-resolver", "oagw"],
+    capabilities = [db, rest, stateful],
 )]
 pub struct MiniChatModule {
     service: OnceLock<Arc<AppServices>>,
     url_prefix: OnceLock<String>,
+    outbox_handle: Mutex<Option<OutboxHandle>>,
+    /// OAGW gateway + provider config for deferred upstream registration in `start()`.
+    oagw_deferred: OnceLock<OagwDeferred>,
+    /// Worker configs captured in `init()`, consumed by `start()`.
+    worker_configs: OnceLock<WorkerConfigs>,
+    worker_cancel: Mutex<Option<CancellationToken>>,
+    /// Handles to spawned background workers — joined during `stop()`.
+    worker_handles: Mutex<Option<WorkerHandles>>,
+}
+
+/// State needed to register OAGW upstreams in `start()` (after GTS is ready).
+struct OagwDeferred {
+    gateway: Arc<dyn ServiceGatewayClientV1>,
+    authn: Arc<dyn AuthNResolverClient>,
+    client_credentials: crate::config::ClientCredentialsConfig,
+    providers: std::collections::HashMap<String, ProviderEntry>,
 }
 
 impl Default for MiniChatModule {
@@ -50,16 +84,22 @@ impl Default for MiniChatModule {
         Self {
             service: OnceLock::new(),
             url_prefix: OnceLock::new(),
+            outbox_handle: Mutex::new(None),
+            oagw_deferred: OnceLock::new(),
+            worker_configs: OnceLock::new(),
+            worker_cancel: Mutex::new(None),
+            worker_handles: Mutex::new(None),
         }
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl Module for MiniChatModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         info!("Initializing {} module", Self::MODULE_NAME);
 
-        let cfg: crate::config::MiniChatConfig = ctx.config_expanded()?;
+        let mut cfg: crate::config::MiniChatConfig = ctx.config_expanded()?;
         cfg.streaming
             .validate()
             .map_err(|e| anyhow::anyhow!("streaming config: {e}"))?;
@@ -72,11 +112,26 @@ impl Module for MiniChatModule {
         cfg.outbox
             .validate()
             .map_err(|e| anyhow::anyhow!("outbox config: {e}"))?;
+        cfg.context
+            .validate()
+            .map_err(|e| anyhow::anyhow!("context config: {e}"))?;
+        cfg.client_credentials
+            .validate()
+            .map_err(|e| anyhow::anyhow!("client_credentials config: {e}"))?;
         for (id, entry) in &cfg.providers {
             entry
                 .validate(id)
                 .map_err(|e| anyhow::anyhow!("providers config: {e}"))?;
         }
+        cfg.orphan_watchdog
+            .validate()
+            .map_err(|e| anyhow::anyhow!("orphan_watchdog config: {e}"))?;
+        cfg.thread_summary_worker
+            .validate()
+            .map_err(|e| anyhow::anyhow!("thread_summary_worker config: {e}"))?;
+        cfg.cleanup_worker
+            .validate()
+            .map_err(|e| anyhow::anyhow!("cleanup_worker config: {e}"))?;
 
         let vendor = cfg.vendor.trim().to_owned();
         if vendor.is_empty() {
@@ -108,20 +163,137 @@ impl Module for MiniChatModule {
             .set(cfg.url_prefix)
             .map_err(|_| anyhow::anyhow!("{} url_prefix already set", Self::MODULE_NAME))?;
 
-        let db = Arc::new(ctx.db_required()?);
+        let db_provider = ctx.db_required()?;
+        let db = Arc::new(db_provider);
+
+        // Create the model-policy gateway early for both outbox handler and services.
+        let model_policy_gw = Arc::new(ModelPolicyGateway::new(
+            ctx.client_hub(),
+            vendor.clone(),
+            ctx.cancellation_token().clone(),
+        ));
+
+        // Audit gateway: lazily resolves audit plugin(s) on first emission.
+        let audit_gateway = Arc::new(AuditGateway::new(ctx.client_hub(), vendor));
+
+        // Start the outbox pipeline eagerly in init() (migrations ran in phase 2, DB is ready).
+        // The framework guarantees stop() is called on init failure, so the pipeline
+        // will be shut down cleanly if any later init step errors.
+        // The handler resolves the plugin lazily on first message delivery,
+        // avoiding a hard dependency on plugin availability during init().
+        let outbox_db = db.db();
+        let num_partitions = cfg.outbox.num_partitions;
+        let queue_name = cfg.outbox.queue_name.clone();
+        let cleanup_queue_name = cfg.outbox.cleanup_queue_name.clone();
+        let thread_summary_queue_name = cfg.outbox.thread_summary_queue_name.clone();
+        let audit_queue_name = cfg.outbox.audit_queue_name.clone();
+
+        let partitions = Partitions::of(
+            u16::try_from(num_partitions)
+                .map_err(|_| anyhow::anyhow!("num_partitions {num_partitions} exceeds u16"))?,
+        );
+
+        // Metrics are created here (before the outbox) so they can be passed to AuditEventHandler.
+        let metrics_prefix = cfg.metrics.effective_prefix(Self::MODULE_NAME);
+        let scope =
+            opentelemetry::InstrumentationScope::builder(Self::MODULE_NAME.to_owned()).build();
+        let metrics: Arc<dyn MiniChatMetricsPort> = Arc::new(MiniChatMetricsMeter::new(
+            &opentelemetry::global::meter_with_scope(scope),
+            &metrics_prefix,
+        ));
+
+        let outbox_handle = Outbox::builder(outbox_db)
+            .queue(&queue_name, partitions)
+            .decoupled(UsageEventHandler {
+                plugin_provider: model_policy_gw.clone(),
+            })
+            .queue(&cleanup_queue_name, partitions)
+            .decoupled(crate::infra::workers::cleanup_worker::AttachmentCleanupHandler)
+            .queue(&thread_summary_queue_name, partitions)
+            .decoupled(crate::infra::workers::thread_summary_worker::ThreadSummaryHandler)
+            .queue(&audit_queue_name, partitions)
+            // Lease must exceed the plugin's worst-case HTTP budget:
+            // request_timeout_secs * (retry_max_retries + 1) + backoff margin.
+            // The plugin config enforces its settings stay within 50 s (LEASE_BUDGET_SECS).
+            .batch_decoupled_with(
+                AuditEventHandler {
+                    audit_gateway: Arc::clone(&audit_gateway),
+                    metrics: Arc::clone(&metrics),
+                },
+                DecoupledConfig {
+                    lease_duration: Duration::from_secs(60),
+                },
+            )
+            .start()
+            .await
+            .map_err(|e| anyhow::anyhow!("outbox start: {e}"))?;
+
+        let outbox = Arc::clone(outbox_handle.outbox());
+        let outbox_enqueuer = Arc::new(InfraOutboxEnqueuer::new(
+            outbox,
+            queue_name,
+            cleanup_queue_name,
+            thread_summary_queue_name,
+            audit_queue_name,
+            num_partitions,
+        ));
+
+        {
+            let mut guard = self
+                .outbox_handle
+                .lock()
+                .map_err(|e| anyhow::anyhow!("outbox_handle lock: {e}"))?;
+            if guard.is_some() {
+                return Err(anyhow::anyhow!(
+                    "{} outbox_handle already set",
+                    Self::MODULE_NAME
+                ));
+            }
+            *guard = Some(outbox_handle);
+        }
+
+        info!("Outbox pipeline started");
 
         let authz = ctx
             .client_hub()
             .get::<dyn AuthZResolverClient>()
             .map_err(|e| anyhow::anyhow!("failed to get AuthZ resolver: {e}"))?;
 
+        let authn_client = ctx
+            .client_hub()
+            .get::<dyn AuthNResolverClient>()
+            .map_err(|e| anyhow::anyhow!("failed to get AuthN resolver: {e}"))?;
+
         let gateway = ctx
             .client_hub()
             .get::<dyn ServiceGatewayClientV1>()
             .map_err(|e| anyhow::anyhow!("failed to get OAGW gateway: {e}"))?;
 
-        // Register OAGW upstreams for each configured provider.
-        crate::infra::oagw_provisioning::register_oagw_upstreams(&gateway, &cfg.providers).await?;
+        // Pre-fill upstream_alias with host as fallback so ProviderResolver
+        // works immediately. The actual OAGW registration is deferred to
+        // start() because GTS instances are not visible via list() until
+        // post_init (types-registry switches to ready mode there).
+        for entry in cfg.providers.values_mut() {
+            if entry.upstream_alias.is_none() {
+                entry.upstream_alias = Some(entry.host.clone());
+            }
+            for ovr in entry.tenant_overrides.values_mut() {
+                if ovr.upstream_alias.is_none()
+                    && let Some(ref h) = ovr.host
+                {
+                    ovr.upstream_alias = Some(h.clone());
+                }
+            }
+        }
+
+        // Save a copy for deferred OAGW registration in start().
+        // Ignore the result: if already set, we keep the first value.
+        drop(self.oagw_deferred.set(OagwDeferred {
+            gateway: Arc::clone(&gateway),
+            authn: Arc::clone(&authn_client),
+            client_credentials: cfg.client_credentials.clone(),
+            providers: cfg.providers.clone(),
+        }));
 
         let provider_resolver = Arc::new(ProviderResolver::new(&gateway, cfg.providers));
 
@@ -140,25 +312,109 @@ impl Module for MiniChatModule {
             reaction: Arc::new(ReactionRepository),
             thread_summary: Arc::new(ThreadSummaryRepository),
             vector_store: Arc::new(VectorStoreRepository),
+            message_attachment: Arc::new(MessageAttachmentRepository),
         };
 
-        let model_policy_gw = Arc::new(ModelPolicyGateway::new(ctx.client_hub(), vendor));
+        let rag_client = Arc::new(
+            crate::infra::llm::providers::rag_http_client::RagHttpClient::new(Arc::clone(&gateway)),
+        );
+
+        // Build provider-specific file/vector store impls per provider entry.
+        // Dispatch by storage_kind: Azure → Azure impls, OpenAi → OpenAI impls.
+        let mut file_impls: std::collections::HashMap<
+            String,
+            Arc<dyn crate::domain::ports::FileStorageProvider>,
+        > = std::collections::HashMap::new();
+        let mut vs_impls: std::collections::HashMap<
+            String,
+            Arc<dyn crate::domain::ports::VectorStoreProvider>,
+        > = std::collections::HashMap::new();
+        for (provider_id, entry) in provider_resolver.entries() {
+            let (file, vs): (
+                Arc<dyn crate::domain::ports::FileStorageProvider>,
+                Arc<dyn crate::domain::ports::VectorStoreProvider>,
+            ) = match entry.storage_kind {
+                crate::config::StorageKind::Azure => {
+                    let api_version = entry.api_version.clone().unwrap_or_else(|| {
+                        panic!(
+                            "provider '{provider_id}': storage_kind is 'azure' \
+                             but api_version is not set"
+                        )
+                    });
+                    (
+                        Arc::new(
+                            crate::infra::llm::providers::azure_file_storage::AzureFileStorage::new(
+                                Arc::clone(&rag_client),
+                                Arc::clone(&provider_resolver),
+                                api_version.clone(),
+                            ),
+                        ),
+                        Arc::new(
+                            crate::infra::llm::providers::azure_vector_store::AzureVectorStore::new(
+                                Arc::clone(&rag_client),
+                                Arc::clone(&provider_resolver),
+                                api_version,
+                            ),
+                        ),
+                    )
+                }
+                crate::config::StorageKind::OpenAi => (
+                    Arc::new(
+                        crate::infra::llm::providers::openai_file_storage::OpenAiFileStorage::new(
+                            Arc::clone(&rag_client),
+                            Arc::clone(&provider_resolver),
+                        ),
+                    ),
+                    Arc::new(
+                        crate::infra::llm::providers::openai_vector_store::OpenAiVectorStore::new(
+                            Arc::clone(&rag_client),
+                            Arc::clone(&provider_resolver),
+                        ),
+                    ),
+                ),
+            };
+            file_impls.insert(provider_id.clone(), file);
+            vs_impls.insert(provider_id.clone(), vs);
+        }
+        let file_storage: Arc<dyn crate::domain::ports::FileStorageProvider> = Arc::new(
+            crate::infra::llm::providers::dispatching_storage::DispatchingFileStorage::new(
+                file_impls,
+            ),
+        );
+        let vector_store_prov: Arc<dyn crate::domain::ports::VectorStoreProvider> = Arc::new(
+            crate::infra::llm::providers::dispatching_storage::DispatchingVectorStore::new(
+                vs_impls,
+            ),
+        );
+
         let services = Arc::new(AppServices::new(
             &repos,
             db,
             authz,
             &(model_policy_gw.clone() as Arc<dyn crate::domain::repos::ModelResolver>),
-            provider_resolver,
+            &provider_resolver,
             cfg.streaming,
             model_policy_gw.clone() as Arc<dyn crate::domain::repos::PolicySnapshotProvider>,
             model_policy_gw as Arc<dyn crate::domain::repos::UserLimitsProvider>,
             cfg.estimation_budgets,
             cfg.quota,
+            &(outbox_enqueuer as Arc<dyn crate::domain::repos::OutboxEnqueuer>),
+            cfg.context,
+            file_storage,
+            vector_store_prov,
+            cfg.rag,
+            metrics,
         ));
 
         self.service
             .set(services)
             .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
+
+        self.worker_configs
+            .set(WorkerConfigs {
+                orphan_watchdog: cfg.orphan_watchdog,
+            })
+            .map_err(|_| anyhow::anyhow!("{} worker_configs already set", Self::MODULE_NAME))?;
 
         info!("{} module initialized successfully", Self::MODULE_NAME);
         Ok(())
@@ -169,7 +425,9 @@ impl DatabaseCapability for MiniChatModule {
     fn migrations(&self) -> Vec<Box<dyn MigrationTrait>> {
         use sea_orm_migration::MigratorTrait;
         info!("Providing mini-chat database migrations");
-        crate::infra::db::migrations::Migrator::migrations()
+        let mut m = crate::infra::db::migrations::Migrator::migrations();
+        m.extend(modkit_db::outbox::outbox_migrations());
+        m
     }
 }
 
@@ -195,6 +453,168 @@ impl RestApiCapability for MiniChatModule {
         info!("Mini-chat REST routes registered successfully");
         Ok(router)
     }
+}
+
+#[async_trait]
+impl RunnableCapability for MiniChatModule {
+    async fn start(&self, cancel: CancellationToken) -> anyhow::Result<()> {
+        let wc = self.worker_configs.get().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} worker_configs not set - init() must run before start()",
+                Self::MODULE_NAME
+            )
+        })?;
+        let leader_elector = background_workers::prepare_worker_runtime(wc).await?;
+
+        // Register OAGW upstreams now that GTS is in ready mode (post_init
+        // has completed). During init() this fails because types-registry
+        // list() only queries the persistent store which is empty until
+        // switch_to_ready().
+        if let Some(deferred) = self.oagw_deferred.get() {
+            let ctx =
+                exchange_client_credentials(&deferred.authn, &deferred.client_credentials).await?;
+            let mut providers = deferred.providers.clone();
+            crate::infra::oagw_provisioning::register_oagw_upstreams(
+                &deferred.gateway,
+                &ctx,
+                &mut providers,
+            )
+            .await?;
+        }
+
+        let (handles, worker_cancel) =
+            background_workers::spawn_workers(wc, &cancel, leader_elector.as_ref())?;
+        self.store_worker_runtime(handles, worker_cancel).await?;
+
+        Ok(())
+    }
+
+    async fn stop(&self, cancel: CancellationToken) -> anyhow::Result<()> {
+        if let Some(worker_cancel) = self
+            .worker_cancel
+            .lock()
+            .map_err(|e| anyhow::anyhow!("worker_cancel lock: {e}"))?
+            .take()
+        {
+            worker_cancel.cancel();
+        }
+
+        let workers = self
+            .worker_handles
+            .lock()
+            .map_err(|e| anyhow::anyhow!("worker_handles lock: {e}"))?
+            .take();
+        if let Some(handles) = workers {
+            info!("Waiting for background workers to stop");
+            handles.join_all(cancel.clone(), WORKER_STOP_TIMEOUT).await;
+            info!("Background workers stopped");
+        }
+
+        let handle = self
+            .outbox_handle
+            .lock()
+            .map_err(|e| anyhow::anyhow!("outbox_handle lock: {e}"))?
+            .take();
+        if let Some(handle) = handle {
+            info!("Stopping outbox pipeline");
+            tokio::select! {
+                () = handle.stop() => {
+                    info!("Outbox pipeline stopped");
+                }
+                () = cancel.cancelled() => {
+                    info!("Outbox pipeline stop cancelled by framework deadline");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl MiniChatModule {
+    async fn store_worker_runtime(
+        &self,
+        handles: WorkerHandles,
+        worker_cancel: CancellationToken,
+    ) -> anyhow::Result<()> {
+        let worker_cancel_cleanup = worker_cancel.clone();
+
+        // Store cancel token. Guard must not live across an await point.
+        let cancel_already_set = {
+            let mut guard = self
+                .worker_cancel
+                .lock()
+                .map_err(|e| anyhow::anyhow!("worker_cancel lock: {e}"))?;
+            if guard.is_some() {
+                true
+            } else {
+                *guard = Some(worker_cancel);
+                false
+            }
+            // guard dropped here — before any await
+        };
+        if cancel_already_set {
+            worker_cancel_cleanup.cancel();
+            let hard_stop = CancellationToken::new();
+            hard_stop.cancel();
+            handles.join_all(hard_stop, WORKER_STOP_TIMEOUT).await;
+            anyhow::bail!("{} worker_cancel already set", Self::MODULE_NAME);
+        }
+
+        // Store handles. Guard must not live across an await point.
+        let mut handles = Some(handles);
+        let handles_err = {
+            match self.worker_handles.lock() {
+                Ok(mut guard) => {
+                    if guard.is_some() {
+                        Some("worker_handles already set".to_owned())
+                    } else {
+                        *guard = handles.take();
+                        None
+                    }
+                }
+                Err(e) => Some(format!("worker_handles lock: {e}")),
+            }
+            // guard dropped here — before any await
+        };
+        if let Some(msg) = handles_err {
+            if let Ok(mut cancel_guard) = self.worker_cancel.lock() {
+                cancel_guard.take();
+            }
+            worker_cancel_cleanup.cancel();
+            if let Some(handles) = handles {
+                let hard_stop = CancellationToken::new();
+                hard_stop.cancel();
+                handles.join_all(hard_stop, WORKER_STOP_TIMEOUT).await;
+            }
+            // handles was either moved into the mutex (not the error case)
+            // or never stored. In the "already set" case it was moved, so
+            // we rely on the cancel token to stop workers; their JoinHandles
+            // will be cleaned up when the existing WorkerHandles is joined
+            // in stop().
+            anyhow::bail!("{} {msg}", Self::MODULE_NAME);
+        }
+        Ok(())
+    }
+}
+
+/// Exchange `OAuth2` client credentials via the `AuthN` resolver to obtain
+/// a `SecurityContext` for OAGW upstream provisioning.
+async fn exchange_client_credentials(
+    authn: &Arc<dyn AuthNResolverClient>,
+    creds: &crate::config::ClientCredentialsConfig,
+) -> anyhow::Result<modkit_security::SecurityContext> {
+    info!("Exchanging client credentials for OAGW provisioning context");
+    let request = ClientCredentialsRequest {
+        client_id: creds.client_id.clone(),
+        client_secret: creds.client_secret.clone(),
+        scopes: Vec::new(),
+    };
+    let result = authn
+        .exchange_client_credentials(&request)
+        .await
+        .map_err(|e| anyhow::anyhow!("client credentials exchange failed: {e}"))?;
+    info!("Security context obtained for OAGW provisioning");
+    Ok(result.security_context)
 }
 
 async fn register_plugin_schemas(

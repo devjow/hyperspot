@@ -4,10 +4,10 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.already_exists.v1~`
 **HTTP Status**: 409
 **Title**: "Already Exists"
-**Context Type**: `ResourceInfo`
 **Use When**: The resource the client tried to create already exists.
 **Similar Categories**: `aborted` — concurrency conflict on update vs duplicate on create
-**Default Message**: "Resource already exists"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
@@ -15,18 +15,16 @@
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the resource |
 | `resource_name` | `String` | Identifier of the duplicate resource |
-| `description` | `String` | Human-readable explanation |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, ResourceInfo};
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
-let err = CanonicalError::already_exists(
-    ResourceInfo::new("gts.cf.core.users.user.v1~", "alice@example.com")
-        .with_description("User with this email already exists")
-);
+let err = UserResourceError::already_exists("User already exists")
+    .with_resource("alice@example.com")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -47,7 +45,7 @@ let err = CanonicalError::already_exists(
         "status": { "const": 409 },
         "context": {
           "type": "object",
-          "required": ["resource_type", "resource_name", "description"],
+          "required": ["resource_type", "resource_name"],
           "properties": {
             "resource_type": {
               "type": "string",
@@ -57,11 +55,7 @@ let err = CanonicalError::already_exists(
               "type": "string",
               "description": "Identifier of the duplicate resource"
             },
-            "description": {
-              "type": "string",
-              "description": "Human-readable explanation"
-            },
-            "details": {
+            "extra": {
               "type": ["object", "null"],
               "description": "Reserved for derived GTS type extensions (p3+); absent in p1"
             }
@@ -81,11 +75,10 @@ let err = CanonicalError::already_exists(
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.already_exists.v1~",
   "title": "Already Exists",
   "status": 409,
-  "detail": "Resource already exists",
+  "detail": "User already exists",
   "context": {
     "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "alice@example.com",
-    "description": "Resource already exists"
+    "resource_name": "alice@example.com"
   }
 }
 ```

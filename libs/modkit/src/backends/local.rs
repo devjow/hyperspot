@@ -139,9 +139,31 @@ async fn stop_child_with_grace(
 }
 
 /// Wait for a log forwarder task to finish with timeout.
-async fn wait_forwarder(handle: Option<JoinHandle<()>>) {
-    if let Some(h) = handle {
-        _ = tokio::time::timeout(FORWARDER_DRAIN_TIMEOUT, h).await;
+async fn wait_forwarder(
+    handle: Option<JoinHandle<()>>,
+    module: &str,
+    instance_id: uuid::Uuid,
+    stream: &str,
+) {
+    let Some(h) = handle else { return };
+    match tokio::time::timeout(FORWARDER_DRAIN_TIMEOUT, h).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            if e.is_panic() {
+                tracing::warn!(module, %instance_id, stream, error = %e, "log forwarder task panicked");
+            } else {
+                tracing::warn!(module, %instance_id, stream, error = %e, "log forwarder task cancelled");
+            }
+        }
+        Err(_) => {
+            tracing::warn!(
+                module,
+                %instance_id,
+                stream,
+                timeout_ms = FORWARDER_DRAIN_TIMEOUT.as_millis(),
+                "log forwarder did not finish within drain timeout",
+            );
+        }
     }
 }
 
@@ -217,8 +239,20 @@ impl LocalProcessBackend {
 
         // Wait for forwarders to drain
         for inst in all_instances {
-            wait_forwarder(inst.stdout_forwarder).await;
-            wait_forwarder(inst.stderr_forwarder).await;
+            wait_forwarder(
+                inst.stdout_forwarder,
+                &inst.handle.module,
+                inst.handle.instance_id,
+                "stdout",
+            )
+            .await;
+            wait_forwarder(
+                inst.stderr_forwarder,
+                &inst.handle.module,
+                inst.handle.instance_id,
+                "stderr",
+            )
+            .await;
         }
 
         tracing::info!("All OoP module processes stopped");

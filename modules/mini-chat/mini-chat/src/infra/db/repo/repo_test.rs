@@ -864,6 +864,8 @@ async fn settle_decrements_reserved_increments_spent() {
             actual_credits_micro: 1500,
             input_tokens: Some(100),
             output_tokens: Some(50),
+            web_search_calls: 0,
+            code_interpreter_calls: 0,
         },
     )
     .await
@@ -920,6 +922,8 @@ async fn settle_non_total_bucket_skips_token_telemetry() {
             actual_credits_micro: 800,
             input_tokens: Some(999),
             output_tokens: Some(999),
+            web_search_calls: 0,
+            code_interpreter_calls: 0,
         },
     )
     .await
@@ -938,6 +942,221 @@ async fn settle_non_total_bucket_skips_token_telemetry() {
         rows[0].output_tokens, 0,
         "non-total bucket: tokens not updated"
     );
+}
+
+#[tokio::test]
+async fn settle_increments_web_search_calls_on_total_bucket() {
+    let db = test_db().await;
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+
+    let repo = QuotaUsageRepository;
+    let conn = db.conn().unwrap();
+    let period_start = time::Date::from_calendar_date(2026, time::Month::March, 5).unwrap();
+
+    repo.increment_reserve(
+        &conn,
+        &scope(),
+        IncrementReserveParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            amount_micro: 2000,
+        },
+    )
+    .await
+    .expect("reserve");
+
+    // Settle with 2 web search calls
+    repo.settle(
+        &conn,
+        &scope(),
+        SettleParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            reserved_credits_micro: 2000,
+            actual_credits_micro: 1500,
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+            web_search_calls: 2,
+            code_interpreter_calls: 0,
+        },
+    )
+    .await
+    .expect("settle");
+
+    let rows = repo
+        .find_bucket_rows(&conn, &scope(), tenant_id, user_id)
+        .await
+        .expect("find");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].web_search_calls, 2);
+}
+
+#[tokio::test]
+async fn settle_zero_web_search_calls_unchanged() {
+    let db = test_db().await;
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+
+    let repo = QuotaUsageRepository;
+    let conn = db.conn().unwrap();
+    let period_start = time::Date::from_calendar_date(2026, time::Month::March, 5).unwrap();
+
+    repo.increment_reserve(
+        &conn,
+        &scope(),
+        IncrementReserveParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            amount_micro: 2000,
+        },
+    )
+    .await
+    .expect("reserve");
+
+    // Settle with 0 web search calls — column should stay at 0
+    repo.settle(
+        &conn,
+        &scope(),
+        SettleParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            reserved_credits_micro: 2000,
+            actual_credits_micro: 1000,
+            input_tokens: Some(50),
+            output_tokens: Some(25),
+            web_search_calls: 0,
+            code_interpreter_calls: 0,
+        },
+    )
+    .await
+    .expect("settle");
+
+    let rows = repo
+        .find_bucket_rows(&conn, &scope(), tenant_id, user_id)
+        .await
+        .expect("find");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].web_search_calls, 0);
+}
+
+#[tokio::test]
+async fn settle_increments_code_interpreter_calls_on_total_bucket() {
+    let db = test_db().await;
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+
+    let repo = QuotaUsageRepository;
+    let conn = db.conn().unwrap();
+    let period_start = time::Date::from_calendar_date(2026, time::Month::March, 5).unwrap();
+
+    repo.increment_reserve(
+        &conn,
+        &scope(),
+        IncrementReserveParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            amount_micro: 2000,
+        },
+    )
+    .await
+    .expect("reserve");
+
+    // Settle with 3 code interpreter calls
+    repo.settle(
+        &conn,
+        &scope(),
+        SettleParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start,
+            bucket: "total".to_owned(),
+            reserved_credits_micro: 2000,
+            actual_credits_micro: 1500,
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+            web_search_calls: 0,
+            code_interpreter_calls: 3,
+        },
+    )
+    .await
+    .expect("settle");
+
+    let rows = repo
+        .find_bucket_rows(&conn, &scope(), tenant_id, user_id)
+        .await
+        .expect("find");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].code_interpreter_calls, 3);
+}
+
+#[tokio::test]
+async fn get_daily_code_interpreter_calls_returns_sum() {
+    let db = test_db().await;
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+
+    let repo = QuotaUsageRepository;
+    let conn = db.conn().unwrap();
+    let today = time::Date::from_calendar_date(2026, time::Month::March, 5).unwrap();
+
+    // Create and settle with code_interpreter_calls
+    repo.increment_reserve(
+        &conn,
+        &scope(),
+        IncrementReserveParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start: today,
+            bucket: "total".to_owned(),
+            amount_micro: 1000,
+        },
+    )
+    .await
+    .expect("reserve");
+
+    repo.settle(
+        &conn,
+        &scope(),
+        SettleParams {
+            tenant_id,
+            user_id,
+            period_type: PeriodType::Daily,
+            period_start: today,
+            bucket: "total".to_owned(),
+            reserved_credits_micro: 1000,
+            actual_credits_micro: 1000,
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+            web_search_calls: 0,
+            code_interpreter_calls: 7,
+        },
+    )
+    .await
+    .expect("settle");
+
+    let count = repo
+        .get_daily_code_interpreter_calls(&conn, &scope(), tenant_id, user_id, today)
+        .await
+        .expect("get daily ci calls");
+    assert_eq!(count, 7);
 }
 
 #[tokio::test]

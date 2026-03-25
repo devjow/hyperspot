@@ -4,31 +4,25 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.cancelled.v1~`
 **HTTP Status**: 499 (Client Closed Request)
 **Title**: "Cancelled"
-**Context Type**: `RequestInfo`
 **Use When**: The client cancelled the request before the server finished processing.
 **Similar Categories**: `deadline_exceeded` — server-side timeout, not client-initiated
+**Resource-scoped error**: yes
 **Default Message**: "Operation cancelled by the client"
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `resource_type` | `String` | GTS type identifier of the associated resource |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, RequestInfo};
+cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
 
-let err = CanonicalError::cancelled(
-    RequestInfo { request_id: "01JREQ-DEF".to_string() }
-);
-// CanonicalError::cancelled uses RequestInfo as its context type.
-// resource_type and debug_info are optional; the minimal constructor sets both to None.
-// When resource_type is set via .with_resource_type("gts.cf..."), it is injected into
-// the wire context object during Problem mapping. The JSON example below shows an
-// optional resource_type present in context.
+let err = UserResourceError::cancelled().create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -49,17 +43,13 @@ let err = CanonicalError::cancelled(
         "status": { "const": 499 },
         "context": {
           "type": "object",
-          "required": ["request_id"],
+          "required": ["resource_type"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
             },
-            "request_id": {
-              "type": "string",
-              "description": "Identifier of the cancelled request"
-            },
-            "details": {
+            "extra": {
               "type": ["object", "null"],
               "description": "Reserved for derived GTS type extensions (p3+); absent in p1"
             }
@@ -81,8 +71,7 @@ let err = CanonicalError::cancelled(
   "status": 499,
   "detail": "Operation cancelled by the client",
   "context": {
-    "resource_type": "gts.cf.oagw.upstreams.upstream.v1~",
-    "request_id": "01JREQ-DEF"
+    "resource_type": "gts.cf.core.users.user.v1~"
   }
 }
 ```

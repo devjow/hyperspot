@@ -27,6 +27,16 @@ impl SecretString {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for SecretString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <String as serde::Deserialize>::deserialize(deserializer).map(SecretString::new)
+    }
+}
+
 impl Clone for SecretString {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -83,6 +93,13 @@ mod tests {
         #[allow(clippy::redundant_clone)]
         let c = s.clone();
         assert_eq!(c.expose(), "value");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn deserialize_from_json_string() {
+        let s: SecretString = serde_json::from_str("\"hunter2\"").unwrap();
+        assert_eq!(s.expose(), "hunter2");
     }
 
     #[test]

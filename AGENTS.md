@@ -1,3 +1,9 @@
+<!-- @cpt:root-agents -->
+```toml
+cypilot_path = ".cypilot"
+```
+<!-- /@cpt:root-agents -->
+
 These instructions are for AI assistants working in this project.
 
 If the instruction sounds unclear, vague or requires more context. Ask for clarification.

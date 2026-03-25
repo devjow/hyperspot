@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use mini_chat_sdk::KillSwitches;
 use uuid::Uuid;
 
 use crate::domain::error::DomainError;
@@ -31,4 +32,7 @@ pub trait ModelResolver: Send + Sync {
         user_id: Uuid,
         model_id: &str,
     ) -> Result<ResolvedModel, DomainError>;
+
+    /// Return the current kill switches from the active policy snapshot.
+    async fn get_kill_switches(&self, user_id: Uuid) -> Result<KillSwitches, DomainError>;
 }

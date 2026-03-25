@@ -6,6 +6,29 @@ decision-makers: OAGW Team
 
 # State Management — Data Plane L1 Cache and Rate Limiter Ownership
 
+
+<!-- toc -->
+
+- [Context and Problem Statement](#context-and-problem-statement)
+- [Decision Drivers](#decision-drivers)
+- [Considered Options](#considered-options)
+- [Decision Outcome](#decision-outcome)
+  - [DP State](#dp-state)
+  - [CP State](#cp-state)
+  - [Request Flow with Caching](#request-flow-with-caching)
+  - [Cache Invalidation](#cache-invalidation)
+  - [Consequences](#consequences)
+  - [Confirmation](#confirmation)
+- [Pros and Cons of the Options](#pros-and-cons-of-the-options)
+  - [DP Stateless](#dp-stateless)
+  - [DP with L1 cache + rate limiters](#dp-with-l1-cache--rate-limiters)
+  - [CP owns rate limiters](#cp-owns-rate-limiters)
+- [Rationale](#rationale)
+- [More Information](#more-information)
+- [Traceability](#traceability)
+
+<!-- /toc -->
+
 **ID**: `cpt-cf-oagw-adr-state-management`
 
 ## Context and Problem Statement
@@ -74,16 +97,13 @@ pub struct CPState {
 
 ```text
 DP receives proxy request
-├─ Check DP L1 cache for upstream config
+├─ Check DP L1 cache for resolved (upstream, route) config
 │  ├─ Hit: Use cached config (<1μs)
-│  └─ Miss: Call CP.resolve_upstream()
-│           ├─ CP checks L1 cache
-│           ├─ CP checks L2 cache (if enabled)
-│           ├─ CP queries DB
-│           └─ DP caches result in L1
-├─ Check DP L1 cache for route config
-│  ├─ Hit: Use cached config
-│  └─ Miss: Call CP.resolve_route()
+│  └─ Miss: Call CP.resolve_proxy_target(alias, method, path)
+│           ├─ Single tenant hierarchy walk: alias shadowing + route match
+│           ├─ Effective config merge (upstream < route < tenant)
+│           ├─ CP checks L1/L2 cache, falls back to DB
+│           └─ DP caches (EffectiveUpstream, MatchedRoute) in L1
 ├─ Execute auth plugin
 ├─ Check rate limiter (DP-owned)
 ├─ Execute guard/transform plugins

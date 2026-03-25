@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS chats (
     id          UUID PRIMARY KEY NOT NULL,
     tenant_id   UUID NOT NULL,
     user_id     UUID NOT NULL,
-    model       TEXT NOT NULL,
+    model       VARCHAR(1024) NOT NULL,
     title       VARCHAR(255),
     is_temporary BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS messages (
     features_used       JSONB NOT NULL DEFAULT '[]',
     input_tokens        BIGINT NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
     output_tokens       BIGINT NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-    model               TEXT,
+    model               VARCHAR(1024),
     is_compressed       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at          TIMESTAMPTZ NOT NULL,
     deleted_at          TIMESTAMPTZ
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     max_output_tokens_applied   INT,
     reserved_credits_micro      BIGINT,
     policy_version_applied      BIGINT,
-    effective_model             TEXT,
+    effective_model             VARCHAR(1024),
     minimal_generation_floor_applied INT,
     deleted_at                  TIMESTAMPTZ,
     replaced_by_request_id      UUID,
@@ -135,20 +135,25 @@ CREATE TABLE IF NOT EXISTS attachments (
     storage_backend         VARCHAR(32) NOT NULL DEFAULT 'azure',
     provider_file_id        VARCHAR(128),
     status                  VARCHAR(16) NOT NULL,
+    error_code              VARCHAR(64),
     attachment_kind         VARCHAR(16) NOT NULL,
     doc_summary             TEXT,
     img_thumbnail           BYTEA,
     img_thumbnail_width     INT CHECK (img_thumbnail_width >= 0),
     img_thumbnail_height    INT CHECK (img_thumbnail_height >= 0),
-    summary_model           TEXT,
+    summary_model           VARCHAR(1024),
     summary_updated_at      TIMESTAMPTZ,
     cleanup_status          VARCHAR(16),
     cleanup_attempts        INT NOT NULL DEFAULT 0 CHECK (cleanup_attempts >= 0),
     last_cleanup_error      TEXT,
     cleanup_updated_at      TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL,
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    for_file_search         BOOLEAN NOT NULL DEFAULT false,
+    for_code_interpreter    BOOLEAN NOT NULL DEFAULT false,
     deleted_at              TIMESTAMPTZ,
-    CHECK (attachment_kind IN ('document', 'image'))
+    CHECK (attachment_kind IN ('document', 'image')),
+    CHECK (status IN ('pending', 'uploaded', 'ready', 'failed'))
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_tenant_chat
     ON attachments (tenant_id, chat_id)
@@ -215,6 +220,7 @@ CREATE TABLE IF NOT EXISTS quota_usage (
     output_tokens           BIGINT NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
     file_search_calls       INT NOT NULL DEFAULT 0 CHECK (file_search_calls >= 0),
     web_search_calls        INT NOT NULL DEFAULT 0 CHECK (web_search_calls >= 0),
+    code_interpreter_calls  INT NOT NULL DEFAULT 0 CHECK (code_interpreter_calls >= 0),
     rag_retrieval_calls     INT NOT NULL DEFAULT 0 CHECK (rag_retrieval_calls >= 0),
     image_inputs            INT NOT NULL DEFAULT 0 CHECK (image_inputs >= 0),
     image_upload_bytes      BIGINT NOT NULL DEFAULT 0 CHECK (image_upload_bytes >= 0),
@@ -329,6 +335,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     storage_backend         TEXT NOT NULL DEFAULT 'azure',
     provider_file_id        TEXT,
     status                  TEXT NOT NULL,
+    error_code              TEXT,
     attachment_kind         TEXT NOT NULL,
     doc_summary             TEXT,
     img_thumbnail           BLOB,
@@ -341,8 +348,12 @@ CREATE TABLE IF NOT EXISTS attachments (
     last_cleanup_error      TEXT,
     cleanup_updated_at      TEXT,
     created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    for_file_search         INTEGER NOT NULL DEFAULT 0,
+    for_code_interpreter    INTEGER NOT NULL DEFAULT 0,
     deleted_at              TEXT,
-    CHECK (attachment_kind IN ('document', 'image'))
+    CHECK (attachment_kind IN ('document', 'image')),
+    CHECK (status IN ('pending', 'uploaded', 'ready', 'failed'))
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_tenant_chat
     ON attachments (tenant_id, chat_id)
@@ -409,6 +420,7 @@ CREATE TABLE IF NOT EXISTS quota_usage (
     output_tokens           INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
     file_search_calls       INTEGER NOT NULL DEFAULT 0 CHECK (file_search_calls >= 0),
     web_search_calls        INTEGER NOT NULL DEFAULT 0 CHECK (web_search_calls >= 0),
+    code_interpreter_calls  INTEGER NOT NULL DEFAULT 0 CHECK (code_interpreter_calls >= 0),
     rag_retrieval_calls     INTEGER NOT NULL DEFAULT 0 CHECK (rag_retrieval_calls >= 0),
     image_inputs            INTEGER NOT NULL DEFAULT 0 CHECK (image_inputs >= 0),
     image_upload_bytes      INTEGER NOT NULL DEFAULT 0 CHECK (image_upload_bytes >= 0),

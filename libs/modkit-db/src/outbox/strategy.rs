@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement, TransactionTrait};
 use tokio_util::sync::CancellationToken;
 
 use super::dialect::Dialect;
 use super::handler::{Handler, HandlerResult, OutboxMessage, TransactionalHandler};
-use super::types::{OutboxError, QueueConfig};
+use super::types::OutboxError;
 use crate::Db;
 
 /// Context for processing a single partition's batch.
@@ -23,12 +24,16 @@ pub struct ProcessContext<'a> {
 pub trait ProcessingStrategy: Send + Sync {
     /// Process one batch for the given partition.
     ///
+    /// `msg_batch_size` controls how many messages to fetch per cycle
+    /// (from `WorkerTuning::batch_size`, possibly degraded by `PartitionMode`).
+    ///
     /// Returns `Ok(Some(result))` if work was done, `Ok(None)` if the
     /// partition was empty or locked by another processor.
     fn process(
         &self,
         ctx: &ProcessContext<'_>,
-        config: &QueueConfig,
+        lease_duration: Duration,
+        msg_batch_size: u32,
         cancel: CancellationToken,
     ) -> impl std::future::Future<Output = Result<Option<ProcessResult>, OutboxError>> + Send;
 }
@@ -37,7 +42,6 @@ pub trait ProcessingStrategy: Send + Sync {
 pub struct ProcessResult {
     pub count: u32,
     pub handler_result: HandlerResult,
-    pub attempts_before: i16,
     /// Number of messages the handler successfully processed before the batch
     /// completed (or failed). `Some` for `PerMessageAdapter`-wrapped handlers,
     /// `None` for raw batch handlers. Used for partial-failure semantics.
@@ -57,7 +61,6 @@ struct OutgoingRow {
     id: i64,
     body_id: i64,
     seq: i64,
-    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -65,6 +68,7 @@ struct BodyRow {
     id: i64,
     payload: Vec<u8>,
     payload_type: String,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 // ---- Shared helpers ----
@@ -119,7 +123,7 @@ async fn read_messages(
             seq: row.seq,
             payload: body.payload.clone(),
             payload_type: body.payload_type.clone(),
-            created_at: row.created_at,
+            created_at: body.created_at,
             attempts: proc_row.attempts,
         });
     }
@@ -128,7 +132,7 @@ async fn read_messages(
 }
 
 /// Append-only ack: only UPDATE `processed_seq`, no DELETEs.
-/// Reaper handles cleanup of processed outgoing + body rows.
+/// Vacuum handles cleanup of processed outgoing + body rows.
 async fn ack(
     txn: &impl ConnectionTrait,
     backend: DbBackend,
@@ -145,6 +149,12 @@ async fn ack(
                 backend,
                 dialect.advance_processed_seq(),
                 [last_seq.into(), partition_id.into()],
+            ))
+            .await?;
+            txn.execute(Statement::from_sql_and_values(
+                backend,
+                dialect.bump_vacuum_counter(),
+                [partition_id.into()],
             ))
             .await?;
         }
@@ -178,6 +188,12 @@ async fn ack(
                 backend,
                 dialect.advance_processed_seq(),
                 [last_seq.into(), partition_id.into()],
+            ))
+            .await?;
+            txn.execute(Statement::from_sql_and_values(
+                backend,
+                dialect.bump_vacuum_counter(),
+                [partition_id.into()],
             ))
             .await?;
         }
@@ -234,7 +250,8 @@ impl ProcessingStrategy for TransactionalStrategy {
     async fn process(
         &self,
         ctx: &ProcessContext<'_>,
-        config: &QueueConfig,
+        _lease_duration: Duration,
+        msg_batch_size: u32,
         cancel: CancellationToken,
     ) -> Result<Option<ProcessResult>, OutboxError> {
         let conn = ctx.db.sea_internal();
@@ -253,7 +270,7 @@ impl ProcessingStrategy for TransactionalStrategy {
             &ctx.dialect,
             ctx.partition_id,
             &proc_row,
-            config.msg_batch_size,
+            msg_batch_size,
         )
         .await?;
         if msgs.is_empty() {
@@ -263,7 +280,6 @@ impl ProcessingStrategy for TransactionalStrategy {
 
         #[allow(clippy::cast_possible_truncation)]
         let count = msgs.len() as u32;
-        let attempts_before = proc_row.attempts;
 
         let result = self.handler.handle(&txn, &msgs, cancel).await;
         #[allow(clippy::cast_possible_truncation)]
@@ -291,7 +307,7 @@ impl ProcessingStrategy for TransactionalStrategy {
         Ok(Some(ProcessResult {
             count,
             handler_result: result,
-            attempts_before,
+
             processed_count: pc,
         }))
     }
@@ -316,15 +332,16 @@ impl ProcessingStrategy for DecoupledStrategy {
     async fn process(
         &self,
         ctx: &ProcessContext<'_>,
-        config: &QueueConfig,
+        lease_duration: Duration,
+        msg_batch_size: u32,
         cancel: CancellationToken,
     ) -> Result<Option<ProcessResult>, OutboxError> {
         let lease_id = &self.worker_id;
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let lease_secs = config.lease_duration.as_secs() as i64;
+        let lease_secs = lease_duration.as_secs() as i64;
 
         // Phase 1: Acquire lease + read messages
-        let (proc_row, msgs) = {
+        let (_proc_row, msgs) = {
             let sea_conn = ctx.db.sea_internal();
             let txn = sea_conn.begin().await?;
 
@@ -354,7 +371,7 @@ impl ProcessingStrategy for DecoupledStrategy {
                 &ctx.dialect,
                 ctx.partition_id,
                 &proc_row,
-                config.msg_batch_size,
+                msg_batch_size,
             )
             .await?;
 
@@ -377,14 +394,13 @@ impl ProcessingStrategy for DecoupledStrategy {
 
         #[allow(clippy::cast_possible_truncation)]
         let count = msgs.len() as u32;
-        let attempts_before = proc_row.attempts;
 
         // Phase 2: call handler outside any transaction
         // Create a child token that fires at 80% of lease duration
         let lease_cancel = cancel.child_token();
         let lease_timer = {
             let token = lease_cancel.clone();
-            let deadline = config.lease_duration.mul_f64(0.8);
+            let deadline = lease_duration.mul_f64(0.8);
             tokio::spawn(async move {
                 tokio::time::sleep(deadline).await;
                 token.cancel();
@@ -423,6 +439,13 @@ impl ProcessingStrategy for DecoupledStrategy {
                     ack_txn.commit().await?;
                     return Ok(None);
                 }
+                ack_txn
+                    .execute(Statement::from_sql_and_values(
+                        ctx.backend,
+                        ctx.dialect.bump_vacuum_counter(),
+                        [ctx.partition_id.into()],
+                    ))
+                    .await?;
             }
             HandlerResult::Retry { reason } => {
                 // Retry: cursor not advanced — the same batch will be re-read.
@@ -493,6 +516,13 @@ impl ProcessingStrategy for DecoupledStrategy {
                     ack_txn.commit().await?;
                     return Ok(None);
                 }
+                ack_txn
+                    .execute(Statement::from_sql_and_values(
+                        ctx.backend,
+                        ctx.dialect.bump_vacuum_counter(),
+                        [ctx.partition_id.into()],
+                    ))
+                    .await?;
             }
         }
 
@@ -501,7 +531,7 @@ impl ProcessingStrategy for DecoupledStrategy {
         Ok(Some(ProcessResult {
             count,
             handler_result: result,
-            attempts_before,
+
             processed_count: pc,
         }))
     }

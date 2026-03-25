@@ -1,12 +1,13 @@
+use mini_chat_sdk::RequesterType;
 use modkit_macros::domain_model;
 use modkit_security::AccessScope;
 use uuid::Uuid;
 
+use crate::domain::llm::Usage;
 use crate::domain::model::billing_outcome::BillingDerivation;
 use crate::domain::model::quota::{SettlementMethod, SettlementOutcome, SettlementPath};
 use crate::infra::db::entity::chat_turn::TurnState;
 use crate::infra::db::entity::quota_usage::PeriodType;
-use crate::infra::llm::Usage;
 
 /// All fields needed by `finalize_turn_cas()`.
 ///
@@ -21,6 +22,7 @@ pub struct FinalizationInput {
     pub chat_id: Uuid,
     pub request_id: Uuid,
     pub user_id: Uuid,
+    pub requester_type: RequesterType,
     pub scope: AccessScope,
     pub message_id: Uuid,
 
@@ -45,6 +47,17 @@ pub struct FinalizationInput {
     pub downgrade_from: Option<String>,
     pub downgrade_reason: Option<String>,
     pub period_starts: Vec<(PeriodType, time::Date)>,
+
+    // ── Tool call telemetry ──
+    /// Number of completed web search calls during this turn.
+    pub web_search_calls: u32,
+    /// Number of completed code interpreter calls during this turn.
+    pub code_interpreter_calls: u32,
+
+    /// Time-to-first-token in milliseconds (captured in `stream_service`).
+    pub ttft_ms: Option<u64>,
+    /// Total stream duration in milliseconds (captured in `stream_service`).
+    pub total_ms: Option<u64>,
 }
 
 /// Result of `finalize_turn_cas()`.

@@ -183,8 +183,11 @@ where
                             && attempt < config.max_retries
                             && config.should_retry(trigger, &method, has_idempotency_key)
                         {
-                            // Parse Retry-After from response headers
-                            let retry_after = parse_retry_after(resp.headers());
+                            // Parse Retry-After from response headers.
+                            // Clamp to backoff.max to prevent a malicious/misconfigured
+                            // upstream from stalling the client with an absurdly large value.
+                            let retry_after = parse_retry_after(resp.headers())
+                                .map(|d| d.min(config.backoff.max));
                             let backoff_duration = if config.ignore_retry_after {
                                 calculate_backoff(&config.backoff, attempt)
                             } else {
@@ -1163,6 +1166,87 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(1),
             "Expected quick retry using backoff policy (1ms), but took {elapsed:?}",
+        );
+    }
+
+    /// Regression test: a large Retry-After value (e.g. from a malicious upstream)
+    /// must be clamped to `config.backoff.max` so the client doesn't stall.
+    #[tokio::test]
+    async fn test_retry_after_clamped_to_backoff_max() {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct LargeRetryAfterService {
+            call_count: Arc<Mutex<usize>>,
+        }
+
+        impl Service<Request<Full<Bytes>>> for LargeRetryAfterService {
+            type Response = Response<ResponseBody>;
+            type Error = HttpError;
+            type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+            fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+
+            fn call(&mut self, _req: Request<Full<Bytes>>) -> Self::Future {
+                let count = self.call_count.clone();
+                Box::pin(async move {
+                    let mut c = count.lock().unwrap();
+                    *c += 1;
+                    if *c < 2 {
+                        // Return 429 with absurdly large Retry-After (1 hour)
+                        Ok(Response::builder()
+                            .status(StatusCode::TOO_MANY_REQUESTS)
+                            .header(http::header::RETRY_AFTER, "3600")
+                            .body(make_response_body(b"Rate limited"))
+                            .unwrap())
+                    } else {
+                        Ok(Response::builder()
+                            .status(StatusCode::OK)
+                            .body(make_response_body(b""))
+                            .unwrap())
+                    }
+                })
+            }
+        }
+
+        let call_count = Arc::new(Mutex::new(0));
+        let service = LargeRetryAfterService {
+            call_count: call_count.clone(),
+        };
+
+        let retry_config = RetryConfig {
+            backoff: ExponentialBackoff {
+                initial: Duration::from_millis(1),
+                max: Duration::from_millis(50), // Clamp ceiling
+                jitter: false,
+                ..ExponentialBackoff::default()
+            },
+            ignore_retry_after: false, // Use (and clamp) Retry-After
+            ..RetryConfig::default()
+        };
+        let layer = RetryLayer::new(retry_config);
+        let mut retry_service = layer.layer(service);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("http://example.com")
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+
+        let start = std::time::Instant::now();
+        let result = retry_service.call(req).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        assert_eq!(*call_count.lock().unwrap(), 2);
+
+        // Without clamping, the client would sleep for 3600s.
+        // With clamping to backoff.max (50ms), the retry should be near-instant.
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "Retry-After should be clamped to backoff.max (50ms), but took {elapsed:?}",
         );
     }
 

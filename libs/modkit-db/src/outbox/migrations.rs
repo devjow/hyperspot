@@ -38,6 +38,7 @@ impl MigrationTrait for CreateOutboxSchema {
         create_outgoing(conn, backend).await?;
         create_dead_letters(conn, backend).await?;
         create_processor(conn, backend).await?;
+        create_vacuum_counter(conn, backend).await?;
 
         Ok(())
     }
@@ -47,6 +48,7 @@ impl MigrationTrait for CreateOutboxSchema {
         let backend = conn.get_database_backend();
 
         for table in [
+            "modkit_outbox_vacuum_counter",
             "modkit_outbox_processor",
             "modkit_outbox_dead_letters",
             "modkit_outbox_outgoing",
@@ -72,7 +74,7 @@ async fn create_body(conn: &dyn ConnectionTrait, backend: DatabaseBackend) -> Re
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_body (
                 id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 payload       BYTEA  NOT NULL,
-                payload_type  TEXT   NOT NULL,
+                payload_type  VARCHAR(1024) NOT NULL,
                 created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
             )"
             }
@@ -88,7 +90,7 @@ async fn create_body(conn: &dyn ConnectionTrait, backend: DatabaseBackend) -> Re
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_body (
                 id            BIGINT AUTO_INCREMENT PRIMARY KEY,
                 payload       LONGBLOB NOT NULL,
-                payload_type  TEXT     NOT NULL,
+                payload_type  VARCHAR(1024) NOT NULL,
                 created_at    TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
             )"
             }
@@ -108,7 +110,7 @@ async fn create_partitions(
             DatabaseBackend::Postgres => {
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_partitions (
                 id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                queue     TEXT     NOT NULL,
+                queue     VARCHAR(1024) NOT NULL,
                 partition SMALLINT NOT NULL,
                 sequence  BIGINT   NOT NULL DEFAULT 0,
                 UNIQUE (queue, partition)
@@ -126,7 +128,7 @@ async fn create_partitions(
             DatabaseBackend::MySql => {
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_partitions (
                 id        BIGINT AUTO_INCREMENT PRIMARY KEY,
-                queue     VARCHAR(255) NOT NULL,
+                queue     VARCHAR(1024) CHARACTER SET ascii NOT NULL,
                 `partition` SMALLINT NOT NULL,
                 sequence  BIGINT   NOT NULL DEFAULT 0,
                 UNIQUE KEY (queue, `partition`)
@@ -149,16 +151,14 @@ async fn create_incoming(
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_incoming (
                 id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 partition_id BIGINT   NOT NULL REFERENCES modkit_outbox_partitions(id),
-                body_id      BIGINT   NOT NULL REFERENCES modkit_outbox_body(id),
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+                body_id      BIGINT   NOT NULL REFERENCES modkit_outbox_body(id)
             )"
             }
             DatabaseBackend::Sqlite => {
                 "CREATE TABLE IF NOT EXISTS modkit_outbox_incoming (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 partition_id INTEGER NOT NULL REFERENCES modkit_outbox_partitions(id),
-                body_id      INTEGER NOT NULL REFERENCES modkit_outbox_body(id),
-                created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+                body_id      INTEGER NOT NULL REFERENCES modkit_outbox_body(id)
             )"
             }
             DatabaseBackend::MySql => {
@@ -166,7 +166,6 @@ async fn create_incoming(
                 id           BIGINT AUTO_INCREMENT PRIMARY KEY,
                 partition_id BIGINT NOT NULL,
                 body_id      BIGINT NOT NULL,
-                created_at   TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                 FOREIGN KEY (partition_id) REFERENCES modkit_outbox_partitions(id),
                 FOREIGN KEY (body_id) REFERENCES modkit_outbox_body(id)
             )"
@@ -181,6 +180,19 @@ async fn create_incoming(
             DatabaseBackend::Postgres | DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
                 "CREATE INDEX idx_modkit_outbox_incoming_partition \
              ON modkit_outbox_incoming (partition_id, id)"
+            }
+        },
+    ))
+    .await?;
+
+    // Index on body_id to accelerate FK constraint checks during
+    // DELETE FROM modkit_outbox_body WHERE id IN (...).
+    conn.execute(Statement::from_string(
+        backend,
+        match backend {
+            DatabaseBackend::Postgres | DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                "CREATE INDEX idx_modkit_outbox_incoming_body_id \
+             ON modkit_outbox_incoming (body_id)"
             }
         },
     ))
@@ -201,7 +213,6 @@ async fn create_outgoing(
                 partition_id BIGINT NOT NULL REFERENCES modkit_outbox_partitions(id),
                 body_id      BIGINT NOT NULL REFERENCES modkit_outbox_body(id),
                 seq          BIGINT NOT NULL,
-                created_at   TIMESTAMPTZ NOT NULL,
                 sequenced_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )"
             }
@@ -211,7 +222,6 @@ async fn create_outgoing(
                 partition_id INTEGER NOT NULL REFERENCES modkit_outbox_partitions(id),
                 body_id      INTEGER NOT NULL REFERENCES modkit_outbox_body(id),
                 seq          INTEGER NOT NULL,
-                created_at   TEXT    NOT NULL,
                 sequenced_at TEXT    NOT NULL DEFAULT (datetime('now'))
             )"
             }
@@ -221,7 +231,6 @@ async fn create_outgoing(
                 partition_id BIGINT NOT NULL,
                 body_id      BIGINT NOT NULL,
                 seq          BIGINT NOT NULL,
-                created_at   TIMESTAMP(6) NOT NULL,
                 sequenced_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                 FOREIGN KEY (partition_id) REFERENCES modkit_outbox_partitions(id),
                 FOREIGN KEY (body_id) REFERENCES modkit_outbox_body(id)
@@ -237,6 +246,19 @@ async fn create_outgoing(
             DatabaseBackend::Postgres | DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
                 "CREATE UNIQUE INDEX idx_modkit_outbox_outgoing_partition_seq \
              ON modkit_outbox_outgoing (partition_id, seq)"
+            }
+        },
+    ))
+    .await?;
+
+    // Index on body_id to accelerate FK constraint checks during
+    // DELETE FROM modkit_outbox_body WHERE id IN (...).
+    conn.execute(Statement::from_string(
+        backend,
+        match backend {
+            DatabaseBackend::Postgres | DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                "CREATE INDEX idx_modkit_outbox_outgoing_body_id \
+             ON modkit_outbox_outgoing (body_id)"
             }
         },
     ))
@@ -257,12 +279,12 @@ async fn create_dead_letters(
                 partition_id BIGINT NOT NULL REFERENCES modkit_outbox_partitions(id),
                 seq          BIGINT NOT NULL,
                 payload      BYTEA  NOT NULL,
-                payload_type TEXT   NOT NULL,
+                payload_type VARCHAR(1024) NOT NULL,
                 created_at   TIMESTAMPTZ NOT NULL,
                 failed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
                 last_error   TEXT,
                 attempts     SMALLINT NOT NULL,
-                status       TEXT NOT NULL DEFAULT 'pending',
+                status       VARCHAR(32) NOT NULL DEFAULT 'pending',
                 completed_at TIMESTAMPTZ,
                 deadline     TIMESTAMPTZ
             )"
@@ -289,12 +311,12 @@ async fn create_dead_letters(
                 partition_id BIGINT NOT NULL,
                 seq          BIGINT NOT NULL,
                 payload      LONGBLOB NOT NULL,
-                payload_type TEXT     NOT NULL,
+                payload_type VARCHAR(1024) CHARACTER SET ascii NOT NULL,
                 created_at   TIMESTAMP(6) NOT NULL,
                 failed_at    TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                 last_error   TEXT,
                 attempts     SMALLINT NOT NULL,
-                status       VARCHAR(20) NOT NULL DEFAULT 'pending',
+                status       VARCHAR(32) NOT NULL DEFAULT 'pending',
                 completed_at TIMESTAMP(6) NULL,
                 deadline     TIMESTAMP(6) NULL,
                 FOREIGN KEY (partition_id) REFERENCES modkit_outbox_partitions(id)
@@ -352,7 +374,7 @@ async fn create_processor(
                 processed_seq BIGINT   NOT NULL DEFAULT 0,
                 attempts      SMALLINT NOT NULL DEFAULT 0,
                 last_error    TEXT,
-                locked_by     TEXT,
+                locked_by     VARCHAR(1024),
                 locked_until  TIMESTAMPTZ
             )"
             }
@@ -372,8 +394,42 @@ async fn create_processor(
                 processed_seq BIGINT   NOT NULL DEFAULT 0,
                 attempts      SMALLINT NOT NULL DEFAULT 0,
                 last_error    TEXT,
-                locked_by     TEXT,
+                locked_by     VARCHAR(1024) CHARACTER SET ascii,
                 locked_until  TIMESTAMP(6) NULL,
+                FOREIGN KEY (partition_id) REFERENCES modkit_outbox_partitions(id)
+            )"
+            }
+        },
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn create_vacuum_counter(
+    conn: &dyn ConnectionTrait,
+    backend: DatabaseBackend,
+) -> Result<(), DbErr> {
+    conn.execute(Statement::from_string(
+        backend,
+        match backend {
+            DatabaseBackend::Postgres => {
+                "CREATE TABLE IF NOT EXISTS modkit_outbox_vacuum_counter (
+                partition_id BIGINT PRIMARY KEY
+                    REFERENCES modkit_outbox_partitions(id),
+                counter      BIGINT NOT NULL DEFAULT 0
+            )"
+            }
+            DatabaseBackend::Sqlite => {
+                "CREATE TABLE IF NOT EXISTS modkit_outbox_vacuum_counter (
+                partition_id INTEGER PRIMARY KEY
+                    REFERENCES modkit_outbox_partitions(id),
+                counter      INTEGER NOT NULL DEFAULT 0
+            )"
+            }
+            DatabaseBackend::MySql => {
+                "CREATE TABLE IF NOT EXISTS modkit_outbox_vacuum_counter (
+                partition_id BIGINT PRIMARY KEY,
+                counter      BIGINT NOT NULL DEFAULT 0,
                 FOREIGN KEY (partition_id) REFERENCES modkit_outbox_partitions(id)
             )"
             }

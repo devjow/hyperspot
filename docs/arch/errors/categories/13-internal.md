@@ -4,31 +4,23 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.internal.v1~`
 **HTTP Status**: 500
 **Title**: "Internal"
-**Context Type**: `DebugInfo`
 **Use When**: A known infrastructure failure occurred (database error, serialization bug, etc.). The detail in production is generic; diagnostics are in logs via `trace_id`.
 **Similar Categories**: `unknown` — truly unknown error vs known infrastructure failure
+**Resource-scoped error**: no
 **Default Message**: "An internal error occurred. Please retry later."
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `message` | `String` | Human-readable debug message (generic in production) |
-| `stack_entries` | `Vec<String>` | Stack trace entries (empty in production) |
-| `details` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
+| `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
-## Rust Definitions and Constructor Example
+## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, DebugInfo};
+use cf_modkit_errors::CanonicalError;
 
-// From a database error via ? operator:
-let user = db.find_user(&id).await?;  // DbErr auto-converts to CanonicalError::Internal
-
-// Or explicit construction:
-let err = CanonicalError::internal(
-    DebugInfo::new("Database connection pool exhausted")
-);
+let err = CanonicalError::internal("An internal error occurred. Please retry later.").create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -49,22 +41,8 @@ let err = CanonicalError::internal(
         "status": { "const": 500 },
         "context": {
           "type": "object",
-          "required": ["message", "stack_entries"],
           "properties": {
-            "resource_type": {
-              "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
-            },
-            "message": {
-              "type": "string",
-              "description": "Human-readable debug message (generic in production)"
-            },
-            "stack_entries": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Stack trace entries (empty in production)"
-            },
-            "details": {
+            "extra": {
               "type": ["object", "null"],
               "description": "Reserved for derived GTS type extensions (p3+); absent in p1"
             }
@@ -86,9 +64,6 @@ let err = CanonicalError::internal(
   "status": 500,
   "detail": "An internal error occurred. Please retry later.",
   "context": {
-    "resource_type": "gts.cf.core.tenants.tenant.v1~",
-    "message": "An internal error occurred. Please retry later.",
-    "stack_entries": []
   }
 }
 ```

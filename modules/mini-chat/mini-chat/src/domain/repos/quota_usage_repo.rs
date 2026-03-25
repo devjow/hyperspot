@@ -33,6 +33,10 @@ pub struct SettleParams {
     /// Token telemetry — only applied on `total` bucket.
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    /// Web search calls to increment — only applied on `total` bucket.
+    pub web_search_calls: u32,
+    /// Code interpreter calls to increment — only applied on `total` bucket.
+    pub code_interpreter_calls: u32,
 }
 
 /// Repository trait for quota usage persistence operations.
@@ -75,4 +79,26 @@ pub trait QuotaUsageRepository: Send + Sync {
         period_types: &[PeriodType],
         period_starts: &[time::Date],
     ) -> Result<Vec<QuotaUsageModel>, DomainError>;
+
+    /// Sum `web_search_calls` for a user's daily `total` bucket on the given date.
+    /// Returns 0 if no row exists.
+    async fn get_daily_web_search_calls<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        tenant_id: Uuid,
+        user_id: Uuid,
+        period_start: time::Date,
+    ) -> Result<u32, DomainError>;
+
+    /// Sum `code_interpreter_calls` for a user's daily `total` bucket on the given date.
+    /// Returns 0 if no row exists.
+    async fn get_daily_code_interpreter_calls<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        tenant_id: Uuid,
+        user_id: Uuid,
+        period_start: time::Date,
+    ) -> Result<u32, DomainError>;
 }

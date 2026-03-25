@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::domain::error::DomainError;
 use crate::domain::model::{Endpoint, Scheme};
-use crate::domain::services::EndpointSelector;
+use crate::domain::services::{EndpointSelector, SelectedEndpoint};
 use modkit::api::Problem;
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,7 @@ pub(crate) const H_ENDPOINT_HOST: &str = "x-oagw-internal-endpoint-host";
 pub(crate) const H_ENDPOINT_PORT: &str = "x-oagw-internal-endpoint-port";
 pub(crate) const H_ENDPOINT_SCHEME: &str = "x-oagw-internal-endpoint-scheme";
 pub(crate) const H_INSTANCE_URI: &str = "x-oagw-internal-instance-uri";
+pub(crate) const H_RESOLVED_ADDR: &str = "x-oagw-internal-resolved-addr";
 
 /// Hop-by-hop headers that must not be forwarded in responses (mirrors headers.rs).
 const HOP_BY_HOP: &[&str] = &[
@@ -245,13 +246,18 @@ impl PingoraEndpointSelector {
 
 #[async_trait]
 impl EndpointSelector for PingoraEndpointSelector {
-    async fn select(&self, upstream_id: Uuid, endpoints: &[Endpoint]) -> Option<Endpoint> {
+    async fn select(&self, upstream_id: Uuid, endpoints: &[Endpoint]) -> Option<SelectedEndpoint> {
         // Fast path: LB already cached.
         if let Some(entry) = self.cache.get(&upstream_id) {
             let backend = entry.lb.select(b"", 256)?;
+            let resolved_addr = backend.addr.as_inet();
             let addr_key = backend.addr.to_string();
             let map = entry.addr_map.load();
-            return map.get(&addr_key).cloned();
+            let endpoint = map.get(&addr_key)?.clone();
+            return Some(SelectedEndpoint {
+                endpoint,
+                resolved_addr: resolved_addr.copied(),
+            });
         }
 
         // Slow path: build a new LB entry then atomically insert-if-absent.
@@ -260,9 +266,14 @@ impl EndpointSelector for PingoraEndpointSelector {
         let entry = self.build_entry(endpoints).await?;
         let entry_ref = self.cache.entry(upstream_id).or_insert(entry);
         let backend = entry_ref.lb.select(b"", 256)?;
+        let resolved_addr = backend.addr.as_inet();
         let addr_key = backend.addr.to_string();
         let map = entry_ref.addr_map.load();
-        map.get(&addr_key).cloned()
+        let endpoint = map.get(&addr_key)?.clone();
+        Some(SelectedEndpoint {
+            endpoint,
+            resolved_addr: resolved_addr.copied(),
+        })
     }
 
     fn invalidate(&self, upstream_id: Uuid) {
@@ -279,6 +290,47 @@ impl EndpointSelector for PingoraEndpointSelector {
 pub struct ProxyCtx {
     endpoint: Endpoint,
     instance_uri: String,
+    /// Upstream that owns this endpoint (for diagnostic logs).
+    upstream_id: Option<Uuid>,
+    /// Pre-resolved socket address from the load balancer's DNS cache.
+    /// When set, `upstream_peer` skips DNS and connects directly.
+    resolved_addr: Option<std::net::SocketAddr>,
+}
+
+impl ProxyCtx {
+    /// Populate context fields from internal headers.
+    ///
+    /// Extracted from `request_filter` so the parsing logic is unit-testable
+    /// without constructing a full Pingora `Session`.
+    fn populate_from_headers(&mut self, headers: &http::HeaderMap) {
+        if let Some(v) = headers.get(H_ENDPOINT_HOST).and_then(|v| v.to_str().ok()) {
+            self.endpoint.host = v.to_string();
+        }
+        if let Some(v) = headers.get(H_ENDPOINT_PORT).and_then(|v| v.to_str().ok())
+            && let Ok(port) = v.parse()
+        {
+            self.endpoint.port = port;
+        }
+        if let Some(v) = headers.get(H_ENDPOINT_SCHEME).and_then(|v| v.to_str().ok()) {
+            self.endpoint.scheme = match v {
+                "http" => Scheme::Http,
+                "https" => Scheme::Https,
+                "wss" => Scheme::Wss,
+                "wt" => Scheme::Wt,
+                "grpc" => Scheme::Grpc,
+                _ => Scheme::Https,
+            };
+        }
+        if let Some(v) = headers.get(H_INSTANCE_URI).and_then(|v| v.to_str().ok()) {
+            self.instance_uri = v.to_string();
+        }
+        if let Some(v) = headers.get(H_UPSTREAM_ID).and_then(|v| v.to_str().ok()) {
+            self.upstream_id = v.parse().ok();
+        }
+        if let Some(v) = headers.get(H_RESOLVED_ADDR).and_then(|v| v.to_str().ok()) {
+            self.resolved_addr = v.parse().ok();
+        }
+    }
 }
 
 impl Default for ProxyCtx {
@@ -290,6 +342,8 @@ impl Default for ProxyCtx {
                 port: 443,
             },
             instance_uri: String::new(),
+            upstream_id: None,
+            resolved_addr: None,
         }
     }
 }
@@ -312,44 +366,7 @@ impl ProxyHttp for PingoraProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora_core::Result<bool> {
-        // Read context from internal headers.
-        let req = session.req_header();
-        if let Some(v) = req
-            .headers
-            .get(H_ENDPOINT_HOST)
-            .and_then(|v| v.to_str().ok())
-        {
-            ctx.endpoint.host = v.to_string();
-        }
-        if let Some(v) = req
-            .headers
-            .get(H_ENDPOINT_PORT)
-            .and_then(|v| v.to_str().ok())
-            && let Ok(port) = v.parse()
-        {
-            ctx.endpoint.port = port;
-        }
-        if let Some(v) = req
-            .headers
-            .get(H_ENDPOINT_SCHEME)
-            .and_then(|v| v.to_str().ok())
-        {
-            ctx.endpoint.scheme = match v {
-                "http" => Scheme::Http,
-                "https" => Scheme::Https,
-                "wss" => Scheme::Wss,
-                "wt" => Scheme::Wt,
-                "grpc" => Scheme::Grpc,
-                _ => Scheme::Https,
-            };
-        }
-        if let Some(v) = req
-            .headers
-            .get(H_INSTANCE_URI)
-            .and_then(|v| v.to_str().ok())
-        {
-            ctx.instance_uri = v.to_string();
-        }
+        ctx.populate_from_headers(&session.req_header().headers);
 
         // Strip all internal headers before forwarding.
         let to_remove: Vec<http::HeaderName> = session
@@ -368,6 +385,11 @@ impl ProxyHttp for PingoraProxy {
     }
 
     /// Build `HttpPeer` from the resolved endpoint. (D3, D4, D7)
+    ///
+    /// Uses the pre-resolved `SocketAddr` from the load balancer's DNS cache
+    /// when available, falling back to an explicit `lookup_host` otherwise.
+    /// Both paths pass a `SocketAddr` to `HttpPeer::new`, avoiding the
+    /// `unwrap()` panic on DNS failure in pingora-core 0.8.0. (See bug: https://github.com/cloudflare/pingora/issues/570)
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -376,7 +398,33 @@ impl ProxyHttp for PingoraProxy {
         let ep = &ctx.endpoint;
         let tls = matches!(ep.scheme, Scheme::Https | Scheme::Wss | Scheme::Wt);
 
-        let mut peer = HttpPeer::new(format!("{}:{}", ep.host, ep.port), tls, ep.host.clone());
+        let addr = match ctx.resolved_addr {
+            Some(a) => a,
+            None => {
+                // Fallback: resolve DNS explicitly (single-endpoint bypass, target-host header).
+                tokio::net::lookup_host((ep.host.as_str(), ep.port))
+                    .await
+                    .map_err(|e| {
+                        warn!(upstream_id = ?ctx.upstream_id, host = %ep.host, port = ep.port, error = %e, "DNS resolution failed");
+                        pingora_core::Error::because(
+                            pingora_core::ErrorType::ConnectError,
+                            "DNS resolution failed",
+                            e,
+                        )
+                    })?
+                    .next()
+                    .ok_or_else(|| {
+                        warn!(upstream_id = ?ctx.upstream_id, host = %ep.host, port = ep.port, "DNS returned no addresses");
+                        pingora_core::Error::explain(
+                            pingora_core::ErrorType::ConnectError,
+                            format!("DNS returned no addresses for {}:{}", ep.host, ep.port),
+                        )
+                    })?
+            }
+        };
+
+        // Pass SocketAddr directly — no DNS inside HttpPeer::new.
+        let mut peer = HttpPeer::new(addr, tls, ep.host.clone());
 
         peer.options.connection_timeout = Some(self.connect_timeout);
         peer.options.read_timeout = Some(self.read_timeout);
@@ -639,7 +687,7 @@ mod tests {
         let mut port_b = 0u32;
         for _ in 0..4 {
             let selected = selector.select(id, &endpoints).await.unwrap();
-            match selected.port {
+            match selected.endpoint.port {
                 10001 => port_a += 1,
                 10002 => port_b += 1,
                 other => panic!("unexpected port: {other}"),
@@ -656,13 +704,13 @@ mod tests {
 
         let v1 = vec![ep("127.0.0.1", 20001, Scheme::Https)];
         let selected = selector.select(id, &v1).await.unwrap();
-        assert_eq!(selected.port, 20001);
+        assert_eq!(selected.endpoint.port, 20001);
 
         selector.invalidate(id);
 
         let v2 = vec![ep("127.0.0.1", 20002, Scheme::Https)];
         let selected = selector.select(id, &v2).await.unwrap();
-        assert_eq!(selected.port, 20002);
+        assert_eq!(selected.endpoint.port, 20002);
     }
 
     #[tokio::test]
@@ -672,9 +720,9 @@ mod tests {
         let endpoints = vec![ep("127.0.0.1", 30001, Scheme::Http)];
 
         let selected = selector.select(id, &endpoints).await.unwrap();
-        assert_eq!(selected.host, "127.0.0.1");
-        assert_eq!(selected.port, 30001);
-        assert_eq!(selected.scheme, Scheme::Http);
+        assert_eq!(selected.endpoint.host, "127.0.0.1");
+        assert_eq!(selected.endpoint.port, 30001);
+        assert_eq!(selected.endpoint.scheme, Scheme::Http);
     }
 
     /// Endpoints in an upstream share scheme/port (by design).
@@ -694,9 +742,16 @@ mod tests {
         let mut found_2 = false;
         for _ in 0..20 {
             let selected = selector.select(id, &endpoints).await.unwrap();
-            assert_eq!(selected.scheme, Scheme::Https, "scheme must be preserved");
-            assert_eq!(selected.host, "127.0.0.1", "host must be preserved");
-            match selected.port {
+            assert_eq!(
+                selected.endpoint.scheme,
+                Scheme::Https,
+                "scheme must be preserved"
+            );
+            assert_eq!(
+                selected.endpoint.host, "127.0.0.1",
+                "host must be preserved"
+            );
+            match selected.endpoint.port {
                 40001 => found_1 = true,
                 40002 => found_2 = true,
                 other => panic!("unexpected port: {other}"),
@@ -726,9 +781,9 @@ mod tests {
         );
         let selected = selected.unwrap();
         // The returned endpoint must match the original — host stays "localhost".
-        assert_eq!(selected.host, "localhost");
-        assert_eq!(selected.port, 50001);
-        assert_eq!(selected.scheme, Scheme::Https);
+        assert_eq!(selected.endpoint.host, "localhost");
+        assert_eq!(selected.endpoint.port, 50001);
+        assert_eq!(selected.endpoint.scheme, Scheme::Https);
     }
 
     // -- DnsDiscovery unit tests --
@@ -888,7 +943,7 @@ mod tests {
         // Initial endpoints.
         let v1 = vec![ep("127.0.0.1", 60001, Scheme::Https)];
         let selected = selector.select(id, &v1).await.unwrap();
-        assert_eq!(selected.port, 60001);
+        assert_eq!(selected.endpoint.port, 60001);
 
         // Access the addr_map to verify it's populated.
         let entry = selector.cache.get(&id).unwrap();
@@ -901,7 +956,7 @@ mod tests {
 
         let v2 = vec![ep("127.0.0.1", 60002, Scheme::Https)];
         let selected = selector.select(id, &v2).await.unwrap();
-        assert_eq!(selected.port, 60002);
+        assert_eq!(selected.endpoint.port, 60002);
 
         // New addr_map should only contain the new endpoint.
         let entry = selector.cache.get(&id).unwrap();
@@ -925,9 +980,12 @@ mod tests {
     //   alpn = if tls && !Wss { H2H1 } else { H1 }
 
     /// Build an HttpPeer using the same logic as `upstream_peer`.
+    /// Uses a dummy IP (production resolves via `lookup_host`); the `host`
+    /// string is passed as the SNI, matching `upstream_peer` behaviour.
     fn build_peer(scheme: Scheme, host: &str, port: u16) -> HttpPeer {
         let tls = matches!(scheme, Scheme::Https | Scheme::Wss | Scheme::Wt);
-        let mut peer = HttpPeer::new(format!("{host}:{port}"), tls, host.to_string());
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let mut peer = HttpPeer::new(addr, tls, host.to_string());
         peer.options.alpn = if tls && !matches!(scheme, Scheme::Wss) {
             pingora_core::protocols::tls::ALPN::H2H1
         } else {
@@ -986,5 +1044,68 @@ mod tests {
         // Verify timeouts are stored correctly on the proxy.
         assert_eq!(proxy.connect_timeout, Duration::from_secs(7));
         assert_eq!(proxy.read_timeout, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn populate_from_headers_parses_resolved_addr() {
+        let mut ctx = ProxyCtx::default();
+        let mut headers = http::HeaderMap::new();
+        let upstream_id = Uuid::new_v4();
+        headers.insert(H_ENDPOINT_HOST, "api.example.com".parse().unwrap());
+        headers.insert(H_ENDPOINT_PORT, "8443".parse().unwrap());
+        headers.insert(H_ENDPOINT_SCHEME, "https".parse().unwrap());
+        headers.insert(H_INSTANCE_URI, "/test/instance".parse().unwrap());
+        headers.insert(H_UPSTREAM_ID, upstream_id.to_string().parse().unwrap());
+        headers.insert(H_RESOLVED_ADDR, "93.184.216.34:8443".parse().unwrap());
+
+        ctx.populate_from_headers(&headers);
+
+        assert_eq!(ctx.endpoint.host, "api.example.com");
+        assert_eq!(ctx.endpoint.port, 8443);
+        assert_eq!(ctx.endpoint.scheme, Scheme::Https);
+        assert_eq!(ctx.instance_uri, "/test/instance");
+        assert_eq!(ctx.upstream_id, Some(upstream_id));
+        let expected: std::net::SocketAddr = "93.184.216.34:8443".parse().unwrap();
+        assert_eq!(ctx.resolved_addr, Some(expected));
+    }
+
+    #[test]
+    fn populate_from_headers_missing_resolved_addr_leaves_none() {
+        let mut ctx = ProxyCtx::default();
+        let mut headers = http::HeaderMap::new();
+        headers.insert(H_ENDPOINT_HOST, "api.example.com".parse().unwrap());
+        headers.insert(H_ENDPOINT_PORT, "443".parse().unwrap());
+        // No H_RESOLVED_ADDR header.
+
+        ctx.populate_from_headers(&headers);
+
+        assert_eq!(ctx.endpoint.host, "api.example.com");
+        assert!(ctx.resolved_addr.is_none());
+    }
+
+    #[test]
+    fn populate_from_headers_invalid_resolved_addr_leaves_none() {
+        let mut ctx = ProxyCtx::default();
+        let mut headers = http::HeaderMap::new();
+        headers.insert(H_RESOLVED_ADDR, "not-an-addr".parse().unwrap());
+
+        ctx.populate_from_headers(&headers);
+
+        assert!(ctx.resolved_addr.is_none());
+    }
+
+    #[tokio::test]
+    async fn select_populates_resolved_addr() {
+        let selector = PingoraEndpointSelector::new();
+        let id = Uuid::new_v4();
+        // IP-based endpoint — resolved_addr should be populated.
+        let endpoints = vec![ep("127.0.0.1", 30001, Scheme::Http)];
+
+        let selected = selector.select(id, &endpoints).await.unwrap();
+        assert!(
+            selected.resolved_addr.is_some(),
+            "resolved_addr should be populated for IP endpoint"
+        );
+        assert_eq!(selected.resolved_addr.unwrap().port(), 30001);
     }
 }

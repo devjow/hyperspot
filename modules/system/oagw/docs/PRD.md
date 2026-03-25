@@ -1,5 +1,45 @@
 # PRD — Outbound API Gateway (OAGW)
 
+
+<!-- toc -->
+
+- [1. Overview](#1-overview)
+  - [1.1 Purpose](#11-purpose)
+  - [1.2 Background / Problem Statement](#12-background--problem-statement)
+  - [1.3 Goals (Business Outcomes)](#13-goals-business-outcomes)
+  - [1.4 Glossary](#14-glossary)
+- [2. Actors](#2-actors)
+  - [2.1 Human Actors](#21-human-actors)
+  - [2.2 System Actors](#22-system-actors)
+- [3. Operational Concept & Environment](#3-operational-concept--environment)
+  - [3.1 Module-Specific Environment Constraints](#31-module-specific-environment-constraints)
+- [4. Scope](#4-scope)
+  - [4.1 In Scope](#41-in-scope)
+  - [4.2 Out of Scope](#42-out-of-scope)
+- [5. Functional Requirements](#5-functional-requirements)
+  - [5.1 Core Management](#51-core-management)
+  - [5.2 Proxy Execution](#52-proxy-execution)
+  - [5.3 Plugin System](#53-plugin-system)
+  - [5.4 Streaming](#54-streaming)
+  - [5.5 Configuration Hierarchy](#55-configuration-hierarchy)
+  - [5.6 Error Codes](#56-error-codes)
+- [6. Non-Functional Requirements](#6-non-functional-requirements)
+  - [6.1 Module-Specific NFRs](#61-module-specific-nfrs)
+  - [6.2 NFR Exclusions](#62-nfr-exclusions)
+- [7. Public Library Interfaces](#7-public-library-interfaces)
+  - [7.1 Public API Surface](#71-public-api-surface)
+  - [7.2 External Integration Contracts](#72-external-integration-contracts)
+- [8. Use Cases](#8-use-cases)
+  - [Proxy HTTP Request](#proxy-http-request)
+- [9. Acceptance Criteria](#9-acceptance-criteria)
+- [10. Dependencies](#10-dependencies)
+- [11. Assumptions](#11-assumptions)
+- [12. Risks](#12-risks)
+- [13. Open Questions](#13-open-questions)
+- [14. Traceability](#14-traceability)
+
+<!-- /toc -->
+
 <!--
 =============================================================================
 PRODUCT REQUIREMENTS DOCUMENT (PRD)
@@ -63,7 +103,7 @@ OAGW solves these problems by providing a single outbound proxy layer with plugg
 | Plugin | Modular processor attached to upstreams or routes. Three types: Auth (credential injection), Guard (validation/policy enforcement), Transform (request/response mutation) |
 | Data Plane | Internal service that orchestrates proxy requests: resolves configuration, executes plugin chains, and forwards HTTP calls to external services |
 | Control Plane | Internal service that manages configuration data (upstreams, routes, plugins) with repository access |
-| Alias | Short identifier used in proxy URLs to reference an upstream. Derived from hostname by default, or explicitly set for IP-based or multi-endpoint upstreams |
+| Alias | Short identifier used in proxy URLs to reference an upstream. Auto-derived from hostname for hostname-based endpoints (user-provided alias rejected); explicit alias required for IP-based or non-derivable endpoints. Normalized to ASCII lowercase; resolution is case-insensitive |
 | Sharing Mode | Configuration visibility setting for hierarchical tenancy: `private` (owner only), `inherit` (descendants can override), `enforce` (descendants cannot override) |
 | GTS | Global Type System — the platform's schema and instance registration system used for plugin type identification |
 
@@ -322,7 +362,7 @@ Leaf Tenant (without permission):
 
 - [ ] `p2` - **ID**: `cpt-cf-oagw-fr-alias-resolution`
 
-The system **MUST** identify upstreams by alias in proxy URLs: `{METHOD} /api/oagw/v1/proxy/{alias}/{path}`. Alias defaults: single endpoint uses hostname (without port for standard ports); multiple endpoints use common domain suffix; IP-based or heterogeneous hosts require explicit alias. When resolving an alias, the system **MUST** search the tenant hierarchy from descendant to root; the closest match wins (descendant shadows ancestor). Enforced limits from ancestors **MUST** still apply across shadowing.
+The system **MUST** identify upstreams by alias in proxy URLs: `{METHOD} /api/oagw/v1/proxy/{alias}/{path}`. Alias is **enforced** based on endpoint type: hostname-based endpoints always auto-derive alias (user-provided alias is rejected); IP-based or non-derivable endpoints require explicit alias. Derivation rules: single hostname uses hostname (without port for standard ports); multiple hostnames use the longest common domain suffix (≥2 labels), validated against the public suffix list to reject bare public suffixes (e.g., `co.uk`); IP addresses or no common suffix require explicit alias. Aliases are normalized to ASCII lowercase with trailing dots stripped; resolution is case-insensitive. When resolving an alias, the system **MUST** search the tenant hierarchy from descendant to root; the closest match wins (descendant shadows ancestor). Enforced limits from ancestors **MUST** still apply across shadowing.
 
 **Shadowing Resolution Order**:
 
@@ -339,33 +379,36 @@ Resolution order:
 **Alias Examples**:
 
 ```json
-// Port differentiation — explicit alias needed
+// Hostname, standard port — alias auto-derived as "api.openai.com"
+// User-provided alias is rejected (400 Validation)
 {
-  "server": { "endpoints": [ { "host": "api.openai.com", "port": 443 } ] },
-  "alias": "openai-prod"
-}
-{
-  "server": { "endpoints": [ { "host": "api.openai.com", "port": 8443 } ] },
-  "alias": "openai-staging"
+  "server": { "endpoints": [ { "scheme": "https", "host": "api.openai.com", "port": 443 } ] }
+  // alias: "api.openai.com" (auto-derived)
 }
 
-// Multi-region with auto-generated alias (common suffix)
+// Hostname, non-standard port — alias auto-derived as "api.openai.com:8443"
+{
+  "server": { "endpoints": [ { "scheme": "https", "host": "api.openai.com", "port": 8443 } ] }
+  // alias: "api.openai.com:8443" (auto-derived)
+}
+
+// Multi-region with auto-derived alias (common suffix)
 {
   "server": {
     "endpoints": [
-      { "host": "us.vendor.com", "port": 443 },
-      { "host": "eu.vendor.com", "port": 443 }
+      { "scheme": "https", "host": "us.vendor.com", "port": 443 },
+      { "scheme": "https", "host": "eu.vendor.com", "port": 443 }
     ]
   }
-  // alias automatically set to "vendor.com"
+  // alias: "vendor.com" (auto-derived from common suffix)
 }
 
 // IP-based endpoints — explicit alias mandatory
 {
   "server": {
     "endpoints": [
-      { "host": "10.0.1.1", "port": 443 },
-      { "host": "10.0.1.2", "port": 443 }
+      { "scheme": "https", "host": "10.0.1.1", "port": 443 },
+      { "scheme": "https", "host": "10.0.1.2", "port": 443 }
     ]
   },
   "alias": "my-internal-service"

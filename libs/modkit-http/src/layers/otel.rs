@@ -69,8 +69,24 @@ where
             uri.path()
         );
 
-        // Inject trace context into request headers (no-op when OTEL disabled)
-        crate::otel::inject_current_span(req.headers_mut());
+        // Create span before injection so that inject_current_span propagates
+        // this span's context (not the parent's) into the outgoing request headers.
+        // This ensures the server sees outgoing_http as its parent span.
+        let span = tracing::span!(
+            Level::INFO, "outgoing_http",
+            http.method = %method,
+            http.url = %url_str,
+            otel.kind = "client",
+            http.status_code = tracing::field::Empty,
+            error = tracing::field::Empty,
+        );
+
+        // Inject trace context inside the span's scope so the propagator
+        // picks up the outgoing_http span ID, not the caller's.
+        {
+            let _guard = span.enter();
+            crate::otel::inject_current_span(req.headers_mut());
+        }
 
         // Swap so we call the instance that was poll_ready'd, leaving a fresh clone
         // for the next poll_ready cycle. This satisfies the Tower Service contract.
@@ -78,15 +94,6 @@ where
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
         Box::pin(async move {
-            let span = tracing::span!(
-                Level::INFO, "outgoing_http",
-                http.method = %method,
-                http.url = %url_str,
-                otel.kind = "client",
-                http.status_code = tracing::field::Empty,
-                error = tracing::field::Empty,
-            );
-
             let result = inner.call(req).instrument(span.clone()).await;
 
             match &result {
