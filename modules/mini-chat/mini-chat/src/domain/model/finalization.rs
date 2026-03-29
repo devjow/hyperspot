@@ -1,6 +1,7 @@
 use mini_chat_sdk::RequesterType;
 use modkit_macros::domain_model;
 use modkit_security::AccessScope;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::domain::llm::Usage;
@@ -96,4 +97,26 @@ pub fn settlement_path_from_billing(
         SettlementMethod::Estimated => SettlementPath::Estimated,
         SettlementMethod::Released => SettlementPath::Released,
     }
+}
+
+/// Simplified input for orphan finalization.
+/// Built from the turn row — no streaming context available.
+#[domain_model]
+#[derive(Debug, Clone)]
+pub struct OrphanFinalizationInput {
+    pub turn_id: Uuid,
+    pub tenant_id: Uuid,
+    pub chat_id: Uuid,
+    pub request_id: Uuid,
+    /// From `requester_user_id`. Nullable because some turns may have system requesters.
+    pub user_id: Option<Uuid>,
+    pub requester_type: RequesterType,
+    pub effective_model: Option<String>,
+    pub reserve_tokens: Option<i64>,
+    pub max_output_tokens_applied: Option<i32>,
+    pub reserved_credits_micro: Option<i64>,
+    pub policy_version_applied: Option<i64>,
+    pub minimal_generation_floor_applied: Option<i32>,
+    /// `started_at` — used to derive `period_starts` for quota settlement.
+    pub started_at: OffsetDateTime,
 }

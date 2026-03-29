@@ -115,6 +115,12 @@ modules:
       # Default (4) spawns too many concurrent writers for a single SQLite file.
       outbox:
         num_partitions: 2
+      # Orphan watchdog: use minimum allowed timeout (90s) and frequent scans
+      # to make e2e orphan detection tests feasible (default 300s is too slow).
+      orphan_watchdog:
+        enabled: true
+        scan_interval_secs: 2
+        timeout_secs: 90
       # S2S credentials for obtaining SecurityContext
       # that will be used for communication with other modules.
       client_credentials:

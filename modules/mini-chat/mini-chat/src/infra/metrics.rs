@@ -184,9 +184,10 @@ pub struct MiniChatMetricsMeter {
     #[allow(dead_code)]
     image_turns: Counter<u64>,
 
-    // ── P2: Orphan watchdog (deferred: watchdog not implemented) ──
-    #[allow(dead_code)]
-    orphan_turn: Counter<u64>,
+    // ── P1: Orphan Watchdog ──────────────────────────────────────────────
+    orphan_detected: Counter<u64>,
+    orphan_finalized: Counter<u64>,
+    orphan_scan_duration: Histogram<f64>,
 
     // ── Low-priority deferred ──────────────────────────────────────────
     #[allow(dead_code)]
@@ -557,10 +558,18 @@ impl MiniChatMetricsMeter {
                 .with_description("Turns that included >=1 image")
                 .build(),
 
-            // deferred: orphan watchdog not implemented
-            orphan_turn: meter
-                .u64_counter(format!("{prefix}_orphan_turn"))
+            // ── P1: Orphan Watchdog ──────────────────────────────────────
+            orphan_detected: meter
+                .u64_counter(format!("{prefix}_orphan_detected"))
                 .with_description("Orphan turns detected by watchdog")
+                .build(),
+            orphan_finalized: meter
+                .u64_counter(format!("{prefix}_orphan_finalized"))
+                .with_description("Orphan turns finalized by watchdog (CAS won)")
+                .build(),
+            orphan_scan_duration: meter
+                .f64_histogram(format!("{prefix}_orphan_scan_duration_seconds"))
+                .with_description("Watchdog scan execution duration")
                 .build(),
 
             // deferred: low-priority
@@ -802,6 +811,22 @@ impl MiniChatMetricsPort for MiniChatMetricsMeter {
             u64::from(count),
             &[KeyValue::new(key::MODEL, model.to_owned())],
         );
+    }
+
+    // ── P1: Orphan Watchdog ───────────────────────────────────────────
+
+    fn record_orphan_detected(&self, reason: &str) {
+        self.orphan_detected
+            .add(1, &[KeyValue::new(key::REASON, reason.to_owned())]);
+    }
+
+    fn record_orphan_finalized(&self, reason: &str) {
+        self.orphan_finalized
+            .add(1, &[KeyValue::new(key::REASON, reason.to_owned())]);
+    }
+
+    fn record_orphan_scan_duration_seconds(&self, seconds: f64) {
+        self.orphan_scan_duration.record(seconds, &[]);
     }
 
     // ── P1: Cleanup ──────────────────────────────────────────────────

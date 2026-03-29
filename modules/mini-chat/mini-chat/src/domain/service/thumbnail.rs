@@ -27,12 +27,15 @@ pub struct Thumbnail {
 /// `img_thumbnail = null`."*
 #[allow(clippy::cognitive_complexity)]
 pub fn generate(cfg: &ThumbnailConfig, raw: &[u8]) -> Option<Thumbnail> {
-    // Pre-screen: reject obviously oversized payloads before decoding.
+    // Pre-screen: reject oversized compressed payloads before decoding.
+    // max_decode_bytes is the memory budget for the decoded bitmap; using it as
+    // an input-size guard too is intentionally conservative — a compressed file
+    // larger than the decoded budget will always exceed it once decoded.
     if raw.len() > cfg.max_decode_bytes {
         tracing::debug!(
             raw_len = raw.len(),
             max = cfg.max_decode_bytes,
-            "thumbnail skipped: source exceeds max_decode_bytes"
+            "thumbnail skipped: compressed input exceeds max_decode_bytes"
         );
         return None;
     }

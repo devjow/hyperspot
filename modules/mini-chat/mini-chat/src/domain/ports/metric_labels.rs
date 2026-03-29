@@ -95,6 +95,12 @@ pub mod cleanup_state {
     pub const FAILED: &str = "failed";
 }
 
+/// Orphan watchdog reason labels (`reason` label).
+pub mod reason {
+    #[allow(dead_code)] // declared ahead of call site (watchdog uses string literals)
+    pub const STALE_PROGRESS: &str = "stale_progress";
+}
+
 /// Cancel / abort trigger labels (`trigger` label).
 pub mod trigger {
     #[allow(dead_code)] // declared ahead of call site (deferred metrics)

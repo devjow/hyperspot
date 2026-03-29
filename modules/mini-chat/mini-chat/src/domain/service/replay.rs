@@ -291,6 +291,7 @@ mod tests {
             deleted_at: None,
             replaced_by_request_id: None,
             started_at: OffsetDateTime::now_utc(),
+            last_progress_at: None,
             completed_at: Some(OffsetDateTime::now_utc()),
             updated_at: OffsetDateTime::now_utc(),
         }

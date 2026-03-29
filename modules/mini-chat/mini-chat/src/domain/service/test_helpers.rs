@@ -1285,6 +1285,9 @@ impl crate::domain::ports::MiniChatMetricsPort for TestMetrics {
         self.attachments_pending.fetch_add(-1, Ordering::Relaxed);
     }
     fn record_image_inputs_per_turn(&self, _count: u32) {}
+    fn record_orphan_detected(&self, _: &str) {}
+    fn record_orphan_finalized(&self, _: &str) {}
+    fn record_orphan_scan_duration_seconds(&self, _: f64) {}
     fn record_code_interpreter_calls(&self, _: &str, _: u32) {
         self.code_interpreter_calls.fetch_add(1, Ordering::Relaxed);
     }

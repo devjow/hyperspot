@@ -5,8 +5,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::config::OrphanWatchdogConfig;
+use crate::domain::repos::{MessageRepository, TurnRepository};
 use crate::infra::leader::LeaderElector;
 use crate::infra::workers::WorkerHandles;
+use crate::infra::workers::orphan_watchdog::OrphanWatchdogDeps;
 
 /// Worker configs captured in `init()` and consumed by `start()`.
 pub struct WorkerConfigs {
@@ -33,11 +35,16 @@ pub async fn prepare_worker_runtime(
 
 /// Spawn all background workers, returning their handles and a cancellation
 /// token that can be used to request shutdown.
-pub fn spawn_workers(
+pub fn spawn_workers<TR, MR>(
     configs: &WorkerConfigs,
     parent_cancel: &CancellationToken,
     leader_elector: Option<&Arc<dyn LeaderElector>>,
-) -> anyhow::Result<(WorkerHandles, CancellationToken)> {
+    orphan_deps: Option<OrphanWatchdogDeps<TR, MR>>,
+) -> anyhow::Result<(WorkerHandles, CancellationToken)>
+where
+    TR: TurnRepository + 'static,
+    MR: MessageRepository + 'static,
+{
     let worker_cancel = parent_cancel.child_token();
     let mut handles = WorkerHandles::new();
 
@@ -46,6 +53,8 @@ pub fn spawn_workers(
             leader_elector
                 .ok_or_else(|| anyhow::anyhow!("leader elector required for orphan_watchdog"))?,
         );
+        let deps = orphan_deps
+            .ok_or_else(|| anyhow::anyhow!("orphan watchdog deps required when enabled"))?;
         let cancel = worker_cancel.child_token();
         handles.spawn(
             "orphan_watchdog",
@@ -53,6 +62,7 @@ pub fn spawn_workers(
             crate::infra::workers::orphan_watchdog::run(
                 elector,
                 configs.orphan_watchdog.clone(),
+                deps,
                 cancel,
             ),
         );
@@ -70,6 +80,10 @@ fn leader_workers_enabled(configs: &WorkerConfigs) -> bool {
 ///
 /// When built with `k8s`, mini-chat requires Kubernetes runtime support:
 /// `POD_NAMESPACE`, `POD_NAME`, and kube client access must all be available.
+#[allow(
+    clippy::unused_async,
+    reason = "async needed when k8s feature is enabled"
+)]
 async fn create_leader_elector() -> anyhow::Result<Arc<dyn LeaderElector>> {
     #[cfg(feature = "k8s")]
     {
@@ -111,8 +125,11 @@ mod tests {
         assert!(elector.is_none());
 
         let parent_cancel = CancellationToken::new();
-        let (handles, worker_cancel) =
-            spawn_workers(&configs, &parent_cancel, elector.as_ref()).unwrap();
+        let (handles, worker_cancel) = spawn_workers::<
+            crate::infra::db::repo::turn_repo::TurnRepository,
+            crate::infra::db::repo::message_repo::MessageRepository,
+        >(&configs, &parent_cancel, elector.as_ref(), None)
+        .unwrap();
         assert_eq!(handles.len(), 0);
 
         worker_cancel.cancel();

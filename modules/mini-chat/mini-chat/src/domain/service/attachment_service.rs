@@ -865,8 +865,10 @@ impl<
         //    generate a thumbnail after the upload completes.
         let structured_name = structured_filename(chat_id, attachment_id, validated_mime);
 
-        // Arc<Mutex> is required because the stream closure must be Send + 'static;
-        // in practice the stream is consumed sequentially so contention never occurs.
+        // Arc<Mutex<Option<Vec>>> bridges two ownership scopes: the stream
+        // closure (writes chunks during upload) and the post-upload thumbnail
+        // path (reads the buffer).  The stream is consumed sequentially so no
+        // real contention occurs; Arc<Mutex> is needed only to satisfy Send + 'static.
         let image_buffer: std::sync::Arc<std::sync::Mutex<Option<Vec<u8>>>> =
             std::sync::Arc::new(std::sync::Mutex::new(if is_document {
                 None
@@ -887,7 +889,8 @@ impl<
                     if let Some(ref mut v) = *guard {
                         // Stop buffering if we exceed decode limit — thumbnail
                         // generation will be skipped, but upload continues.
-                        if v.len() + bytes.len() <= max_buf {
+                        // saturating_add avoids overflow when both values are large.
+                        if v.len().saturating_add(bytes.len()) <= max_buf {
                             v.extend_from_slice(bytes);
                         } else {
                             *guard = None;

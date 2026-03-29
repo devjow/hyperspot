@@ -201,13 +201,20 @@ class TestCleanup:
         assert att_resp.status_code == 404
 
     def test_orphan_watchdog_detects_stuck_turn(self, chat, mock_provider):
-        # TODO: Requires waiting for orphan timeout (5 min default). Too slow
-        # for regular e2e tests. This test uses disconnect detection (faster)
-        # as a proxy for orphan watchdog behavior.
+        # This test verifies that a disconnected streaming turn reaches a
+        # terminal state. With the test config (orphan_watchdog.timeout_secs=60,
+        # scan_interval_secs=2), the orphan watchdog will detect and finalize
+        # any truly stuck turn within ~62s. However, the server's disconnect
+        # detection (via SSE channel closure) usually finalizes the turn as
+        # "cancelled" much faster. Both paths produce a correct terminal state.
+        #
+        # The orphan watchdog is the safety net for cases where disconnect
+        # detection fails (e.g., pod crash). That path is covered by the
+        # unit tests in turn_repo.rs and finalization_service.rs.
         chat_id = chat["id"]
         request_id = str(uuid.uuid4())
 
-        # Very slow scenario
+        # Very slow scenario — ensures the mock provider doesn't finish naturally
         many_deltas = [
             MockEvent("response.output_text.delta", {"delta": f"w{i} "})
             for i in range(30)
@@ -220,7 +227,7 @@ class TestCleanup:
         url = f"{API_PREFIX}/chats/{chat_id}/messages:stream"
         body = {"content": "Stuck turn test.", "request_id": request_id}
 
-        # Start stream and disconnect immediately
+        # Start stream and disconnect immediately — turn stays running
         with httpx.stream(
             "POST", url, json=body,
             headers={"Accept": "text/event-stream"},
@@ -229,13 +236,29 @@ class TestCleanup:
             assert resp.status_code == 200
             # disconnect immediately
 
-        # Poll until turn reaches terminal state
+        # Poll until turn reaches terminal state.
+        # Disconnect detection should resolve this within a few seconds.
+        # The orphan watchdog is the fallback (60s+ timeout).
         turn = poll_turn_terminal(chat_id, request_id, timeout=30.0)
-        assert turn["state"] in ("cancelled", "error"), f"Expected cancelled/error for orphan, got {turn['state']}"
+        assert turn["state"] in ("cancelled", "error"), (
+            f"Expected cancelled (disconnect) or error (orphan), got {turn['state']}"
+        )
+        # If the orphan watchdog resolved it, error_code will be "orphan_timeout".
+        # If disconnect detection resolved it, state will be "cancelled".
+        if turn["state"] == "error":
+            assert turn.get("error_code") == "orphan_timeout", (
+                f"Expected orphan_timeout error_code, got {turn.get('error_code')}"
+            )
 
     def test_orphan_settlement_estimated(self, chat, mock_provider):
-        # TODO: Timing dependent on orphan watchdog interval. This test
-        # uses disconnect detection as a proxy.
+        # Verify that quota reserves are released after an orphan-like turn
+        # terminates. Both disconnect detection (cancel -> estimated settlement)
+        # and orphan watchdog (failed -> estimated settlement) release reserves.
+        #
+        # This test uses disconnect-as-proxy because true orphan detection
+        # requires the minimum 60s timeout, which is too slow for regular CI.
+        # The settlement path is identical — both derive BillingOutcome::Aborted
+        # and use SettlementPath::Estimated.
         chat_id = chat["id"]
         request_id = str(uuid.uuid4())
 
@@ -261,10 +284,13 @@ class TestCleanup:
             for _ in resp.iter_bytes(chunk_size=256):
                 break
 
-        # Wait for resolution
+        # Wait for terminal state
         turn = poll_turn_terminal(chat_id, request_id, timeout=30.0)
-        assert turn["state"] in ("cancelled", "error"), f"Expected cancelled/error for orphan, got {turn['state']}"
+        assert turn["state"] in ("cancelled", "error"), (
+            f"Expected cancelled (disconnect) or error (orphan), got {turn['state']}"
+        )
 
+        # Verify no stuck reserves — settlement should have released them
         time.sleep(0.5)
         assert not has_stuck_reserves(), (
             "Stuck reserves after orphan-like turn settlement"

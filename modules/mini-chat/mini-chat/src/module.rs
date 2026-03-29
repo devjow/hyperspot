@@ -540,8 +540,25 @@ impl RunnableCapability for MiniChatModule {
             info!("Outbox pipeline started (OAGW ready)");
         }
 
+        let orphan_deps = if wc.orphan_watchdog.enabled {
+            let services = self.service.get().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "{} not initialized - init() must run before start()",
+                    Self::MODULE_NAME
+                )
+            })?;
+            Some(crate::infra::workers::orphan_watchdog::OrphanWatchdogDeps {
+                finalization_svc: Arc::clone(&services.finalization),
+                turn_repo: Arc::clone(&services.turn_repo),
+                db: Arc::clone(&services.db),
+                metrics: Arc::clone(&services.metrics),
+            })
+        } else {
+            None
+        };
+
         let (handles, worker_cancel) =
-            background_workers::spawn_workers(wc, &cancel, leader_elector.as_ref())?;
+            background_workers::spawn_workers(wc, &cancel, leader_elector.as_ref(), orphan_deps)?;
         self.store_worker_runtime(handles, worker_cancel).await?;
 
         Ok(())

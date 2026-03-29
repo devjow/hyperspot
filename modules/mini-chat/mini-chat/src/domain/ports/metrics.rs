@@ -165,6 +165,19 @@ pub trait MiniChatMetricsPort: Send + Sync {
     /// `{prefix}_cleanup_vector_store_with_failed_attachments` — counter
     fn record_cleanup_vs_with_failed_attachments(&self);
 
+    // ── P1: Orphan Watchdog (3 metrics) ─────────────────────────────────
+
+    /// `{prefix}_orphan_detected` — counter
+    /// `reason`: `stale_progress`
+    fn record_orphan_detected(&self, reason: &str);
+
+    /// `{prefix}_orphan_finalized` — counter
+    /// `reason`: `stale_progress`
+    fn record_orphan_finalized(&self, reason: &str);
+
+    /// `{prefix}_orphan_scan_duration_seconds` — histogram
+    fn record_orphan_scan_duration_seconds(&self, seconds: f64);
+
     // ── P2: Tool Call Counters (1 metric) ────────────────────────────
 
     /// `{prefix}_code_interpreter_calls` — counter
@@ -206,6 +219,9 @@ impl MiniChatMetricsPort for NoopMetrics {
     fn increment_attachments_pending(&self) {}
     fn decrement_attachments_pending(&self) {}
     fn record_image_inputs_per_turn(&self, _: u32) {}
+    fn record_orphan_detected(&self, _: &str) {}
+    fn record_orphan_finalized(&self, _: &str) {}
+    fn record_orphan_scan_duration_seconds(&self, _: f64) {}
     fn record_code_interpreter_calls(&self, _: &str, _: u32) {}
     fn record_cleanup_completed(&self, _: &str) {}
     fn record_cleanup_failed(&self, _: &str) {}
