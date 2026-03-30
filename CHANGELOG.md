@@ -9,6 +9,112 @@ release-plz updates this file in the Release PR.
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/cyberfabric/cyberfabric-core/compare/cf-modkit-canonical-errors-v0.6.0...cf-modkit-canonical-errors-v0.6.1) - 2026-03-30
+
+### Other
+
+- Set individual version for each package. (by @genericaccount-de) - #1227
+
+### Contributors
+
+* @genericaccount-de
+
+## [0.6.1](https://github.com/cyberfabric/cyberfabric-core/compare/types-sdk-v0.6.0...types-sdk-v0.6.1) - 2026-03-30
+
+### Other
+
+- Set individual version for each package. (by @genericaccount-de) - #1227
+
+### Contributors
+
+* @genericaccount-de
+
+## [0.1.16](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-tr-plugin-v0.1.15...cf-static-tr-plugin-v0.1.16) - 2026-03-30
+
+### Other
+
+- release (by @github-actions[bot]) - #1311
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.13](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-credstore-plugin-v0.1.12...cf-static-credstore-plugin-v0.1.13) - 2026-03-30
+
+### Other
+
+- release (by @github-actions[bot]) - #1311
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.15](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-authz-plugin-v0.1.14...cf-static-authz-plugin-v0.1.15) - 2026-03-30
+
+### Other
+
+- release (by @github-actions[bot]) - #1311
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.2.6](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-authn-plugin-v0.2.5...cf-static-authn-plugin-v0.2.6) - 2026-03-30
+
+### Other
+
+- release (by @github-actions[bot]) - #1311
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.1.17](https://github.com/cyberfabric/cyberfabric-core/compare/cf-single-tenant-tr-plugin-v0.1.16...cf-single-tenant-tr-plugin-v0.1.17) - 2026-03-30
+
+### Other
+
+- release (by @github-actions[bot]) - #1311
+
+### Contributors
+
+* @github-actions[bot]
+
+## [0.6.2](https://github.com/cyberfabric/cyberfabric-core/compare/cf-modkit-http-v0.6.1...cf-modkit-http-v0.6.2) - 2026-03-30
+
+### Added
+
+- *(outbox)* leased handler API with drop-based cancellation (by @striped-zebra-dev)
+- *(modkit)* add FIPS-140-3 support via aws-lc-fips-sys
+
+### Other
+
+- Set individual version for each package. (by @genericaccount-de) - #1227
+
+### Contributors
+
+* @striped-zebra-dev
+* @genericaccount-de
+
+## [0.6.2](https://github.com/cyberfabric/cyberfabric-core/compare/cf-modkit-v0.6.1...cf-modkit-v0.6.2) - 2026-03-30
+
+### Added
+
+- *(modkit)* add FIPS-140-3 support via aws-lc-fips-sys
+
+### Fixed
+
+- fix test_reject_duplicate_keys_in_module_file test on windows (by @lansfy) - #1336
+
+### Other
+
+- Merge pull request #1331 from Bechma/bootstrap-main (by @MikeFalcon77) - #1331
+- Merge pull request #1336 from lansfy/fix_tests_on_windows (by @MikeFalcon77) - #1336
+
+### Contributors
+
+* @MikeFalcon77
+* @lansfy
+
 ## [0.1.16](https://github.com/cyberfabric/cyberfabric-core/compare/cf-static-tr-plugin-v0.1.15...cf-static-tr-plugin-v0.1.16) - 2026-03-25
 
 ### Other
