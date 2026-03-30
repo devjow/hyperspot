@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "cf-authz-resolver-sdk"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "async-trait",
  "cf-modkit",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "cf-credstore-sdk"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "async-trait",
  "cf-modkit",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1460,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db-macros"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "axum",
  "http",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors-macro"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-http"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "bytes",
  "flate2",
@@ -1570,7 +1570,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-macros"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "base64 0.22.1",
  "bigdecimal",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata-macros"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cf-modkit-odata",
  "heck 0.5.0",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-sdk"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cf-modkit-odata",
  "cf-modkit-odata-macros",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-security"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "postcard",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-transport-grpc"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "cf-modkit-security",
@@ -1694,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-utils"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "humantime",
  "regex",
@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdk-directory"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2018,7 +2018,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdks"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "cf-system-sdk-directory",
 ]
@@ -2046,7 +2046,7 @@ dependencies = [
 
 [[package]]
 name = "cf-tenant-resolver-sdk"
-version = "0.2.15"
+version = "0.2.16"
 dependencies = [
  "async-trait",
  "cf-modkit",
