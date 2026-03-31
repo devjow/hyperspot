@@ -13,7 +13,7 @@ use hyper::body::{Frame, Incoming};
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use oagw::test_support::{AppHarness, parse_resource_gts};
+use oagw::test_support::AppHarness;
 use rcgen::generate_simple_self_signed;
 use rustls::ServerConfig;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -205,13 +205,12 @@ async fn e2e_http2_upstream_round_trip() {
         }))
         .expect_status(201)
         .await;
-    let uid = resp.json()["id"].as_str().unwrap().to_string();
+    let upstream_gts_id = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_gts_id,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -279,13 +278,12 @@ async fn e2e_http2_upstream_get_no_body() {
         }))
         .expect_status(201)
         .await;
-    let uid = resp.json()["id"].as_str().unwrap().to_string();
+    let upstream_gts_id = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_gts_id,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -346,13 +344,12 @@ async fn e2e_http2_upstream_large_body() {
         }))
         .expect_status(201)
         .await;
-    let uid = resp.json()["id"].as_str().unwrap().to_string();
+    let upstream_gts_id = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_gts_id,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -421,13 +418,12 @@ async fn e2e_http2_upstream_sse_streaming() {
         }))
         .expect_status(201)
         .await;
-    let uid = resp.json()["id"].as_str().unwrap().to_string();
+    let upstream_gts_id = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_gts_id,
             "match": {
                 "http": {
                     "methods": ["POST"],

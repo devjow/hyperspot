@@ -29,9 +29,11 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(1024))", nullable)]
     pub effective_model: Option<String>,
     pub minimal_generation_floor_applied: Option<i32>,
+    pub web_search_enabled: bool,
     pub deleted_at: Option<OffsetDateTime>,
     pub replaced_by_request_id: Option<Uuid>,
     pub started_at: OffsetDateTime,
+    pub last_progress_at: Option<OffsetDateTime>,
     pub completed_at: Option<OffsetDateTime>,
     pub updated_at: OffsetDateTime,
 }

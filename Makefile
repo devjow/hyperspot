@@ -113,12 +113,16 @@ validate-module-names:
 # |             | - Use 'make dylint-list' to see all available custom lints           |
 # +-------------+----------------------------------------------------------------------+
 
-.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs gts-docs-vendor gts-docs-release gts-docs-vendor-release gts-docs-test cypilot-validate
+.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs gts-docs-vendor gts-docs-release gts-docs-vendor-release gts-docs-test cypilot-validate cypilot-spec-coverage
 
 # Run clippy linter (excludes gts-rust submodule which has its own lint settings)
 clippy:
 	$(call check_rustup_component,clippy)
 	cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::perf
+
+# Check cypilot spec-to-code traceability coverage
+cypilot-spec-coverage:
+	@python3 .cypilot/.core/skills/cypilot/scripts/cypilot.py spec-coverage --min-coverage 80
 
 # Validate cypilot artifacts (specs, code, templates)
 cypilot-validate:

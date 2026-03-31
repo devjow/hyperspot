@@ -5,10 +5,12 @@
 //! - HTTP/2 keepalive settings for connection health
 //! - Tracing spans around connection establishment
 //!
-//! **Note:** This module is responsible only for transport-level configuration.
-//! For RPC-level retry logic with exponential backoff, see the [`crate::rpc_retry`] module.
+//! **Note:** This module handles both transport-level configuration and connection retries
+//! ([`connect_with_retry`]). For RPC-level retry logic, see the [`crate::rpc_retry`] module.
 
 use std::time::Duration;
+
+use rand::Rng as _;
 use tonic::transport::{Channel, Endpoint};
 use tracing::Instrument;
 
@@ -34,19 +36,20 @@ pub struct GrpcClientConfig {
     /// Timeout for individual RPC calls (applied at transport level).
     pub rpc_timeout: Duration,
 
-    /// Maximum number of retry attempts for RPC calls.
+    /// Maximum number of retry attempts.
     ///
-    /// Used by [`crate::rpc_retry::call_with_retry`], not by the transport layer.
+    /// Used by both [`connect_with_retry`] (connection retries) and
+    /// [`crate::rpc_retry::call_with_retry`] (RPC-call retries).
     pub max_retries: u32,
 
-    /// Base duration for exponential backoff between retries.
+    /// Initial backoff duration; doubled each attempt (`base * 2^(attempt-1)`).
     ///
-    /// Used by [`crate::rpc_retry::call_with_retry`], not by the transport layer.
+    /// Used by both [`connect_with_retry`] and [`crate::rpc_retry::call_with_retry`].
     pub base_backoff: Duration,
 
-    /// Maximum duration for exponential backoff.
+    /// Strict upper bound on backoff duration, enforced both before and after jitter.
     ///
-    /// Used by [`crate::rpc_retry::call_with_retry`], not by the transport layer.
+    /// Used by both [`connect_with_retry`] and [`crate::rpc_retry::call_with_retry`].
     pub max_backoff: Duration,
 
     /// Service name for metrics and tracing.
@@ -212,13 +215,15 @@ where
     .await
 }
 
-/// Connect to a gRPC service with retry logic using exponential backoff.
+/// Connect to a gRPC service with retry logic using exponential backoff and jitter.
 ///
 /// This function attempts to establish a connection and retries on failure
 /// using the retry parameters from [`GrpcClientConfig`]:
 /// - `max_retries`: Maximum number of retry attempts
-/// - `base_backoff`: Initial backoff duration (multiplied by attempt number)
-/// - `max_backoff`: Maximum backoff duration cap
+/// - `base_backoff`: Initial backoff duration; doubled each attempt (`base * 2^(attempt-1)`)
+/// - `max_backoff`: Strict upper bound on backoff duration (enforced both before and after jitter)
+///
+/// A random jitter of 0–25 % is added after capping to spread out concurrent retries.
 ///
 /// # Example
 ///
@@ -263,7 +268,13 @@ where
                 return Ok(client);
             }
             Err(e) if attempt <= cfg.max_retries => {
-                let backoff = (cfg.base_backoff * attempt).min(cfg.max_backoff);
+                let jitter_factor = rand::rng().random_range(0.0..=0.25);
+                let backoff = crate::backoff::compute_backoff(
+                    cfg.base_backoff,
+                    cfg.max_backoff,
+                    attempt,
+                    jitter_factor,
+                );
                 tracing::warn!(
                     service = cfg.service_name,
                     attempt,

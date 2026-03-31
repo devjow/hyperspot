@@ -987,3 +987,87 @@ pattern = "Acceptance Criteria"
 description = "Acceptance criteria for the feature."
 required = true
 multiple = false
+
+[artifacts.UPSTREAM_REQS]
+name = "UPSTREAM_REQS constraints (cf-sdlc)"
+description = "Allowed ID kinds in UPSTREAM_REQS and required downstream references to PRD"
+toc = true
+
+[artifacts.UPSTREAM_REQS.identifiers]
+[artifacts.UPSTREAM_REQS.identifiers.upreq]
+kind = "upreq"
+name = "Upstream Requirement"
+description = "A requirement from an existing module toward a future module that does not exist yet."
+template = "cpt-{system}-upreq-{slug}"
+examples = ["cpt-cf-approval-service-upreq-bulk-approve", "cpt-cf-model-registry-upreq-tenant-model-check"]
+required = true
+task = true
+priority = true
+to_code = false
+headings = ["upstream-reqs-requirements"]
+
+[artifacts.UPSTREAM_REQS.identifiers.upreq.references]
+[artifacts.UPSTREAM_REQS.identifiers.upreq.references.PRD]
+coverage = true
+headings = ["prd-fr", "prd-nfr"]
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-h1-title"
+level = 1
+description = "UPSTREAM_REQS document title (H1)."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-overview"
+level = 2
+pattern = "Overview"
+description = "Overview section."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-overview-purpose"
+level = 3
+pattern = "Purpose"
+description = "Purpose of the upstream requirements."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-overview-requesting-modules"
+level = 3
+pattern = "Requesting Modules"
+description = "Table of modules requesting this future module."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-requirements"
+level = 2
+pattern = "Requirements"
+description = "Requirements section."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-requirements-module"
+level = 3
+description = "Requirements from a single requesting module."
+required = true
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-priorities"
+level = 2
+pattern = "Priorities"
+description = "Priority summary table."
+required = true
+multiple = false
+
+[[artifacts.UPSTREAM_REQS.headings]]
+id = "upstream-reqs-traceability"
+level = 2
+pattern = "Traceability"
+description = "Links to future PRD and DESIGN."
+required = true
+multiple = false

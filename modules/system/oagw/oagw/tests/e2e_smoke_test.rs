@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use oagw::test_support::{
     APIKEY_AUTH_PLUGIN_ID, AppHarness, CapturingAuthZResolverClient, DenyingAuthZResolverClient,
-    MockBody, MockGuard, MockResponse, parse_resource_gts,
+    MockBody, MockGuard, MockResponse,
 };
 
 // 10.1: E2E — create upstream, create route, proxy chat completion, verify round-trip.
@@ -31,11 +31,10 @@ async fn e2e_chat_completion_round_trip() {
     let upstream_id = resp.json()["id"].as_str().unwrap().to_string();
 
     // Create route via Management API.
-    let (_, upstream_uuid) = parse_resource_gts(&upstream_id).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_id,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -103,12 +102,11 @@ async fn e2e_sse_streaming() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     let route_path = guard.path("/v1/chat/completions/stream");
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -173,11 +171,10 @@ async fn e2e_auth_injection() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -272,11 +269,10 @@ async fn e2e_upstream_500_passthrough() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -331,11 +327,10 @@ async fn e2e_rate_limit_returns_429() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -397,10 +392,18 @@ async fn e2e_management_lifecycle() {
             .any(|u| u["id"].as_str() == Some(uid.as_str()))
     );
 
-    // Update alias.
+    // Update alias (full replacement via PUT).
     h.api_v1()
-        .patch_upstream(&uid)
-        .with_body(serde_json::json!({"alias": "lifecycle-v2"}))
+        .put_upstream(&uid)
+        .with_body(serde_json::json!({
+            "server": {
+                "endpoints": [{"host": "127.0.0.1", "port": h.mock_port(), "scheme": "http"}]
+            },
+            "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+            "alias": "lifecycle-v2",
+            "enabled": true,
+            "tags": []
+        }))
         .expect_status(200)
         .await;
 
@@ -409,11 +412,10 @@ async fn e2e_management_lifecycle() {
     assert_eq!(resp.json()["alias"].as_str().unwrap(), "lifecycle-v2");
 
     // Create route.
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -466,11 +468,10 @@ async fn e2e_invalid_content_length_returns_400() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -520,11 +521,10 @@ async fn e2e_body_exceeding_limit_returns_413() {
         .await;
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["POST"],
@@ -589,11 +589,10 @@ async fn e2e_upstream_timeout_returns_504() {
     let uid = resp.json()["id"].as_str().unwrap().to_string();
 
     let route_path = guard.path("/timeout");
-    let (_, upstream_uuid) = parse_resource_gts(&uid).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &uid,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -642,11 +641,10 @@ async fn e2e_authz_forbidden_returns_403() {
         .await;
     let upstream_id = resp.json()["id"].as_str().unwrap().to_string();
 
-    let (_, upstream_uuid) = parse_resource_gts(&upstream_id).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_id,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -716,11 +714,10 @@ async fn e2e_authz_request_carries_tenant_context() {
     let upstream_id = resp.json()["id"].as_str().unwrap().to_string();
 
     let route_path = guard.path("/v1/test");
-    let (_, upstream_uuid) = parse_resource_gts(&upstream_id).unwrap();
     h.api_v1()
         .post_route()
         .with_body(serde_json::json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_id,
             "match": {
                 "http": {
                     "methods": ["GET"],

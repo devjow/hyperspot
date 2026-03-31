@@ -1,4 +1,5 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+mod backoff;
 pub mod client;
 pub mod rpc_retry;
 

@@ -11,7 +11,6 @@ IMPORTANT: This module MUST NOT contain business logic.
 
 # @cpt-begin:cpt-cypilot-algo-core-infra-route-command:p1:inst-route-helpers
 import sys
-import json
 from pathlib import Path
 from typing import List, Optional
 
@@ -77,9 +76,8 @@ def _cmd_kit(argv: List[str]) -> int:
     from .commands.kit import cmd_kit
     return cmd_kit(argv)
 
-def _cmd_generate_resources(argv: List[str]) -> int:
-    import sys as _sys
-    _sys.stderr.write(
+def _cmd_generate_resources(_argv: List[str]) -> int:
+    sys.stderr.write(
         "WARNING: 'generate-resources' is deprecated.\n"
         "         Kits are direct file packages — use 'cpt kit update <path>' instead.\n"
     )
@@ -100,6 +98,10 @@ def _cmd_validate_toc(argv: List[str]) -> int:
 def _cmd_spec_coverage(argv: List[str]) -> int:
     from .commands.spec_coverage import cmd_spec_coverage
     return cmd_spec_coverage(argv)
+
+def _cmd_chunk_input(argv: List[str]) -> int:
+    from .commands.chunk_input import cmd_chunk_input
+    return cmd_chunk_input(argv)
 
 # =============================================================================
 # ADAPTER COMMAND
@@ -140,6 +142,18 @@ def _cmd_workspace_info(argv: List[str]) -> int:
 def _cmd_workspace_sync(argv: List[str]) -> int:
     from .commands.workspace_sync import cmd_workspace_sync
     return cmd_workspace_sync(argv)
+
+# =============================================================================
+# DIAGNOSTICS COMMANDS
+# =============================================================================
+
+def _cmd_doctor(argv: List[str]) -> int:
+    from .commands.doctor import cmd_doctor
+    return cmd_doctor(argv)
+
+def _cmd_delegate(argv: List[str]) -> int:
+    from .commands.delegate import cmd_delegate
+    return cmd_delegate(argv)
 # @cpt-end:cpt-cypilot-algo-core-infra-route-command:p1:inst-route-helpers
 
 # =============================================================================
@@ -169,7 +183,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     analysis_commands = ["validate", "validate-kits", "validate-toc", "spec-coverage"]
     legacy_aliases = ["validate-code", "validate-rules"]
     kit_commands = ["kit"]
-    utility_commands = ["toc"]
+    utility_commands = ["toc", "chunk-input"]
     migration_commands = ["migrate", "migrate-config"]
     search_commands = [
         "init", "update",
@@ -183,7 +197,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     workspace_commands = [
         "workspace-init", "workspace-add", "workspace-info", "workspace-sync",
     ]
-    all_commands = analysis_commands + kit_commands + migration_commands + search_commands + workspace_commands + utility_commands + legacy_aliases
+    delegation_commands = ["delegate"]
+    diagnostics_commands = ["doctor"]
+    all_commands = analysis_commands + kit_commands + migration_commands + search_commands + workspace_commands + utility_commands + delegation_commands + diagnostics_commands + legacy_aliases
 
     # Handle --help / -h at top level (or no subcommand)
     if not argv_list or argv_list[0] in ("-h", "--help"):
@@ -206,25 +222,30 @@ def main(argv: Optional[List[str]] = None) -> int:
             "info": "Show project Cypilot configuration",
             "resolve-vars": "Resolve template variables to absolute paths",
             "toc": "Generate/update Table of Contents",
+            "chunk-input": "Chunk oversized workflow input into line-bounded Markdown files",
             "migrate": "Migrate v2 project to v3",
             "migrate-config": "Convert JSON configs to TOML",
             "workspace-init": "Initialize multi-repo workspace",
             "workspace-add": "Add a source to workspace config",
             "workspace-info": "Show workspace config and source status",
             "workspace-sync": "Fetch and update Git URL source worktrees",
+            "delegate": "Compile and delegate a Cypilot plan to ralphex",
+            "doctor": "Run environment health checks",
         }
         _sections = [
             ("Setup & Configuration", ["init", "update", "info", "resolve-vars", "generate-agents", "agents"]),
             ("Validation", ["validate", "validate-kits", "validate-toc", "spec-coverage"]),
             ("Search & Navigation", ["list-ids", "list-id-kinds", "get-content", "where-defined", "where-used"]),
             ("Kit Management", ["kit"]),
-            ("Utility", ["toc"]),
+            ("Utility", ["toc", "chunk-input"]),
             ("Workspace", ["workspace-init", "workspace-add", "workspace-info", "workspace-sync"]),
             ("Migration", ["migrate", "migrate-config"]),
+            ("Delegation", ["delegate"]),
+            ("Diagnostics", ["doctor"]),
         ]
         if is_json_mode():
-            import json as _json
-            print(_json.dumps({
+            import json  # pylint: disable=import-outside-toplevel  # lazy: only needed in JSON output mode
+            print(json.dumps({
                 "usage": "cypilot <command> [options]",
                 "commands": _cmd_descriptions,
                 "sections": {name: cmds for name, cmds in _sections},
@@ -271,7 +292,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if install_rel:
                     _inject_root_agents(project_root, install_rel)
                     _inject_root_claude(project_root, install_rel)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             pass  # Non-fatal: don't block command execution
     # @cpt-end:cpt-cypilot-algo-core-infra-route-command:p1:inst-verify-agents
 
@@ -320,6 +341,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _cmd_validate_toc(rest)
     elif cmd == "spec-coverage":
         return _cmd_spec_coverage(rest)
+    elif cmd == "chunk-input":
+        return _cmd_chunk_input(rest)
     elif cmd == "migrate":
         return _cmd_migrate(rest)
     elif cmd == "migrate-config":
@@ -332,6 +355,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _cmd_workspace_info(rest)
     elif cmd == "workspace-sync":
         return _cmd_workspace_sync(rest)
+    elif cmd == "delegate":
+        return _cmd_delegate(rest)
+    elif cmd == "doctor":
+        return _cmd_doctor(rest)
     else:
         # @cpt-begin:cpt-cypilot-algo-core-infra-route-command:p1:inst-if-no-handler
         # @cpt-begin:cpt-cypilot-algo-core-infra-route-command:p1:inst-return-unknown

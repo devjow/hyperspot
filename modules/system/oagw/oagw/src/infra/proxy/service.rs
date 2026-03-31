@@ -17,7 +17,9 @@ use tokio::sync::watch;
 
 use crate::config::TokenCacheConfig;
 use crate::domain::error::DomainError;
-use crate::domain::model::{PassthroughMode, PathSuffixMode, Scheme, Upstream};
+use crate::domain::model::{
+    PassthroughMode, PathSuffixMode, ResponseHeaderRules, Scheme, Upstream,
+};
 use crate::domain::plugin::{
     AuthContext, GuardContext, GuardDecision, TransformErrorContext, TransformRequestContext,
     TransformResponseContext,
@@ -165,6 +167,11 @@ impl DataPlaneServiceImpl {
                     }
                 }
             }
+        }
+
+        // Apply response header rules (set/add/remove) from upstream config.
+        if let Some(rules) = pipeline.response_header_rules {
+            headers::apply_response_header_rules(&mut resp_headers, rules);
         }
 
         build_proxy_response(status, resp_headers, resp_body_stream, instance_uri)
@@ -317,6 +324,22 @@ impl DataPlaneService for DataPlaneServiceImpl {
         {
             return Err(DomainError::ProtocolError {
                 detail: "WebSocket upgrade is not supported by the proxy".into(),
+                instance: instance_uri,
+            });
+        }
+
+        // Validate Content-Type format if present.
+        if !headers::is_valid_content_type(&req_headers) {
+            return Err(DomainError::Validation {
+                detail: "Content-Type header is not a recognized MIME type".into(),
+                instance: instance_uri,
+            });
+        }
+
+        // Validate Transfer-Encoding — only chunked is supported.
+        if !headers::is_valid_transfer_encoding(&req_headers) {
+            return Err(DomainError::Validation {
+                detail: "unsupported Transfer-Encoding; only chunked is accepted".into(),
                 instance: instance_uri,
             });
         }
@@ -563,7 +586,7 @@ impl DataPlaneService for DataPlaneServiceImpl {
         if let Some(ref hc) = upstream.headers
             && let Some(ref rules) = hc.request
         {
-            headers::apply_header_rules(&mut outbound_headers, rules);
+            headers::apply_request_header_rules(&mut outbound_headers, rules);
         }
 
         // 5-transform. Execute transform plugins (on_request phase).
@@ -686,6 +709,11 @@ impl DataPlaneService for DataPlaneServiceImpl {
             outbound_headers.insert(H_RESOLVED_ADDR, v);
         }
 
+        let response_header_rules = upstream
+            .headers
+            .as_ref()
+            .and_then(|hc| hc.response.as_ref());
+
         let pipeline = ResponsePipelineCtx {
             guard_bindings,
             transform_bindings,
@@ -694,6 +722,7 @@ impl DataPlaneService for DataPlaneServiceImpl {
             ctx: &ctx,
             cors_config: effective_cors.as_ref(),
             origin: request_origin,
+            response_header_rules,
         };
 
         // 8. Bridge request into Pingora via in-memory DuplexStream.
@@ -779,6 +808,9 @@ impl DataPlaneService for DataPlaneServiceImpl {
                     }
                 }
                 if exceeded {
+                    // Shutdown sends EOF to Pingora's read side before we
+                    // signal the limit breach (drop alone won't close the pipe).
+                    let _ = client_write.shutdown().await;
                     let _ = limit_tx.send(total_bytes);
                 } else {
                     // Chunked terminator: signals end-of-body to Pingora.
@@ -797,11 +829,6 @@ impl DataPlaneService for DataPlaneServiceImpl {
 
             // 9. Parse response from the read half, but short-circuit to 413
             //    if the body-forwarding task signals a limit breach.
-            //
-            // TODO(hardening): a fast upstream can respond before the body-forwarder
-            // detects the limit breach, causing the client to see 200 instead of 413.
-            // Fix: wrap the write half in a LimitedAsyncWrite that returns io::Error
-            // at the byte limit, so Pingora aborts the exchange before responding.
             let resp_future =
                 tokio::time::timeout(timeout, session_bridge::parse_response_stream(client_read));
             tokio::select! {
@@ -1046,6 +1073,7 @@ struct ResponsePipelineCtx<'a> {
     ctx: &'a SecurityContext,
     cors_config: Option<&'a crate::domain::model::CorsConfig>,
     origin: Option<String>,
+    response_header_rules: Option<&'a ResponseHeaderRules>,
 }
 
 /// Execute `on_error` for all transform bindings, logging errors without aborting.
@@ -1113,8 +1141,15 @@ fn domain_error_status(err: &DomainError) -> u16 {
         DomainError::RateLimitExceeded { .. } => 429,
         DomainError::SecretNotFound { .. } | DomainError::Internal { .. } => 500,
         DomainError::DownstreamError { .. } | DomainError::ProtocolError { .. } => 502,
-        DomainError::UpstreamDisabled { .. } => 503,
-        DomainError::ConnectionTimeout { .. } | DomainError::RequestTimeout { .. } => 504,
+        DomainError::UpstreamDisabled { .. }
+        | DomainError::LinkUnavailable { .. }
+        | DomainError::CircuitBreakerOpen { .. } => 503,
+        DomainError::ConnectionTimeout { .. }
+        | DomainError::RequestTimeout { .. }
+        | DomainError::IdleTimeout { .. } => 504,
+        DomainError::StreamAborted { .. } => 502,
+        DomainError::PluginNotFound { .. } => 404,
+        DomainError::PluginInUse { .. } => 409,
         DomainError::GuardRejected { status, .. } => *status,
         DomainError::CorsOriginNotAllowed { .. }
         | DomainError::CorsMethodNotAllowed { .. }
@@ -1145,6 +1180,12 @@ fn domain_error_type_name(err: &DomainError) -> &'static str {
         DomainError::CorsOriginNotAllowed { .. } => "CorsOriginNotAllowed",
         DomainError::CorsMethodNotAllowed { .. } => "CorsMethodNotAllowed",
         DomainError::CorsHeaderNotAllowed { .. } => "CorsHeaderNotAllowed",
+        DomainError::StreamAborted { .. } => "StreamAborted",
+        DomainError::LinkUnavailable { .. } => "LinkUnavailable",
+        DomainError::CircuitBreakerOpen { .. } => "CircuitBreakerOpen",
+        DomainError::IdleTimeout { .. } => "IdleTimeout",
+        DomainError::PluginNotFound { .. } => "PluginNotFound",
+        DomainError::PluginInUse { .. } => "PluginInUse",
         DomainError::Forbidden { .. } => "Forbidden",
     }
 }
@@ -1387,7 +1428,7 @@ mod tests {
             async fn list_routes(
                 &self,
                 _: &SecurityContext,
-                _: Uuid,
+                _: Option<Uuid>,
                 _: &ListQuery,
             ) -> Result<Vec<Route>, DomainError> {
                 unimplemented!()

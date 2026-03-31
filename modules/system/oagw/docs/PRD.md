@@ -311,7 +311,7 @@ The system **MUST** support HTTP request/response proxying and SSE (Server-Sent 
 
 #### Configuration Layering
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-fr-config-layering`
+- [x] `p2` - **ID**: `cpt-cf-oagw-fr-config-layering`
 
 The system **MUST** merge configurations with the following priority order: Upstream (base) < Route < Tenant (highest priority).
 
@@ -320,7 +320,7 @@ The system **MUST** merge configurations with the following priority order: Upst
 
 #### Hierarchical Configuration Override
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-fr-hierarchical-config`
+- [x] `p2` - **ID**: `cpt-cf-oagw-fr-hierarchical-config`
 
 The system **MUST** support hierarchical configuration override across tenant hierarchies with three sharing modes:
 
@@ -360,7 +360,7 @@ Leaf Tenant (without permission):
 
 #### Alias Resolution and Shadowing
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-fr-alias-resolution`
+- [x] `p2` - **ID**: `cpt-cf-oagw-fr-alias-resolution`
 
 The system **MUST** identify upstreams by alias in proxy URLs: `{METHOD} /api/oagw/v1/proxy/{alias}/{path}`. Alias is **enforced** based on endpoint type: hostname-based endpoints always auto-derive alias (user-provided alias is rejected); IP-based or non-derivable endpoints require explicit alias. Derivation rules: single hostname uses hostname (without port for standard ports); multiple hostnames use the longest common domain suffix (≥2 labels), validated against the public suffix list to reject bare public suffixes (e.g., `co.uk`); IP addresses or no common suffix require explicit alias. Aliases are normalized to ASCII lowercase with trailing dots stripped; resolution is case-insensitive. When resolving an alias, the system **MUST** search the tenant hierarchy from descendant to root; the closest match wins (descendant shadows ancestor). Enforced limits from ancestors **MUST** still apply across shadowing.
 

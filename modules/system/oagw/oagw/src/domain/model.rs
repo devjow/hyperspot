@@ -53,13 +53,21 @@ impl Endpoint {
         }
     }
 
-    /// The normalized host for alias derivation: lowercased, trailing dots stripped.
+    /// The normalized host: brackets stripped (IPv6), lowercased, trailing dots stripped.
     #[must_use]
     pub fn normalized_host(&self) -> String {
-        self.host
-            .to_ascii_lowercase()
-            .trim_end_matches('.')
-            .to_string()
+        let h = self
+            .host
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(&self.host);
+        h.to_ascii_lowercase().trim_end_matches('.').to_string()
+    }
+
+    /// Whether this endpoint's host is an IP address (v4 or v6).
+    #[must_use]
+    pub fn is_ip(&self) -> bool {
+        self.normalized_host().parse::<std::net::IpAddr>().is_ok()
     }
 
     /// Single-endpoint alias contribution: `host` if standard port, `host:port` otherwise.
@@ -362,18 +370,18 @@ pub struct CreateUpstreamRequest {
 }
 
 #[domain_model]
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UpdateUpstreamRequest {
-    pub server: Option<Server>,
-    pub protocol: Option<String>,
+    pub server: Server,
+    pub protocol: String,
     pub alias: Option<String>,
     pub auth: Option<AuthConfig>,
     pub headers: Option<HeadersConfig>,
     pub plugins: Option<PluginsConfig>,
     pub rate_limit: Option<RateLimitConfig>,
     pub cors: Option<CorsConfig>,
-    pub tags: Option<Vec<String>>,
-    pub enabled: Option<bool>,
+    pub tags: Vec<String>,
+    pub enabled: bool,
 }
 
 #[domain_model]
@@ -390,13 +398,13 @@ pub struct CreateRouteRequest {
 }
 
 #[domain_model]
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UpdateRouteRequest {
-    pub match_rules: Option<MatchRules>,
+    pub match_rules: MatchRules,
     pub plugins: Option<PluginsConfig>,
     pub rate_limit: Option<RateLimitConfig>,
     pub cors: Option<CorsConfig>,
-    pub tags: Option<Vec<String>>,
-    pub priority: Option<i32>,
-    pub enabled: Option<bool>,
+    pub tags: Vec<String>,
+    pub priority: i32,
+    pub enabled: bool,
 }

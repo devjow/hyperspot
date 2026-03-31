@@ -304,7 +304,7 @@ The OAGW design is decomposed into eight features organized along functional bou
 
 ### 5. [Multi-Tenant Configuration Hierarchy](features/0005-cpt-cf-oagw-feature-tenant-hierarchy.md) - MEDIUM
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-feature-tenant-hierarchy`
+- [x] `p2` - **ID**: `cpt-cf-oagw-feature-tenant-hierarchy`
 
 - **Purpose**: Implement hierarchical configuration override across tenant tree with sharing modes, alias shadowing, merge strategies, and permission-based override control.
 
@@ -325,9 +325,9 @@ The OAGW design is decomposed into eight features organized along functional bou
   - Tenant hierarchy resolution (platform responsibility)
 
 - **Requirements Covered**:
-  - [ ] `p2` - `cpt-cf-oagw-fr-config-layering`
-  - [ ] `p2` - `cpt-cf-oagw-fr-hierarchical-config`
-  - [ ] `p2` - `cpt-cf-oagw-fr-alias-resolution`
+  - [x] `p2` - `cpt-cf-oagw-fr-config-layering`
+  - [x] `p2` - `cpt-cf-oagw-fr-hierarchical-config`
+  - [x] `p2` - `cpt-cf-oagw-fr-alias-resolution`
 
 - **Design Principles Covered**:
   - `cpt-cf-oagw-principle-tenant-scope`

@@ -1,7 +1,7 @@
 //! RPC-level retry helper for unary gRPC calls.
 //!
 //! This module provides a generic retry helper [`call_with_retry`] that implements
-//! safe retries with exponential backoff for unary gRPC calls.
+//! safe retries with exponential backoff and jitter for unary gRPC calls.
 //!
 //! ## Retry Policy
 //!
@@ -44,6 +44,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use rand::Rng as _;
 use tokio::time::sleep;
 use tonic::{Code, Status};
 use tracing::Instrument;
@@ -64,8 +65,8 @@ pub struct RpcRetryConfig {
 
     /// Base duration for exponential backoff.
     ///
-    /// The actual backoff duration is `base_backoff * attempt_number`,
-    /// capped at `max_backoff`.
+    /// The actual backoff duration is `base_backoff * 2^(attempt - 1)`,
+    /// capped at `max_backoff`, plus up to 25 % random jitter.
     pub base_backoff: Duration,
 
     /// Maximum duration for exponential backoff.
@@ -117,7 +118,7 @@ impl RpcRetryConfig {
 /// Generic helper for unary gRPC calls with retries.
 ///
 /// Executes a gRPC call and retries on transient errors (`UNAVAILABLE`, `DEADLINE_EXCEEDED`)
-/// with exponential backoff.
+/// with exponential backoff and jitter.
 ///
 /// # Arguments
 ///
@@ -212,11 +213,13 @@ where
                     return Err(status);
                 }
 
-                // Exponential backoff with upper bound
-                let mut backoff = cfg.base_backoff * attempt;
-                if backoff > cfg.max_backoff {
-                    backoff = cfg.max_backoff;
-                }
+                let jitter_factor = rand::rng().random_range(0.0..=0.25);
+                let backoff = crate::backoff::compute_backoff(
+                    cfg.base_backoff,
+                    cfg.max_backoff,
+                    attempt,
+                    jitter_factor,
+                );
 
                 tracing::debug!(
                     op = op_name,

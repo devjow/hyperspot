@@ -207,9 +207,7 @@ pub fn redact_dsn_password(dsn: &str) -> Result<String> {
 /// Returns an error if configuration rendering or YAML serialization fails.
 pub fn dump_effective_modules_config_yaml(app: &AppConfig) -> Result<String> {
     let config = render_effective_modules_config(app)?;
-    let yaml = serde_saphyr::to_string(&config)
-        .context("Failed to serialize modules configuration to YAML")?;
-    Ok(yaml)
+    serde_saphyr::to_string(&config).context("Failed to serialize modules configuration to YAML")
 }
 
 /// Dump effective modules configuration as JSON string.
@@ -221,7 +219,6 @@ pub fn dump_effective_modules_config_yaml(app: &AppConfig) -> Result<String> {
 /// Returns an error if configuration rendering or JSON serialization fails.
 pub fn dump_effective_modules_config_json(app: &AppConfig) -> Result<String> {
     let config = render_effective_modules_config(app)?;
-    let json = serde_json::to_string_pretty(&config)
-        .context("Failed to serialize modules configuration to JSON")?;
-    Ok(json)
+    serde_json::to_string_pretty(&config)
+        .context("Failed to serialize modules configuration to JSON")
 }

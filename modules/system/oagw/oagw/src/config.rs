@@ -41,7 +41,7 @@ fn default_proxy_timeout_secs() -> u64 {
 }
 
 fn default_max_body_size_bytes() -> usize {
-    10 * 1024 * 1024 // 10 MB
+    100 * 1024 * 1024 // 100 MB
 }
 
 fn default_token_cache_ttl_secs() -> u64 {

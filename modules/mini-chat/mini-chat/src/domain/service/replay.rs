@@ -288,9 +288,11 @@ mod tests {
             policy_version_applied: Some(1),
             effective_model,
             minimal_generation_floor_applied: Some(10),
+            web_search_enabled: false,
             deleted_at: None,
             replaced_by_request_id: None,
             started_at: OffsetDateTime::now_utc(),
+            last_progress_at: None,
             completed_at: Some(OffsetDateTime::now_utc()),
             updated_at: OffsetDateTime::now_utc(),
         }

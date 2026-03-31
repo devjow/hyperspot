@@ -60,11 +60,11 @@ pub trait RouteRepository: Send + Sync {
     /// Get a route by id, scoped to a tenant.
     async fn get_by_id(&self, tenant_id: Uuid, id: Uuid) -> Result<Route, RepositoryError>;
 
-    /// List routes for a specific upstream with pagination.
-    async fn list_by_upstream(
+    /// List routes for a tenant with pagination and optional upstream filter.
+    async fn list(
         &self,
         tenant_id: Uuid,
-        upstream_id: Uuid,
+        upstream_id: Option<Uuid>,
         query: &ListQuery,
     ) -> Result<Vec<Route>, RepositoryError>;
 

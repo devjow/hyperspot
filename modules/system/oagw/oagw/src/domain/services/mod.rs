@@ -69,7 +69,7 @@ pub(crate) trait ControlPlaneService: Send + Sync {
     async fn list_routes(
         &self,
         ctx: &SecurityContext,
-        upstream_id: Uuid,
+        upstream_id: Option<Uuid>,
         query: &ListQuery,
     ) -> Result<Vec<Route>, DomainError>;
 

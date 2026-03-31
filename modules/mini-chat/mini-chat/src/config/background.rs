@@ -12,7 +12,8 @@ pub struct OrphanWatchdogConfig {
     #[serde(default = "default_orphan_scan_interval")]
     pub scan_interval_secs: u64,
     /// A `running` turn with `last_progress_at` older than this is orphan-eligible.
-    /// Valid range: 60–3600. Default: 300 (5 min).
+    /// Valid range: 90–3600. Default: 300 (5 min).
+    /// Minimum 90s = 3× `PROGRESS_UPDATE_INTERVAL` (30s) to avoid false orphaning.
     #[serde(default = "default_orphan_timeout")]
     pub timeout_secs: u64,
 }
@@ -28,10 +29,15 @@ impl Default for OrphanWatchdogConfig {
 }
 
 impl OrphanWatchdogConfig {
+    /// Minimum timeout to avoid false orphaning under normal jitter.
+    /// `PROGRESS_UPDATE_INTERVAL` is 30s; 90s gives 3 heartbeat windows of headroom.
+    const MIN_TIMEOUT_SECS: u64 = 90;
+
     pub fn validate(&self) -> Result<(), String> {
-        if !(60..=3600).contains(&self.timeout_secs) {
+        if !(Self::MIN_TIMEOUT_SECS..=3600).contains(&self.timeout_secs) {
             return Err(format!(
-                "orphan_watchdog.timeout_secs must be 60-3600, got {}",
+                "orphan_watchdog.timeout_secs must be {}-3600, got {}",
+                Self::MIN_TIMEOUT_SECS,
                 self.timeout_secs
             ));
         }

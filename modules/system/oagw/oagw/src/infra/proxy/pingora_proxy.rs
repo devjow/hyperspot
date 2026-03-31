@@ -575,15 +575,43 @@ impl ProxyHttp for PingoraProxy {
                     instance,
                 }
             }
+            pingora_core::ErrorType::ReadError | pingora_core::ErrorType::WriteError => {
+                DomainError::StreamAborted {
+                    detail: format!(
+                        "upstream stream {} error",
+                        if matches!(e.etype, pingora_core::ErrorType::ReadError) {
+                            "read"
+                        } else {
+                            "write"
+                        }
+                    ),
+                    instance,
+                }
+            }
+            pingora_core::ErrorType::ConnectNoRoute
+            | pingora_core::ErrorType::ConnectError
+            | pingora_core::ErrorType::ConnectProxyFailure => DomainError::LinkUnavailable {
+                detail: match &e.etype {
+                    pingora_core::ErrorType::ConnectNoRoute => "no route to upstream host",
+                    pingora_core::ErrorType::ConnectProxyFailure => {
+                        "upstream connect proxy failure"
+                    }
+                    _ => "upstream connection error",
+                }
+                .into(),
+                instance,
+            },
             _ => DomainError::DownstreamError {
                 detail: match &e.etype {
+                    pingora_core::ErrorType::ConnectionClosed => {
+                        "upstream connection closed (peer disconnect)"
+                    }
                     pingora_core::ErrorType::ConnectRefused => "upstream connection refused",
                     pingora_core::ErrorType::TLSHandshakeFailure
                     | pingora_core::ErrorType::TLSHandshakeTimedout => {
                         "upstream TLS handshake failed"
                     }
                     pingora_core::ErrorType::InvalidCert => "upstream certificate invalid",
-                    pingora_core::ErrorType::ConnectionClosed => "upstream connection closed",
                     _ => "upstream error",
                 }
                 .into(),

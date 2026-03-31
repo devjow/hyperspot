@@ -2,7 +2,7 @@ use super::super::config::{ConsoleFormat, LoggingConfig, Section};
 use anyhow::Context;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use tracing_subscriber::{Layer, fmt};
@@ -15,10 +15,6 @@ pub type OtelLayer = tracing_opentelemetry::OpenTelemetryLayer<
 >;
 #[cfg(not(feature = "otel"))]
 pub type OtelLayer = ();
-
-// Keep a guard for non-blocking console to avoid being dropped.
-static CONSOLE_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
-    std::sync::OnceLock::new();
 
 // ================= level helpers =================
 
@@ -192,45 +188,52 @@ fn create_rotating_writer_at_path(
 
 // ================= public init (drop-in API kept) =================
 
+// Stores the `WorkerGuard` for the non-blocking console writer so it is
+// never dropped while the process is alive.  Dropping the guard shuts down
+// the background flush thread and silently loses buffered log output.
+static CONSOLE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+
 /// Unified initializer used by both functions above.
 #[allow(unknown_lints, de1301_no_print_macros)] // runs before tracing subscriber is installed
 pub fn init_logging_unified(cfg: &LoggingConfig, base_dir: &Path, otel_layer: Option<OtelLayer>) {
-    // Bridge `log` → `tracing` *before* installing the subscriber
-    if let Err(e) = tracing_log::LogTracer::init() {
-        eprintln!("LogTracer init skipped: {e}");
-    }
+    CONSOLE_GUARD.get_or_init(|| {
+        // Bridge `log` → `tracing` *before* installing the subscriber
+        if let Err(e) = tracing_log::LogTracer::init() {
+            eprintln!("LogTracer init skipped: {e}");
+        }
 
-    let data = extract_config_data(cfg);
+        let data = extract_config_data(cfg);
 
-    if data.crate_sections.is_empty() && data.default_section.is_none() {
-        // Minimal fallback (INFO to console; honors RUST_LOG)
-        init_minimal(otel_layer);
-        return;
-    }
+        if data.crate_sections.is_empty() && data.default_section.is_none() {
+            // Minimal fallback (INFO to console; honors RUST_LOG)
+            return init_minimal(otel_layer);
+        }
 
-    // Build targets once, using a generic builder for different sinks
-    let file_router = build_file_router(&data, base_dir);
+        // Build targets once, using a generic builder for different sinks
+        let file_router = build_file_router(&data, base_dir);
 
-    let console_targets = build_target_console(&data);
-    let file_targets = build_target_file(&data, file_router.default.is_some());
+        let console_targets = build_target_console(&data);
+        let file_targets = build_target_file(&data, file_router.default.is_some());
 
-    let console_format = data
-        .default_section
-        .map(|s| s.console_format)
-        .unwrap_or_default();
+        let console_format = data
+            .default_section
+            .map(|s| s.console_format)
+            .unwrap_or_default();
 
-    install_subscriber(
-        &console_targets,
-        &file_targets,
-        file_router,
-        console_format,
-        otel_layer,
-    );
+        install_subscriber(
+            &console_targets,
+            &file_targets,
+            file_router,
+            console_format,
+            otel_layer,
+        )
+    });
 }
 
 // ================= generic targets builder =================
 
 use tracing::level_filters::LevelFilter;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::filter::Targets;
 
 /// Noisy crates that should be filtered to WARN level to avoid debug spam
@@ -379,6 +382,8 @@ fn stderr_supports_ansi() -> bool {
 
 // ================= registry & layers =================
 
+// Keep a guard for non-blocking console to avoid being dropped.
+
 // de1301_no_print_macros: eprintln! is intentional here — if the tracing subscriber
 // fails to initialize we cannot use tracing itself to report the failure.
 #[allow(unknown_lints, de1301_no_print_macros)]
@@ -388,7 +393,7 @@ fn install_subscriber(
     file_router: MultiFileRouter,
     console_format: ConsoleFormat,
     #[cfg_attr(not(feature = "otel"), allow(unused_variables))] otel_layer: Option<OtelLayer>,
-) {
+) -> WorkerGuard {
     use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt};
 
     // RUST_LOG acts as a global upper-bound for console/file if present.
@@ -397,7 +402,6 @@ fn install_subscriber(
 
     // Console writer (non-blocking stderr)
     let (nb_stderr, guard) = tracing_appender::non_blocking(std::io::stderr());
-    _ = CONSOLE_GUARD.set(guard);
 
     // Console fmt layers: text (human-friendly) or JSON (structured).
     // Only one is active at a time; the other is None.
@@ -470,19 +474,24 @@ fn install_subscriber(
     if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
         eprintln!("tracing subscriber init failed: {e}");
     }
-}
 
+    guard
+}
 // de1301_no_print_macros: same rationale as install_subscriber above.
 #[allow(unknown_lints, de1301_no_print_macros)]
 fn init_minimal(
     #[cfg_attr(not(feature = "otel"), allow(unused_variables))] otel: Option<OtelLayer>,
-) {
+) -> WorkerGuard {
     use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt};
 
     // If RUST_LOG is set, it will cap fmt output; otherwise don't clamp here.
     let env = EnvFilter::try_from_default_env().ok();
 
+    // Console writer (non-blocking stderr)
+    let (nb_stderr, guard) = tracing_appender::non_blocking(std::io::stderr());
+
     let fmt_layer = fmt::layer()
+        .with_writer(nb_stderr)
         .with_ansi(stderr_supports_ansi())
         .with_target(true)
         .with_timer(fmt::time::UtcTime::rfc_3339());
@@ -504,6 +513,8 @@ fn init_minimal(
     if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
         eprintln!("tracing subscriber init failed (minimal): {e}");
     }
+
+    guard
 }
 
 #[cfg(test)]

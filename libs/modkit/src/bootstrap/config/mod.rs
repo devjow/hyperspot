@@ -17,6 +17,11 @@ use crate::ConfigProvider;
 use crate::telemetry::OpenTelemetryConfig;
 use url::Url;
 
+/// Normalize a path to use forward slashes (for cross-platform YAML/DSN compatibility).
+fn normalize_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// Error type for vendor configuration access.
 #[derive(thiserror::Error, Debug)]
 pub enum VendorConfigError {
@@ -138,13 +143,25 @@ impl ConfigProvider for AppConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
+    #[serde(default = "default_server_name")]
+    pub name: String,
+    #[serde(default = "default_home_dir")]
     pub home_dir: PathBuf, // will be normalized to absolute path
+}
+
+fn default_server_name() -> String {
+    "cyberfabric".to_owned()
+}
+
+fn default_home_dir() -> PathBuf {
+    super::host::paths::default_home_dir().join(".cyberfabric")
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            home_dir: super::host::paths::default_home_dir().join(".cyberfabric"),
+            name: default_server_name(),
+            home_dir: default_home_dir(),
         }
     }
 }
@@ -330,7 +347,7 @@ impl AppConfig {
     ///
     /// # Errors
     /// Returns an error if configuration loading or `home_dir` resolution fails.
-    pub fn load_or_default(config_path: &Option<PathBuf>) -> Result<Self> {
+    pub fn load_or_default(config_path: Option<&PathBuf>) -> Result<Self> {
         if let Some(path) = config_path {
             ensure!(
                 path.is_file(),
@@ -563,7 +580,7 @@ fn resolve_sqlite_dsn(
                 module_dir.join(file_path)
             };
 
-            let normalized_path = resolved_path.to_string_lossy().replace('\\', "/");
+            let normalized_path = normalize_path(&resolved_path);
             // For Windows absolute paths (C:/...), use sqlite:path format
             // For Unix absolute paths (/...), use sqlite://path format
             if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -590,7 +607,7 @@ fn resolve_sqlite_dsn(
             })?;
         }
         let db_path = module_dir.join(format!("{module_name}.sqlite"));
-        let normalized_path = db_path.to_string_lossy().replace('\\', "/");
+        let normalized_path = normalize_path(&db_path);
         // For Windows absolute paths (C:/...), use sqlite:path format
         // For Unix absolute paths (/...), use sqlite://path format
         if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -691,7 +708,7 @@ fn build_sqlite_dsn_with_dbname_override(
         })?;
     }
     let db_path = module_dir.join(dbname);
-    let normalized_path = db_path.to_string_lossy().replace('\\', "/");
+    let normalized_path = normalize_path(&db_path);
 
     // Build the new DSN with correct format for the platform
     let dsn_base = if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -745,7 +762,7 @@ fn build_sqlite_dsn(
         } else {
             home_dir.join(path)
         };
-        let normalized_path = absolute_path.to_string_lossy().replace('\\', "/");
+        let normalized_path = normalize_path(&absolute_path);
         // For Windows absolute paths (C:/...), use sqlite:path format
         // For Unix absolute paths (/...), use sqlite://path format
         if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -768,7 +785,7 @@ fn build_sqlite_dsn(
             })?;
         }
         let db_path = module_dir.join(file);
-        let normalized_path = db_path.to_string_lossy().replace('\\', "/");
+        let normalized_path = normalize_path(&db_path);
         // For Windows absolute paths (C:/...), use sqlite:path format
         // For Unix absolute paths (/...), use sqlite://path format
         if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -790,7 +807,7 @@ fn build_sqlite_dsn(
         })?;
     }
     let db_path = module_dir.join(format!("{module_name}.sqlite"));
-    let normalized_path = db_path.to_string_lossy().replace('\\', "/");
+    let normalized_path = normalize_path(&db_path);
     // For Windows absolute paths (C:/...), use sqlite:path format
     // For Unix absolute paths (/...), use sqlite://path format
     if normalized_path.len() > 1 && normalized_path.chars().nth(1) == Some(':') {
@@ -1395,7 +1412,7 @@ logging:
             "HOME"
         };
         with_var(env_var, Some(tmp.path().to_str().unwrap()), || {
-            let config = AppConfig::load_or_default(&None).unwrap();
+            let config = AppConfig::load_or_default(None).unwrap();
             assert!(is_normalized_path(&config.server.home_dir));
             assert!(config.server.home_dir.ends_with(default_subdir()));
         });
@@ -1491,7 +1508,7 @@ setting2: 42
         .unwrap();
 
         // Convert Windows paths to forward slashes for YAML compatibility
-        let modules_dir_str = modules_dir.to_string_lossy().replace('\\', "/");
+        let modules_dir_str = normalize_path(&modules_dir);
         let yaml = format!(
             r#"
 server:
@@ -3081,7 +3098,7 @@ server:
   home_dir: "~/.test_dup_modfile"
 modules_dir: "{}"
 "#,
-            modules_dir.display()
+            normalize_path(&modules_dir)
         );
         let cfg_path = tmp.path().join("cfg.yaml");
         fs::write(&cfg_path, cfg_yaml).unwrap();

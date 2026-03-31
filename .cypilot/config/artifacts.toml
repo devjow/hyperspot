@@ -1,3 +1,4 @@
+# Updated:  2026-03-27 by Constructor Tech
 # Cypilot artifacts registry (migrated from v2)
 
 [[ignore]]
@@ -33,6 +34,14 @@ reason = "Ignore module 'nodes-registry' (not SDLC-documented yet: missing requi
 patterns = ["modules/system/nodes-registry/*"]
 
 [[ignore]]
+reason = "Ignore oagw codebase — code traceability markers reverted, pending re-add. Docs still validated (DOCS-ONLY effective: all feature tasks unchecked)."
+patterns = [
+  "modules/system/oagw/oagw/src/*",
+  "modules/system/oagw/oagw/tests/*",
+  "modules/system/oagw/oagw-sdk/src/*",
+]
+
+[[ignore]]
 reason = "Ignore legacy (pre-Cypilot) ADR files in oagw/docs root — converted copies live under docs/ADR/."
 patterns = ["modules/system/oagw/docs/adr-*.md"]
 
@@ -61,10 +70,6 @@ reason = "Ignore module 'file-storage' (not SDLC-documented yet: missing require
 patterns = ["modules/file-storage/*"]
 
 [[ignore]]
-reason = "Ignore module 'model-registry' (not SDLC-documented yet: missing required PRD/DESIGN)."
-patterns = ["modules/model-registry/*"]
-
-[[ignore]]
 reason = "Ignore module 'types-registry' (not SDLC-documented yet: missing required PRD/DESIGN)."
 patterns = ["modules/types-registry/*"]
 
@@ -81,8 +86,12 @@ reason = "Ignore module 'mini-chat' docs (temporary: PRD/DESIGN constraints fail
 patterns = ["modules/mini-chat/*"]
 
 [[ignore]]
-reason = "Ignore module 'approval-service' (not SDLC-documented yet: PRD/DESIGN are placeholders)."
+reason = "Ignore module 'approval-service' (PRD/DESIGN are placeholders). Remove this ignore after PRD/DESIGN conform to template."
 patterns = ["modules/approval-service/*"]
+
+[[ignore]]
+reason = "Ignore module 'model-registry' (PRD/DESIGN headings need restructuring to match template). Remove after structural alignment."
+patterns = ["modules/model-registry/*"]
 
 [[systems]]
 name = "cyberfabric"
@@ -118,6 +127,11 @@ required = false
 [systems.autodetect.artifacts.FEATURE]
 pattern = "features/*.md"
 traceability = "FULL"
+required = false
+
+[systems.autodetect.artifacts.UPSTREAM_REQS]
+pattern = "UPSTREAM_REQS.md"
+traceability = "DOCS-ONLY"
 required = false
 
 [systems.autodetect.validation]
@@ -166,6 +180,11 @@ pattern = "features/*.md"
 traceability = "FULL"
 required = false
 
+[systems.autodetect.artifacts.UPSTREAM_REQS]
+pattern = "UPSTREAM_REQS.md"
+traceability = "DOCS-ONLY"
+required = false
+
 [systems.autodetect.validation]
 require_kind_registered_in_kit = true
 require_md_extension = true
@@ -179,6 +198,21 @@ extensions = [".rs"]
 [[systems.autodetect.codebase]]
 name = "Tests"
 path = "{system_root}/tests"
+extensions = [".rs"]
+
+[[systems.autodetect.codebase]]
+name = "Nested Modules"
+path = "{system_root}/{system}/src"
+extensions = [".rs"]
+
+[[systems.autodetect.codebase]]
+name = "Nested Tests"
+path = "{system_root}/{system}/tests"
+extensions = [".rs"]
+
+[[systems.autodetect.codebase]]
+name = "Nested SDK"
+path = "{system_root}/{system}-sdk/src"
 extensions = [".rs"]
 
 [[systems]]
@@ -215,6 +249,11 @@ required = false
 
 [systems.autodetect.artifacts.FEATURE]
 pattern = "features/*.md"
+traceability = "DOCS-ONLY"
+required = false
+
+[systems.autodetect.artifacts.UPSTREAM_REQS]
+pattern = "UPSTREAM_REQS.md"
 traceability = "DOCS-ONLY"
 required = false
 

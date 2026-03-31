@@ -232,7 +232,7 @@ class WorkspaceConfig:
             return None, f"Workspace file not found: {workspace_path}"
         try:
             data = toml_utils.load(workspace_path)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             return None, f"Failed to read workspace file {workspace_path}: {e}"
         if not isinstance(data, dict):
             return None, f"Invalid workspace file (expected TOML table): {workspace_path}"

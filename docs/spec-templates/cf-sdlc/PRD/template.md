@@ -118,6 +118,7 @@ The system **MUST** {do something specific and verifiable}.
 
 - **Rationale**: {Why this requirement exists — business value or stakeholder need.}
 - **Actors**: `cpt-{system}-actor-{slug}`
+- **Covers**: `cpt-{system}-upreq-{slug}`, `cpt-{system}-upreq-{slug}` — upstream requirements satisfied by this FR. Required when an UPSTREAM_REQS document exists for the module (BIZ-PRD-003): every UPSTREAM_REQS ID must be covered by at least one FR or NFR.
 - **Verification Method** (optional): {Only if non-standard: analysis | inspection | demonstration | specialized test approach}
 - **Acceptance Evidence** (optional): {Only if non-obvious: specific test suite path, analysis report, review checklist}
 
@@ -139,6 +140,7 @@ The system **MUST** {measurable NFR with specific thresholds, e.g., "respond wit
 
 - **Threshold**: {Quantitative target with units and conditions}
 - **Rationale**: {Why this module needs different/additional NFR}
+- **Covers**: `cpt-{system}-upreq-{slug}` — upstream requirements satisfied by this NFR. Required when an UPSTREAM_REQS document exists for the module (BIZ-PRD-003): every UPSTREAM_REQS ID must be covered by at least one FR or NFR.
 - **Verification Method** (optional): {Only if non-standard approach needed}
 - **Architecture Allocation**: See DESIGN.md § NFR Allocation for how this is realized
 

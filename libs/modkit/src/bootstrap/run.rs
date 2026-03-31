@@ -1,10 +1,11 @@
 use super::config::{get_module_runtime_config, render_module_config_for_oop};
-use super::host::normalize_path;
+use super::host::{init_logging_unified, init_panic_tracing, normalize_path};
 use super::{AppConfig, RuntimeKind};
 use crate::backends::LocalProcessBackend;
 use crate::runtime::{
     DbOptions, OopModuleSpawnConfig, OopSpawnOptions, RunOptions, ShutdownOptions, run, shutdown,
 };
+use anyhow::Result;
 use figment::Figment;
 use figment::providers::Serialized;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 /// The `context` parameter customizes log messages for better diagnostics.
 fn spawn_signal_handler(cancel: CancellationToken, context: &str) {
     let context_owned = context.to_owned();
-    drop(tokio::spawn(async move {
+    tokio::spawn(async move {
         match shutdown::wait_for_shutdown().await {
             Ok(()) => {
                 tracing::info!(target: "", "------------------");
@@ -33,7 +34,7 @@ fn spawn_signal_handler(cancel: CancellationToken, context: &str) {
             }
         }
         cancel.cancel();
-    }));
+    });
 }
 
 /// # Errors
@@ -42,7 +43,11 @@ fn spawn_signal_handler(cancel: CancellationToken, context: &str) {
 /// - There was a critical error during initialization of the modules
 /// - Problems with the database or third-party services
 /// - An issue during runtime or shutdown
-pub async fn run_server(config: AppConfig) -> anyhow::Result<()> {
+pub async fn run_server(config: AppConfig) -> Result<()> {
+    init_procedure(&config).map_err(|e| {
+        tracing::error!(error = %e, "Initialization failed");
+        e
+    })?;
     tracing::info!("Initializing modules...");
 
     // Generate process-level instance ID once at startup.
@@ -83,10 +88,7 @@ pub async fn run_server(config: AppConfig) -> anyhow::Result<()> {
 
     // Graceful shutdown - flush remaining telemetry
     #[cfg(feature = "otel")]
-    {
-        crate::telemetry::init::shutdown_metrics();
-        crate::telemetry::init::shutdown_tracing();
-    }
+    tracing_shutdown();
 
     result
 }
@@ -110,8 +112,11 @@ pub async fn run_server(config: AppConfig) -> anyhow::Result<()> {
 /// - Module discovery fails
 /// - Pre-init phase fails
 /// - Migration phase fails
-#[allow(unknown_lints, de1301_no_print_macros)]
-pub async fn run_migrate(config: AppConfig) -> anyhow::Result<()> {
+pub async fn run_migrate(config: AppConfig) -> Result<()> {
+    init_procedure(&config).map_err(|e| {
+        tracing::error!(error = %e, "Initialization failed");
+        e
+    })?;
     tracing::info!("Starting migration mode...");
 
     // Generate process-level instance ID for this migration run
@@ -155,19 +160,15 @@ pub async fn run_migrate(config: AppConfig) -> anyhow::Result<()> {
 
     // Graceful shutdown - flush remaining telemetry
     #[cfg(feature = "otel")]
-    {
-        crate::telemetry::init::shutdown_metrics();
-        crate::telemetry::init::shutdown_tracing();
-    }
+    tracing_shutdown();
 
     result?;
 
     tracing::info!("All migrations completed successfully");
-    println!("[OK] Database migrations completed successfully");
     Ok(())
 }
 
-fn resolve_db_options(config: &AppConfig) -> anyhow::Result<DbOptions> {
+fn resolve_db_options(config: &AppConfig) -> Result<DbOptions> {
     if config.database.is_none() {
         tracing::warn!("No global database section found; running without databases");
         return Ok(DbOptions::None);
@@ -189,7 +190,7 @@ fn resolve_db_options(config: &AppConfig) -> anyhow::Result<DbOptions> {
 fn build_oop_spawn_options(
     config: &AppConfig,
     backend: LocalProcessBackend,
-) -> anyhow::Result<Option<OopSpawnOptions>> {
+) -> Result<Option<OopSpawnOptions>> {
     let home_dir = PathBuf::from(&config.server.home_dir);
     let mut modules = Vec::new();
 
@@ -215,7 +216,7 @@ fn try_build_oop_module_config(
     config: &AppConfig,
     module_name: &str,
     home_dir: &Path,
-) -> anyhow::Result<Option<OopModuleSpawnConfig>> {
+) -> Result<Option<OopModuleSpawnConfig>> {
     let Some(runtime_cfg) = get_module_runtime_config(config, module_name)? else {
         return Ok(None);
     };
@@ -250,4 +251,80 @@ fn try_build_oop_module_config(
         working_directory: exec_cfg.working_directory.clone(),
         rendered_config_json: rendered_json,
     }))
+}
+
+/// Initialize process-wide bootstrap state from a provided `&AppConfig`.
+///
+/// This helper performs the common startup sequence shared by server and migration modes.
+/// It does **not** load configuration; the caller is responsible for building and passing
+/// a valid `AppConfig`.
+///
+/// Steps performed:
+///
+/// - installs the FIPS crypto provider when that feature is enabled
+/// - initializes tracing/logging (once, guarded by a process-wide `Once`) and metrics
+///   when OpenTelemetry is enabled
+/// - registers the panic hook used to route panics through tracing
+/// - emits a small startup span and version metadata for diagnostics
+///
+/// # Errors
+///
+/// Returns an error if OpenTelemetry tracing initialization fails while tracing is enabled.
+pub fn init_procedure(config: &AppConfig) -> Result<()> {
+    #[cfg(feature = "fips")]
+    super::init_fips_crypto_provider();
+
+    // Build OpenTelemetry layer before logging
+    #[cfg(feature = "otel")]
+    let otel_layer = if config.opentelemetry.tracing.enabled {
+        Some(crate::telemetry::init::init_tracing(&config.opentelemetry)?)
+    } else {
+        None
+    };
+    #[cfg(not(feature = "otel"))]
+    let otel_layer = None;
+
+    // Initialize logging + otel in one Registry
+    init_logging_unified(&config.logging, &config.server.home_dir, otel_layer);
+
+    // Register custom panic hook to reroute panic backtrace into tracing.
+    init_panic_tracing();
+
+    // Initialize OpenTelemetry metrics (or confirm noop when disabled)
+    #[cfg(feature = "otel")]
+    if let Err(e) = crate::telemetry::init::init_metrics_provider(&config.opentelemetry) {
+        tracing::error!(error = %e, "OpenTelemetry metrics not initialized");
+    }
+
+    // One-time connectivity probe
+    #[cfg(feature = "otel")]
+    if config.opentelemetry.tracing.enabled
+        && let Err(e) = crate::telemetry::init::otel_connectivity_probe(&config.opentelemetry)
+    {
+        tracing::error!(error = %e, "OTLP connectivity probe failed");
+    }
+
+    // Smoke test span to confirm traces flow to Jaeger
+    tracing::info_span!("startup_check", app = config.server.name).in_scope(|| {
+        tracing::info!("startup span alive - traces should be visible in Jaeger");
+    });
+
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        rust_version = env!("CARGO_PKG_RUST_VERSION"),
+        "{} Server starting",
+        config.server.name,
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "otel")]
+/// Flush compatibility shutdown hooks for OpenTelemetry tracing and metrics.
+///
+/// This delegates to the current telemetry shutdown helpers so callers can use a
+/// single bootstrap-level function during graceful shutdown.
+pub fn tracing_shutdown() {
+    crate::telemetry::init::shutdown_metrics();
+    crate::telemetry::init::shutdown_tracing();
 }

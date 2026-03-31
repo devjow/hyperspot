@@ -31,10 +31,10 @@
 
 <!-- /toc -->
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-featstatus-tenant-hierarchy-implemented`
+- [x] `p2` - **ID**: `cpt-cf-oagw-featstatus-tenant-hierarchy-implemented`
 
 <!-- reference to DECOMPOSITION entry -->
-- [ ] `p2` - `cpt-cf-oagw-feature-tenant-hierarchy`
+- [x] `p2` - `cpt-cf-oagw-feature-tenant-hierarchy`
 
 ## 1. Feature Context
 

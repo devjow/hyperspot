@@ -190,7 +190,7 @@ async fn start_mutation_stream(
             mutation.new_turn_id,
             mutation.user_content,
             resolved,
-            false, // web_search_enabled: retry/edit defaults to disabled
+            mutation.web_search_enabled,
             mutation.snapshot_boundary,
             cancel.clone(),
             tx,

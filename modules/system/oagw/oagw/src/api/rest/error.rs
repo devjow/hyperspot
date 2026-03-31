@@ -10,6 +10,7 @@ use oagw_sdk::api::ErrorSource;
 // ---------------------------------------------------------------------------
 
 pub(crate) const ERR_VALIDATION: &str = "gts.x.core.errors.err.v1~x.oagw.validation.error.v1";
+pub(crate) const ERR_CONFLICT: &str = "gts.x.core.errors.err.v1~x.oagw.resource.conflict.v1";
 pub(crate) const ERR_MISSING_TARGET_HOST: &str =
     "gts.x.core.errors.err.v1~x.oagw.routing.missing_target_host.v1";
 pub(crate) const ERR_INVALID_TARGET_HOST: &str =
@@ -38,6 +39,13 @@ pub(crate) const ERR_CORS_METHOD_NOT_ALLOWED: &str =
     "gts.x.core.errors.err.v1~x.oagw.cors.method_not_allowed.v1";
 pub(crate) const ERR_CORS_HEADER_NOT_ALLOWED: &str =
     "gts.x.core.errors.err.v1~x.oagw.cors.header_not_allowed.v1";
+pub(crate) const ERR_STREAM_ABORTED: &str = "gts.x.core.errors.err.v1~x.oagw.stream.aborted.v1";
+pub(crate) const ERR_LINK_UNAVAILABLE: &str = "gts.x.core.errors.err.v1~x.oagw.link.unavailable.v1";
+pub(crate) const ERR_CIRCUIT_BREAKER_OPEN: &str =
+    "gts.x.core.errors.err.v1~x.oagw.circuit_breaker.open.v1";
+pub(crate) const ERR_IDLE_TIMEOUT: &str = "gts.x.core.errors.err.v1~x.oagw.timeout.idle.v1";
+pub(crate) const ERR_PLUGIN_NOT_FOUND: &str = "gts.x.core.errors.err.v1~x.oagw.plugin.not_found.v1";
+pub(crate) const ERR_PLUGIN_IN_USE: &str = "gts.x.core.errors.err.v1~x.oagw.plugin.in_use.v1";
 pub(crate) const ERR_FORBIDDEN: &str = "gts.x.core.errors.err.v1~x.oagw.authz.forbidden.v1";
 
 // ---------------------------------------------------------------------------
@@ -46,7 +54,8 @@ pub(crate) const ERR_FORBIDDEN: &str = "gts.x.core.errors.err.v1~x.oagw.authz.fo
 
 fn gts_type(err: &DomainError) -> &str {
     match err {
-        DomainError::Validation { .. } | DomainError::Conflict { .. } => ERR_VALIDATION,
+        DomainError::Validation { .. } => ERR_VALIDATION,
+        DomainError::Conflict { .. } => ERR_CONFLICT,
         DomainError::MissingTargetHost { .. } => ERR_MISSING_TARGET_HOST,
         DomainError::InvalidTargetHost { .. } => ERR_INVALID_TARGET_HOST,
         DomainError::UnknownTargetHost { .. } => ERR_UNKNOWN_TARGET_HOST,
@@ -67,6 +76,12 @@ fn gts_type(err: &DomainError) -> &str {
         DomainError::CorsOriginNotAllowed { .. } => ERR_CORS_ORIGIN_NOT_ALLOWED,
         DomainError::CorsMethodNotAllowed { .. } => ERR_CORS_METHOD_NOT_ALLOWED,
         DomainError::CorsHeaderNotAllowed { .. } => ERR_CORS_HEADER_NOT_ALLOWED,
+        DomainError::StreamAborted { .. } => ERR_STREAM_ABORTED,
+        DomainError::LinkUnavailable { .. } => ERR_LINK_UNAVAILABLE,
+        DomainError::CircuitBreakerOpen { .. } => ERR_CIRCUIT_BREAKER_OPEN,
+        DomainError::IdleTimeout { .. } => ERR_IDLE_TIMEOUT,
+        DomainError::PluginNotFound { .. } => ERR_PLUGIN_NOT_FOUND,
+        DomainError::PluginInUse { .. } => ERR_PLUGIN_IN_USE,
         DomainError::Forbidden { .. } => ERR_FORBIDDEN,
     }
 }
@@ -88,10 +103,15 @@ fn http_status_code(err: &DomainError) -> StatusCode {
         DomainError::DownstreamError { .. } | DomainError::ProtocolError { .. } => {
             StatusCode::BAD_GATEWAY
         }
-        DomainError::UpstreamDisabled { .. } => StatusCode::SERVICE_UNAVAILABLE,
-        DomainError::ConnectionTimeout { .. } | DomainError::RequestTimeout { .. } => {
-            StatusCode::GATEWAY_TIMEOUT
-        }
+        DomainError::UpstreamDisabled { .. }
+        | DomainError::LinkUnavailable { .. }
+        | DomainError::CircuitBreakerOpen { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        DomainError::ConnectionTimeout { .. }
+        | DomainError::RequestTimeout { .. }
+        | DomainError::IdleTimeout { .. } => StatusCode::GATEWAY_TIMEOUT,
+        DomainError::StreamAborted { .. } => StatusCode::BAD_GATEWAY,
+        DomainError::PluginNotFound { .. } => StatusCode::NOT_FOUND,
+        DomainError::PluginInUse { .. } => StatusCode::CONFLICT,
         DomainError::GuardRejected { status, .. } => StatusCode::from_u16(*status)
             .ok()
             .filter(|code| code.is_client_error() || code.is_server_error())
@@ -124,6 +144,12 @@ fn error_title(err: &DomainError) -> &str {
         DomainError::CorsOriginNotAllowed { .. } => "CORS Origin Not Allowed",
         DomainError::CorsMethodNotAllowed { .. } => "CORS Method Not Allowed",
         DomainError::CorsHeaderNotAllowed { .. } => "CORS Header Not Allowed",
+        DomainError::StreamAborted { .. } => "Stream Aborted",
+        DomainError::LinkUnavailable { .. } => "Link Unavailable",
+        DomainError::CircuitBreakerOpen { .. } => "Circuit Breaker Open",
+        DomainError::IdleTimeout { .. } => "Idle Timeout",
+        DomainError::PluginNotFound { .. } => "Plugin Not Found",
+        DomainError::PluginInUse { .. } => "Plugin In Use",
         DomainError::Forbidden { .. } => "Forbidden",
     }
 }
@@ -145,11 +171,17 @@ fn error_instance(err: &DomainError) -> &str {
         | DomainError::GuardRejected { instance, .. }
         | DomainError::CorsOriginNotAllowed { instance, .. }
         | DomainError::CorsMethodNotAllowed { instance, .. }
-        | DomainError::CorsHeaderNotAllowed { instance, .. } => instance,
+        | DomainError::CorsHeaderNotAllowed { instance, .. }
+        | DomainError::StreamAborted { instance, .. }
+        | DomainError::LinkUnavailable { instance, .. }
+        | DomainError::CircuitBreakerOpen { instance, .. }
+        | DomainError::IdleTimeout { instance, .. } => instance,
         DomainError::NotFound { .. }
         | DomainError::Conflict { .. }
         | DomainError::UpstreamDisabled { .. }
         | DomainError::Internal { .. }
+        | DomainError::PluginNotFound { .. }
+        | DomainError::PluginInUse { .. }
         | DomainError::Forbidden { .. } => "",
     }
 }
@@ -239,7 +271,7 @@ mod tests {
         };
         let p: Problem = err.into();
         assert_eq!(p.status, StatusCode::CONFLICT);
-        assert_eq!(p.type_url, ERR_VALIDATION);
+        assert_eq!(p.type_url, ERR_CONFLICT);
         assert_eq!(p.title, "Conflict");
     }
 
@@ -346,6 +378,28 @@ mod tests {
             DomainError::CorsHeaderNotAllowed {
                 header: "x-custom".into(),
                 instance: "/test".into(),
+            },
+            DomainError::StreamAborted {
+                detail: "test".into(),
+                instance: "/test".into(),
+            },
+            DomainError::LinkUnavailable {
+                detail: "test".into(),
+                instance: "/test".into(),
+            },
+            DomainError::CircuitBreakerOpen {
+                detail: "test".into(),
+                instance: "/test".into(),
+            },
+            DomainError::IdleTimeout {
+                detail: "test".into(),
+                instance: "/test".into(),
+            },
+            DomainError::PluginNotFound {
+                detail: "test".into(),
+            },
+            DomainError::PluginInUse {
+                detail: "test".into(),
             },
             DomainError::Forbidden {
                 detail: "test".into(),

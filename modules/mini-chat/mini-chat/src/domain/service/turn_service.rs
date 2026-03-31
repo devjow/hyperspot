@@ -111,6 +111,8 @@ pub struct MutationResult {
     /// Chat model carried from the mutation transaction so the handler can
     /// resolve the provider without a redundant DB round-trip.
     pub chat_model: String,
+    /// Whether web search was enabled on the original turn.
+    pub web_search_enabled: bool,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -393,7 +395,7 @@ impl<
         let scope_tx = chat_scope.clone();
         let ctx_clone = ctx.clone();
 
-        let (user_content, snapshot_boundary, chat_model) = self
+        let (user_content, snapshot_boundary, chat_model, web_search_enabled) = self
             .db
             .transaction(|tx| {
                 Box::pin(async move {
@@ -419,6 +421,9 @@ impl<
                                 "User message not found for turn {request_id}"
                             ))
                         })?;
+
+                    // Preserve web_search setting from the original turn.
+                    let web_search_enabled = target.web_search_enabled;
 
                     // Determine event type before consuming override_content.
                     let is_edit = override_content.is_some();
@@ -455,6 +460,7 @@ impl<
                                 policy_version_applied: None,
                                 effective_model: None,
                                 minimal_generation_floor_applied: None,
+                                web_search_enabled,
                             },
                         )
                         .await
@@ -529,7 +535,7 @@ impl<
                         .await
                         .map_err(|e| modkit_db::DbError::Other(anyhow::Error::new(e)))?;
 
-                    Ok((user_content, boundary, chat_model))
+                    Ok((user_content, boundary, chat_model, web_search_enabled))
                 })
             })
             .await
@@ -541,6 +547,7 @@ impl<
             user_content,
             snapshot_boundary,
             chat_model,
+            web_search_enabled,
         })
     }
 }

@@ -256,6 +256,24 @@ fn stream_error_response(err: &StreamError) -> Response {
             )
             .into_response()
         }
+        StreamError::InputTooLong {
+            estimated_tokens,
+            max_input_tokens,
+        } => {
+            info!(
+                estimated_tokens,
+                max_input_tokens, "message too long, request rejected"
+            );
+            Problem::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "input_too_long",
+                format!(
+                    "Message too long. Current: {estimated_tokens} tokens, Maximum: {max_input_tokens} tokens. Please shorten your message."
+                ),
+            )
+            .with_code("input_too_long".to_owned())
+            .into_response()
+        }
     }
 }
 

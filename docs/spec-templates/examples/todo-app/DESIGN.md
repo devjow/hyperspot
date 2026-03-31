@@ -43,6 +43,7 @@ Event-driven architecture is employed for real-time updates and cross-device syn
 | `cpt-examples-todo-app-fr-complete-task` | PATCH /tasks/:id with status toggle |
 | `cpt-examples-todo-app-fr-delete-task` | DELETE /tasks/:id endpoint with authorization |
 | `cpt-examples-todo-app-fr-filter-tasks` | Query parameters on GET /tasks |
+| `cpt-examples-todo-app-fr-changes-feed` | WebSocket-based changes feed with per-task modification timestamps for incremental sync |
 | `cpt-examples-todo-app-nfr-offline-support` | IndexedDB local storage with sync queue |
 
 #### NFR Allocation

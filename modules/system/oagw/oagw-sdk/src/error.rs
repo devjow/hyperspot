@@ -59,6 +59,24 @@ pub enum ServiceGatewayError {
         instance: String,
     },
 
+    #[error("{detail}")]
+    StreamAborted { detail: String, instance: String },
+
+    #[error("{detail}")]
+    LinkUnavailable { detail: String, instance: String },
+
+    #[error("{detail}")]
+    CircuitBreakerOpen { detail: String, instance: String },
+
+    #[error("{detail}")]
+    IdleTimeout { detail: String, instance: String },
+
+    #[error("plugin not found: {detail}")]
+    PluginNotFound { detail: String },
+
+    #[error("plugin in use: {detail}")]
+    PluginInUse { detail: String },
+
     /// The caller is authenticated but not authorized to perform the requested action.
     #[error("access forbidden: {detail}")]
     Forbidden { detail: String },

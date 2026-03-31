@@ -74,7 +74,7 @@ Foundation layer that all other OAGW features depend on. Provides the shared dom
 
 ### Module Bootstrap Flow
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-flow-domain-module-bootstrap`
+- [x] `p1` - **ID**: `cpt-cf-oagw-flow-domain-module-bootstrap`
 
 **Actor**: `cpt-cf-oagw-actor-platform-operator`
 
@@ -86,22 +86,22 @@ Foundation layer that all other OAGW features depend on. Provides the shared dom
 - GTS registration failure (types_registry unavailable)
 
 **Steps**:
-1. [ ] - `p1` - Platform operator starts hyperspot-server with OAGW module enabled - `inst-boot-1`
-2. [ ] - `p1` - ModKit invokes OAGW `Module::init()` with application context - `inst-boot-2`
-3. [ ] - `p1` - Load `OagwConfig` from configuration file (fields defined in `cpt-cf-oagw-design-overview`) - `inst-boot-3`
-4. [ ] - `p1` - DB: RUN all `oagw_*` migrations (SeaORM migrator) - `inst-boot-4`
-5. [ ] - `p1` - **IF** migration fails - `inst-boot-5`
-   1. [ ] - `p1` - Log error and **RETURN** module initialization failure - `inst-boot-5a`
-6. [ ] - `p1` - Call GTS type provisioning: register all OAGW schemas and built-in instances - `inst-boot-6`
-7. [ ] - `p1` - **IF** GTS registration fails - `inst-boot-7`
-   1. [ ] - `p1` - Log error and **RETURN** module initialization failure - `inst-boot-7a`
-8. [ ] - `p1` - Register `ServiceGatewayClientV1` local client in ClientHub - `inst-boot-8`
-9. [ ] - `p1` - Register REST API routes via OperationBuilder - `inst-boot-9`
-10. [ ] - `p1` - **RETURN** module initialized successfully - `inst-boot-10`
+1. [x] - `p1` - Platform operator starts hyperspot-server with OAGW module enabled - `inst-boot-1`
+2. [x] - `p1` - ModKit invokes OAGW `Module::init()` with application context - `inst-boot-2`
+3. [x] - `p1` - Load `OagwConfig` from configuration file (fields defined in `cpt-cf-oagw-design-overview`) - `inst-boot-3`
+4. [x] - `p1` - DB: RUN all `oagw_*` migrations (SeaORM migrator) - `inst-boot-4`
+5. [x] - `p1` - **IF** migration fails - `inst-boot-5`
+   1. [x] - `p1` - Log error and **RETURN** module initialization failure - `inst-boot-5a`
+6. [x] - `p1` - Call GTS type provisioning: register all OAGW schemas and built-in instances - `inst-boot-6`
+7. [x] - `p1` - **IF** GTS registration fails - `inst-boot-7`
+   1. [x] - `p1` - Log error and **RETURN** module initialization failure - `inst-boot-7a`
+8. [x] - `p1` - Register `ServiceGatewayClientV1` local client in ClientHub - `inst-boot-8`
+9. [x] - `p1` - Register REST API routes via OperationBuilder - `inst-boot-9`
+10. [x] - `p1` - **RETURN** module initialized successfully - `inst-boot-10`
 
 ### GTS Type Provisioning Flow
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-flow-domain-gts-provisioning`
+- [x] `p1` - **ID**: `cpt-cf-oagw-flow-domain-gts-provisioning`
 
 **Actor**: `cpt-cf-oagw-actor-types-registry`
 
@@ -114,19 +114,19 @@ Foundation layer that all other OAGW features depend on. Provides the shared dom
 - Schema conflicts with existing registrations
 
 **Steps**:
-1. [ ] - `p1` - OAGW module calls types_registry client to register schemas - `inst-gts-1`
-2. [ ] - `p1` - Register upstream schema: `gts.x.core.oagw.upstream.v1~` - `inst-gts-2`
-3. [ ] - `p1` - Register route schema: `gts.x.core.oagw.route.v1~` - `inst-gts-3`
-4. [ ] - `p1` - Register auth plugin schema: `gts.x.core.oagw.auth_plugin.v1~` - `inst-gts-4`
-5. [ ] - `p1` - Register guard plugin schema: `gts.x.core.oagw.guard_plugin.v1~` - `inst-gts-5`
-6. [ ] - `p1` - Register transform plugin schema: `gts.x.core.oagw.transform_plugin.v1~` - `inst-gts-6`
-7. [ ] - `p1` - Register error type schema: `gts.x.core.errors.err.v1~` (OAGW error instances) - `inst-gts-7`
-8. [ ] - `p1` - Register proxy permission: `gts.x.core.oagw.proxy.v1~` - `inst-gts-8`
-9. [ ] - `p1` - **FOR EACH** built-in plugin in auth/guard/transform registries - `inst-gts-9`
-   1. [ ] - `p1` - Register instance with full GTS identifier - `inst-gts-9a`
-10. [ ] - `p1` - **IF** any registration fails - `inst-gts-10`
-    1. [ ] - `p1` - **RETURN** provisioning error with failed type identifier - `inst-gts-10a`
-11. [ ] - `p1` - **RETURN** all types provisioned successfully - `inst-gts-11`
+1. [x] - `p1` - OAGW module calls types_registry client to register schemas - `inst-gts-1`
+2. [x] - `p1` - Register upstream schema: `gts.x.core.oagw.upstream.v1~` - `inst-gts-2`
+3. [x] - `p1` - Register route schema: `gts.x.core.oagw.route.v1~` - `inst-gts-3`
+4. [x] - `p1` - Register auth plugin schema: `gts.x.core.oagw.auth_plugin.v1~` - `inst-gts-4`
+5. [x] - `p1` - Register guard plugin schema: `gts.x.core.oagw.guard_plugin.v1~` - `inst-gts-5`
+6. [x] - `p1` - Register transform plugin schema: `gts.x.core.oagw.transform_plugin.v1~` - `inst-gts-6`
+7. [x] - `p1` - Register error type schema: `gts.x.core.errors.err.v1~` (OAGW error instances) - `inst-gts-7`
+8. [x] - `p1` - Register proxy permission: `gts.x.core.oagw.proxy.v1~` - `inst-gts-8`
+9. [x] - `p1` - **FOR EACH** built-in plugin in auth/guard/transform registries - `inst-gts-9`
+   1. [x] - `p1` - Register instance with full GTS identifier - `inst-gts-9a`
+10. [x] - `p1` - **IF** any registration fails - `inst-gts-10`
+    1. [x] - `p1` - **RETURN** provisioning error with failed type identifier - `inst-gts-10a`
+11. [x] - `p1` - **RETURN** all types provisioned successfully - `inst-gts-11`
 
 > **Integration note**: types_registry calls use ModKit default client timeout. No retry on failure — fail-fast during module startup. Operator must ensure types_registry is available before starting OAGW.
 
@@ -163,44 +163,44 @@ Foundation layer that all other OAGW features depend on. Provides the shared dom
 **Output**: Validation result with errors list
 
 **Steps**:
-1. [ ] - `p1` - Parse and normalize input fields - `inst-val-1`
-2. [ ] - `p1` - **IF** entity is `Upstream` - `inst-val-2`
-   1. [ ] - `p1` - Validate `alias` is non-empty, lowercase, and matches allowed characters - `inst-val-2a`
-   2. [ ] - `p1` - Validate `protocol` is a recognized GTS protocol identifier - `inst-val-2b`
-   3. [ ] - `p1` - Validate `server.endpoints` has at least one endpoint - `inst-val-2c`
-   4. [ ] - `p1` - Validate all endpoints share the same `scheme` and `port` - `inst-val-2d`
-   5. [ ] - `p1` - Validate sharing modes are one of `private`, `inherit`, `enforce` - `inst-val-2e`
-3. [ ] - `p1` - **IF** entity is `Route` - `inst-val-3`
-   1. [ ] - `p1` - Validate `match_type` is `http` or `grpc` - `inst-val-3a`
-   2. [ ] - `p1` - Validate `priority` is a non-negative integer - `inst-val-3b`
-   3. [ ] - `p1` - **IF** `match_type` is `http`, validate `path_prefix` is normalized and within segment limit - `inst-val-3c`
-   4. [ ] - `p1` - **IF** `match_type` is `grpc`, validate `service` and `method` are non-empty - `inst-val-3d`
+1. [x] - `p1` - Parse and normalize input fields - `inst-val-1`
+2. [x] - `p1` - **IF** entity is `Upstream` - `inst-val-2`
+   1. [x] - `p1` - Validate `alias` is non-empty, lowercase, and matches allowed characters - `inst-val-2a`
+   2. [x] - `p1` - Validate `protocol` is a recognized GTS protocol identifier - `inst-val-2b`
+   3. [x] - `p1` - Validate `server.endpoints` has at least one endpoint - `inst-val-2c`
+   4. [x] - `p1` - Validate all endpoints share the same `scheme` and `port` - `inst-val-2d`
+   5. [x] - `p1` - Validate sharing modes are one of `private`, `inherit`, `enforce` - `inst-val-2e`
+3. [x] - `p1` - **IF** entity is `Route` - `inst-val-3`
+   1. [x] - `p1` - Validate `match_type` is `http` or `grpc` - `inst-val-3a`
+   2. [x] - `p1` - Validate `priority` is a non-negative integer - `inst-val-3b`
+   3. [x] - `p1` - **IF** `match_type` is `http`, validate `path_prefix` is normalized and within segment limit - `inst-val-3c`
+   4. [x] - `p1` - **IF** `match_type` is `grpc`, validate `service` and `method` are non-empty - `inst-val-3d`
 4. [ ] - `p1` - **IF** entity is `Plugin` - `inst-val-4`
    1. [ ] - `p1` - Validate `plugin_type` is `auth`, `guard`, or `transform` - `inst-val-4a`
    2. [ ] - `p1` - Validate `name` is non-empty and unique within tenant scope - `inst-val-4b`
    3. [ ] - `p1` - Validate `config_schema` is valid JSON schema - `inst-val-4c`
    4. [ ] - `p1` - Validate `source_code` is non-empty - `inst-val-4d`
-5. [ ] - `p1` - **IF** entity is `Endpoint` - `inst-val-5`
-   1. [ ] - `p1` - Validate `scheme` is `https` (HTTPS-only constraint for MVP) - `inst-val-5a`
-   2. [ ] - `p1` - Validate `host` is a valid hostname or IP address - `inst-val-5b`
-   3. [ ] - `p1` - Validate `port` is in valid range (1–65535) - `inst-val-5c`
-6. [ ] - `p1` - **RETURN** validation result with collected errors - `inst-val-6`
+5. [x] - `p1` - **IF** entity is `Endpoint` - `inst-val-5`
+   1. [x] - `p1` - Validate `scheme` is `https` (HTTPS-only constraint for MVP) - `inst-val-5a`
+   2. [x] - `p1` - Validate `host` is a valid hostname or IP address - `inst-val-5b`
+   3. [x] - `p1` - Validate `port` is in valid range (1–65535) - `inst-val-5c`
+6. [x] - `p1` - **RETURN** validation result with collected errors - `inst-val-6`
 
 ### SDK Trait Definition
 
-- [ ] `p2` - **ID**: `cpt-cf-oagw-algo-domain-sdk-definition`
+- [x] `p2` - **ID**: `cpt-cf-oagw-algo-domain-sdk-definition`
 
 **Input**: Design contract for `ServiceGatewayClientV1` from `cpt-cf-oagw-design-layers`
 
 **Output**: SDK crate public API surface (`api.rs`, `models.rs`, `error.rs`)
 
 **Steps**:
-1. [ ] - `p1` - Define `ServiceGatewayClientV1` async trait with methods matching management API and proxy operations - `inst-sdk-1`
-2. [ ] - `p1` - Define SDK model types that mirror domain entities without infrastructure dependencies - `inst-sdk-2`
-3. [ ] - `p1` - Define `ServiceGatewayError` enum covering all domain error cases - `inst-sdk-3`
-4. [ ] - `p1` - Ensure SDK types derive `Clone`, `Debug`, `Serialize`, `Deserialize` where appropriate - `inst-sdk-4`
-5. [ ] - `p1` - Export public API surface from `lib.rs` - `inst-sdk-5`
-6. [ ] - `p1` - **RETURN** SDK crate with trait, models, and error types - `inst-sdk-6`
+1. [x] - `p1` - Define `ServiceGatewayClientV1` async trait with methods matching management API and proxy operations - `inst-sdk-1`
+2. [x] - `p1` - Define SDK model types that mirror domain entities without infrastructure dependencies - `inst-sdk-2`
+3. [x] - `p1` - Define `ServiceGatewayError` enum covering all domain error cases - `inst-sdk-3`
+4. [x] - `p1` - Ensure SDK types derive `Clone`, `Debug`, `Serialize`, `Deserialize` where appropriate - `inst-sdk-4`
+5. [x] - `p1` - Export public API surface from `lib.rs` - `inst-sdk-5`
+6. [x] - `p1` - **RETURN** SDK crate with trait, models, and error types - `inst-sdk-6`
 
 ## 4. States (CDSL)
 
@@ -210,7 +210,7 @@ Not applicable — the domain foundation feature establishes schema and wiring b
 
 ### Implement Domain Entities
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-domain-entities`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-domain-entities`
 
 The system **MUST** implement Rust domain model types for `Upstream`, `Route`, `Plugin`, `ServerConfig`, and `Endpoint` with all fields defined in `cpt-cf-oagw-design-domain-model`. Domain types **MUST** reside in the `domain/` layer and have no infrastructure dependencies.
 
@@ -248,7 +248,7 @@ The system **MUST** implement SeaORM entity structs for all `oagw_*` tables. All
 
 ### Implement SDK Crate
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-domain-sdk-crate`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-domain-sdk-crate`
 
 The system **MUST** implement the `oagw-sdk` crate with `ServiceGatewayClientV1` async trait, SDK model types, and `ServiceGatewayError` enum. The SDK crate **MUST** have no dependency on infrastructure or transport crates.
 
@@ -260,7 +260,7 @@ The system **MUST** implement the `oagw-sdk` crate with `ServiceGatewayClientV1`
 
 ### Implement ModKit Module Wiring
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-domain-modkit-wiring`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-domain-modkit-wiring`
 
 The system **MUST** implement `module.rs` with ModKit `Module` trait, `config.rs` with `OagwConfig`, and lifecycle hooks (`init`, `start`). Module initialization **MUST** run migrations, provision GTS types, and register local client in ClientHub.
 
@@ -272,7 +272,7 @@ The system **MUST** implement `module.rs` with ModKit `Module` trait, `config.rs
 
 ### Implement GTS Type Provisioning
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-domain-gts-provisioning`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-domain-gts-provisioning`
 
 The system **MUST** implement `type_provisioning.rs` that registers all OAGW GTS schemas (`upstream.v1~`, `route.v1~`, `auth_plugin.v1~`, `guard_plugin.v1~`, `transform_plugin.v1~`) and built-in plugin instances with `types_registry` during module startup.
 
@@ -284,7 +284,7 @@ The system **MUST** implement `type_provisioning.rs` that registers all OAGW GTS
 
 ### Implement DDD-Light Layering
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-domain-layering`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-domain-layering`
 
 The system **MUST** establish the DDD-Light directory structure (`domain/`, `infra/`, `api/rest/`) per `cpt-cf-oagw-design-layers`. Domain layer **MUST** define repository traits (`UpstreamRepository`, `RouteRepository`, `PluginRepository`). Infrastructure layer **MUST** provide stub implementations. Domain layer **MUST NOT** depend on infrastructure.
 
@@ -300,14 +300,14 @@ The system **MUST** establish the DDD-Light directory structure (`domain/`, `inf
 - [ ] Migrations run successfully on PostgreSQL, MySQL, and SQLite without errors
 - [ ] All ten `oagw_*` tables are created with correct primary keys, foreign keys, unique constraints, and indexes per `cpt-cf-oagw-adr-storage-schema`
 - [ ] Cascading deletes propagate correctly: deleting an upstream deletes its routes, tags, match keys, methods, and plugin bindings
-- [ ] Domain entity types compile and enforce field-level validation per `cpt-cf-oagw-algo-domain-entity-validation`
-- [ ] `oagw-sdk` crate exports `ServiceGatewayClientV1` trait, all SDK model types, and `ServiceGatewayError`
-- [ ] `oagw-sdk` crate compiles with no dependency on infrastructure or transport crates
-- [ ] ModKit module starts successfully and registers in hyperspot-server
-- [ ] GTS schemas and built-in plugin instances are registered during module startup
+- [x] Domain entity types compile and enforce field-level validation per `cpt-cf-oagw-algo-domain-entity-validation`
+- [x] `oagw-sdk` crate exports `ServiceGatewayClientV1` trait, all SDK model types, and `ServiceGatewayError`
+- [x] `oagw-sdk` crate compiles with no dependency on infrastructure or transport crates
+- [x] ModKit module starts successfully and registers in hyperspot-server
+- [x] GTS schemas and built-in plugin instances are registered during module startup
 - [ ] Secure ORM scoping is enforced: all repository queries include tenant_id predicate or scoped join
-- [ ] Repository traits are defined in domain layer with no infrastructure imports
-- [ ] `cargo test` passes for all domain model unit tests and migration tests
+- [x] Repository traits are defined in domain layer with no infrastructure imports
+- [x] `cargo test` passes for all domain model unit tests and migration tests
 
 ## 7. Non-Applicable Concerns
 

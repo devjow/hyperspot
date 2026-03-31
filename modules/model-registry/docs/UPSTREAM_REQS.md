@@ -1,128 +1,111 @@
-# Upstream Requirements — Model Registry
+# UPSTREAM_REQS — Model Registry
 
-## Overview
+<!-- toc -->
 
-This document consolidates requirements from downstream modules that depend on Model Registry. It serves as validation that Model Registry API meets consumer needs.
+- [1. Overview](#1-overview)
+  - [1.1 Purpose](#11-purpose)
+  - [1.2 Requesting Modules](#12-requesting-modules)
+- [2. Requirements](#2-requirements)
+  - [2.1 LLM Gateway](#21-llm-gateway)
+- [3. Priorities](#3-priorities)
+- [4. Traceability](#4-traceability)
+  - [LLM Gateway Sources](#llm-gateway-sources)
 
----
+<!-- /toc -->
 
-## LLM Gateway Requirements
+## 1. Overview
 
-**Source**: `modules/llm-gateway/docs/` (PRD, DESIGN, ADR-0004)
+### 1.1 Purpose
 
-**Priority**: P1 (core integration)
+Model Registry serves as a centralized catalog of AI models. This document consolidates requirements from modules that depend on Model Registry's API to resolve models, check approval status, and obtain provider information for routing.
 
-### Required Operations
+### 1.2 Requesting Modules
 
-#### 1. Get Tenant Model
+| Module | Why it needs this module |
+|--------|-------------------------|
+| llm-gateway | Needs to resolve models by canonical ID, check tenant approval status, and obtain provider info and health metrics for routing decisions on every request |
 
-Resolve model by canonical ID for a tenant, checking availability and approval status.
+## 2. Requirements
 
-**Input**:
-| Field | Type | Description |
-|-------|------|-------------|
-| ctx | SecurityContext | Tenant context for resolution |
-| model_id | string | Canonical model ID (`provider_slug::model_id`) |
+### 2.1 LLM Gateway
 
-**Output**:
-| Field | Type | Description |
-|-------|------|-------------|
-| model | ModelInfo | Model metadata and capabilities |
-| provider | ProviderInfo | Provider endpoint and configuration |
-| health | ProviderHealth | Health metrics for routing decisions |
-| approval_status | enum | `approved` (or error if not) |
+#### Resolve Tenant Model
 
-**Behavior**:
-- Check model exists in catalog
-- Check tenant approval status (considering hierarchy)
-- Return provider health metrics for routing
-- Error if model not found, not approved, or deprecated
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-get-tenant-model`
 
-**Source**: [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
+The module **MUST** resolve a model by canonical ID for a given tenant, checking catalog existence, tenant approval status (considering hierarchy), and returning model metadata with provider information.
 
----
+- **Rationale**: LLM Gateway must resolve the target model and provider on every incoming request before routing to the provider API.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
 
-### Required Response Data
+#### Return Model Capabilities and Limits
 
-#### ModelInfo
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-model-capabilities`
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| canonical_id | yes | `provider_slug::provider_model_id` |
-| name | yes | Display name |
-| capabilities | yes | Capability flags for validation |
-| limits | yes | context_window, max_output_tokens |
-| lifecycle_status | yes | production, preview, deprecated, sunset |
+The module **MUST** return model capability flags and limits (context window, max output tokens) alongside model resolution so that the caller can validate request compatibility.
 
-**Source**: [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
+- **Rationale**: LLM Gateway needs to validate that a request is compatible with the model's capabilities before forwarding to the provider.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
 
----
+#### Return Provider Endpoint Information
 
-#### ProviderInfo
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-provider-info`
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| slug | yes | Provider identifier |
-| base_url | yes | Provider API endpoint (for OAGW routing) |
-| gts_type | yes | GTS type for credential injection |
+The module **MUST** return the provider's API endpoint and GTS type for credential injection as part of model resolution.
 
-**Source**: [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
+- **Rationale**: LLM Gateway routes requests through OAGW and needs the provider base URL and GTS type to inject credentials.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
 
----
+#### Return Provider Health Metrics
 
-#### ProviderHealth (P2)
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-upreq-provider-health`
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| status | yes | healthy, degraded, unhealthy |
-| latency_p50_ms | no | Discovery latency P50 |
-| latency_p99_ms | no | Discovery latency P99 |
-| error_rate | no | Error rate over time window |
+The module **MUST** return provider health status (healthy, degraded, unhealthy) and optionally latency and error rate metrics for proactive provider selection.
 
-**Usage**: LLM Gateway uses health metrics for proactive provider selection before making requests.
-
-**Source**: [`cpt-cf-llm-gateway-adr-circuit-breaking`](../../llm-gateway/docs/ADR/0004-fdd-llmgw-adr-circuit-breaking.md)
-
----
-
-### Required Errors
-
-| Error | When | LLM Gateway Response |
-|-------|------|---------------------|
-| `model_not_found` | Model not in catalog | 404 model_not_found |
-| `model_not_approved` | Model not approved for tenant | 403 model_not_approved |
-| `model_deprecated` | Model sunset by provider | 410 model_deprecated |
-
-**Source**: [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
-
----
-
-### Required Behaviors
+- **Rationale**: LLM Gateway uses health metrics to select providers before making requests, avoiding providers that are degraded or unhealthy.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-adr-circuit-breaking`](../../llm-gateway/docs/ADR/0004-fdd-llmgw-adr-circuit-breaking.md), [`cpt-cf-llm-gateway-fr-provider-fallback-v1`](../../llm-gateway/docs/PRD.md))
 
 #### Tenant Hierarchy Resolution
 
-- Resolve approval status considering tenant hierarchy
-- Child tenant inherits parent approvals
-- Return most specific approval (own > parent > root)
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-tenant-hierarchy`
 
-**Source**: [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
+The module **MUST** resolve approval status considering the tenant hierarchy, where child tenants inherit parent approvals and the most specific approval (own > parent > root) takes precedence.
 
----
+- **Rationale**: LLM Gateway serves requests from tenants at any hierarchy level; approval resolution must be transparent to the caller.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
 
-#### Low Latency
+#### Low Latency Resolution
 
-- get_tenant_model must meet <10ms P99 latency
-- LLM Gateway calls this on every request
-- Cache-first resolution required
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-low-latency`
 
-**Source**: [`cpt-cf-model-registry-nfr-performance`](./PRD.md)
+The module **MUST** resolve model lookups within <10ms at P99 latency.
 
----
+- **Rationale**: LLM Gateway calls model resolution on every request; high latency here directly impacts end-user response times.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
 
-## Traceability
+#### Specific Error Responses
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-upreq-error-responses`
+
+The module **MUST** return distinct errors for: model not found in catalog, model not approved for tenant, and model deprecated/sunset by provider.
+
+- **Rationale**: LLM Gateway maps these errors to specific HTTP status codes (404, 403, 410) for its callers; a generic error is insufficient.
+- **Source**: `modules/llm-gateway` ([`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md))
+
+## 3. Priorities
+
+| Priority | Requirements |
+|----------|-------------|
+| p1 (critical) | `cpt-cf-model-registry-upreq-get-tenant-model`, `cpt-cf-model-registry-upreq-model-capabilities`, `cpt-cf-model-registry-upreq-provider-info`, `cpt-cf-model-registry-upreq-tenant-hierarchy`, `cpt-cf-model-registry-upreq-low-latency`, `cpt-cf-model-registry-upreq-error-responses` |
+| p2 (important) | `cpt-cf-model-registry-upreq-provider-health` |
+
+## 4. Traceability
+
+- **PRD** (when created): [PRD.md](./PRD.md)
+- **Design** (when created): [DESIGN.md](./DESIGN.md)
 
 ### LLM Gateway Sources
 
-- [ ] [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md) — model resolution sequence
-- [ ] [`cpt-cf-llm-gateway-adr-circuit-breaking`](../../llm-gateway/docs/ADR/0004-fdd-llmgw-adr-circuit-breaking.md) — health-based routing
-- [ ] [`cpt-cf-llm-gateway-fr-provider-fallback-v1`](../../llm-gateway/docs/PRD.md) — fallback on failure
+- [`cpt-cf-llm-gateway-seq-provider-resolution-v1`](../../llm-gateway/docs/DESIGN.md)
+- [`cpt-cf-llm-gateway-adr-circuit-breaking`](../../llm-gateway/docs/ADR/0004-fdd-llmgw-adr-circuit-breaking.md)
+- [`cpt-cf-llm-gateway-fr-provider-fallback-v1`](../../llm-gateway/docs/PRD.md)

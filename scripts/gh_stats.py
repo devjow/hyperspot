@@ -41,12 +41,14 @@ DEFAULT_EXCLUDE_LABELS = ["pr-issue"]
 # Accounts to filter out of human tables
 BOTS = {
     "github-actions[bot]",
+    "github-actions",
     "coderabbitai[bot]",
     "qodo-code-review[bot]",
     "mergify[bot]",
     "codecov-commenter",
     "graphite-app[bot]",
     "dependabot[bot]",
+    "dependabot",
     "renovate[bot]",
     "Copilot",
     "github-code-quality[bot]",
@@ -664,14 +666,369 @@ def md_table_loc(
 
 
 # ---------------------------------------------------------------------------
+# Open PRs readiness dashboard
+# ---------------------------------------------------------------------------
+
+OPEN_PRS_QUERY = """
+query($owner: String!, $repo: String!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: OPEN, first: 100, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        title
+        author { login }
+        isDraft
+        mergeable
+        reviewThreads(first: 100) {
+          nodes {
+            isResolved
+            comments(last: 1) {
+              nodes {
+                author { login }
+              }
+            }
+          }
+        }
+        comments(last: 100) {
+          nodes {
+            author { login }
+            createdAt
+          }
+        }
+        commits(last: 1) {
+          nodes {
+            commit {
+              committedDate
+              statusCheckRollup {
+                contexts(first: 100) {
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      name
+                      conclusion
+                      status
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _gh_graphql(query: str, variables: dict) -> dict:
+    """Execute a GraphQL query via gh api graphql."""
+    cmd = ["gh", "api", "graphql", "-f", f"query={query}"]
+    for k, v in variables.items():
+        if v is not None:
+            cmd.extend(["-f", f"{k}={v}"])
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def fetch_open_prs_graphql(repo: str, log_fn=None) -> list[dict]:
+    """Fetch all open PRs with readiness info via GraphQL (paginated).
+
+    For PRs where GraphQL returns mergeable=UNKNOWN, makes individual REST
+    API calls to trigger mergeability computation and get the actual status.
+    """
+    owner, name = repo.split("/", 1)
+    all_prs: list[dict] = []
+    cursor = None
+    while True:
+        data = _gh_graphql(OPEN_PRS_QUERY, {"owner": owner, "repo": name, "cursor": cursor})
+        pr_data = data["data"]["repository"]["pullRequests"]
+        all_prs.extend(pr_data["nodes"])
+        if not pr_data["pageInfo"]["hasNextPage"]:
+            break
+        cursor = pr_data["pageInfo"]["endCursor"]
+
+    # Resolve UNKNOWN mergeable status via REST API (triggers computation)
+    unknown_prs = [pr for pr in all_prs if pr.get("mergeable") == "UNKNOWN"]
+    if unknown_prs:
+        if log_fn:
+            log_fn(f"  Resolving merge status for {len(unknown_prs)} PRs via REST API ...")
+        for pr in unknown_prs:
+            try:
+                cmd = [
+                    "gh", "api",
+                    f"repos/{repo}/pulls/{pr['number']}",
+                    "--jq", ".mergeable",
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                val = result.stdout.strip()
+                if val == "true":
+                    pr["mergeable"] = "MERGEABLE"
+                elif val == "false":
+                    pr["mergeable"] = "CONFLICTING"
+                # null / empty → stays UNKNOWN
+            except subprocess.CalledProcessError:
+                pass  # keep UNKNOWN
+
+    return all_prs
+
+
+def _check_failed(conclusion: str | None, status: str | None) -> bool:
+    """Return True if a check run is in a failed state."""
+    if status and status.upper() not in ("COMPLETED",):
+        return False  # still running, not failed yet
+    return conclusion is not None and conclusion.upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
+
+
+def analyze_open_prs(prs: list[dict], exclude_labels: set[str], *, show_system: bool = False) -> list[dict]:
+    """Analyze open PRs and return readiness info for each."""
+    results = []
+    for pr in prs:
+        if exclude_labels and has_excluded_label(pr, exclude_labels):
+            continue
+        author = (pr.get("author") or {}).get("login", "unknown")
+        if not show_system and is_bot(author):
+            continue
+
+        number = pr["number"]
+        title = pr["title"]
+        is_draft = pr.get("isDraft", False)
+
+        # Merge conflicts — after REST resolution, UNKNOWN should be rare.
+        mergeable = pr.get("mergeable", "UNKNOWN")
+        has_conflicts = mergeable == "CONFLICTING"
+        mergeable_unknown = mergeable == "UNKNOWN"
+
+        # Unresolved review threads where last comment is NOT from the PR author
+        # (i.e., the author hasn't responded yet)
+        unresolved_waiting_author = 0
+        threads = pr.get("reviewThreads", {}).get("nodes", [])
+        for thread in threads:
+            if thread.get("isResolved"):
+                continue
+            last_comments = thread.get("comments", {}).get("nodes", [])
+            if not last_comments:
+                continue
+            last_author = (last_comments[-1].get("author") or {}).get("login", "")
+            if last_author != author and not is_bot(last_author):
+                unresolved_waiting_author += 1
+
+        # CI checks — collect ALL failed check names
+        failed_checks: list[str] = []
+        commits = pr.get("commits", {}).get("nodes", [])
+        if commits:
+            rollup = (commits[-1].get("commit", {}).get("statusCheckRollup") or {})
+            contexts = rollup.get("contexts", {}).get("nodes", [])
+            for ctx in contexts:
+                if ctx.get("__typename") == "CheckRun":
+                    check_name = ctx.get("name", "")
+                    conclusion = ctx.get("conclusion")
+                    status = ctx.get("status")
+                    if _check_failed(conclusion, status):
+                        failed_checks.append(check_name)
+                elif ctx.get("__typename") == "StatusContext":
+                    check_name = ctx.get("context", "")
+                    state = (ctx.get("state") or "").upper()
+                    if state in ("FAILURE", "ERROR"):
+                        failed_checks.append(check_name)
+
+        # Last author activity: latest of (last commit date, last author comment)
+        activity_dates: list[datetime] = []
+        # Last commit
+        if commits:
+            committed_date = commits[-1].get("commit", {}).get("committedDate")
+            if committed_date:
+                activity_dates.append(parse_iso(committed_date))
+        # Last PR comment by author
+        for comment in pr.get("comments", {}).get("nodes", []):
+            comment_author = (comment.get("author") or {}).get("login", "")
+            if comment_author == author:
+                created = comment.get("createdAt")
+                if created:
+                    activity_dates.append(parse_iso(created))
+        # Review-thread comments by author
+        for thread in pr.get("reviewThreads", {}).get("nodes", []):
+            for comment in thread.get("comments", {}).get("nodes", []):
+                comment_author = (comment.get("author") or {}).get("login", "")
+                if comment_author == author:
+                    created = comment.get("createdAt")
+                    if created:
+                        activity_dates.append(parse_iso(created))
+
+        last_author_activity = max(activity_dates) if activity_dates else None
+
+        is_ready = (
+            not is_draft
+            and not has_conflicts
+            and not mergeable_unknown
+            and unresolved_waiting_author == 0
+            and not failed_checks
+        )
+
+        results.append({
+            "number": number,
+            "title": title,
+            "author": author,
+            "is_draft": is_draft,
+            "has_conflicts": has_conflicts,
+            "mergeable_unknown": mergeable_unknown,
+            "unresolved_comments": unresolved_waiting_author,
+            "failed_checks": failed_checks,
+            "last_author_activity": last_author_activity,
+            "is_ready": is_ready,
+        })
+
+    # Sort: ready first, then not ready
+    # Sort: ready first, then within each group oldest activity first (None = oldest)
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    results.sort(key=lambda r: (not r["is_ready"], r["last_author_activity"] or _epoch))
+    return results
+
+
+def _fmt_time_ago(dt: datetime | None) -> str:
+    """Format a datetime as a human-readable 'time ago' string."""
+    if not dt:
+        return "—"
+    now = datetime.now(timezone.utc)
+    delta = now - dt
+    days = delta.days
+    if days == 0:
+        hours = delta.seconds // 3600
+        if hours == 0:
+            return f"{delta.seconds // 60}m ago"
+        return f"{hours}h ago"
+    if days < 30:
+        return f"{days}d ago"
+    months = days // 30
+    return f"{months}mo ago"
+
+
+def md_open_prs_dashboard(repo: str, prs: list[dict], *, total_open: int = 0,
+                          problems_only: bool = False,
+                          stale_label: str | None = None) -> str:
+    """Render the open PRs readiness dashboard as a markdown table."""
+    ok = "\u2705"
+    fail = "\u274c"
+
+    filter_parts: list[str] = []
+    if problems_only:
+        filter_parts.append("problems only")
+    if stale_label:
+        filter_parts.append(f"inactive > {stale_label}")
+    filter_suffix = f" ({', '.join(filter_parts)})" if filter_parts else ""
+
+    total_label = f" out of {total_open} open" if filter_parts and total_open else ""
+
+    if not prs:
+        return f"# Open PRs Dashboard: {repo}\n\nNo matching PRs{total_label}{filter_suffix}.\n"
+
+    ready = [p for p in prs if p["is_ready"]]
+    not_ready = [p for p in prs if not p["is_ready"]]
+
+    if filter_parts:
+        subtitle = f"**{len(prs)}**{total_label} PRs shown{filter_suffix}.\n"
+    else:
+        subtitle = (
+            f"**{len(prs)}** open PRs: **{len(ready)}** ready for merge, "
+            f"**{len(not_ready)}** not ready.\n"
+        )
+
+    warn = "\u26a0\ufe0f"
+
+    lines = [
+        f"# Open PRs Dashboard: {repo}\n",
+        subtitle,
+        "| # | PR | Author | Draft | Conflicts | Unresolved Comments | Failed CI Checks | Last Activity | Ready |",
+        "|--:|----|--------|:-----:|:---------:|:-------------------:|:-----------------|:-----------:|:-----:|",
+    ]
+
+    for i, pr in enumerate(prs, 1):
+        title = pr["title"]
+        if len(title) > 50:
+            title = title[:47] + "..."
+        pr_link = f"[#{pr['number']}](https://github.com/{repo}/pull/{pr['number']})"
+
+        draft_icon = fail if pr["is_draft"] else ok
+        if pr["has_conflicts"]:
+            conflict_icon = fail
+        elif pr["mergeable_unknown"]:
+            conflict_icon = warn
+        else:
+            conflict_icon = ok
+        comments_cell = f"{fail} {pr['unresolved_comments']}" if pr["unresolved_comments"] > 0 else ok
+        if pr["failed_checks"]:
+            ci_cell = f"{fail} " + ", ".join(pr["failed_checks"])
+        else:
+            ci_cell = ok
+        ready_icon = ok if pr["is_ready"] else fail
+
+        activity_cell = _fmt_time_ago(pr["last_author_activity"])
+
+        lines.append(
+            f"| {i} | {pr_link} {title} | {pr['author']} "
+            f"| {draft_icon} | {conflict_icon} | {comments_cell} "
+            f"| {ci_cell} | {activity_cell} | {ready_icon} |"
+        )
+
+    lines.append("")
+
+    # Legend
+    lines.extend([
+        "### Legend\n",
+        f"- {ok} — No issues",
+        f"- {fail} — Blocking issue",
+        f"- {warn} — Probable conflict (GitHub returned UNKNOWN — stale PR, mergeability not computed)",
+        "- **Unresolved Comments** — Review threads where the PR author has not yet replied",
+        "- **Failed CI Checks** — Any check run that completed with failure/timeout/cancelled",
+        "- **Last Activity** — When the PR author last pushed a commit or commented",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def parse_duration(s: str) -> timedelta:
+    """Parse a human duration string like '1d', '3d', '1w', '2w', '12h'."""
+    m = re.fullmatch(r"(\d+)\s*([hdwHDW])", s.strip())
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"Invalid duration '{s}'. Use e.g. 12h, 1d, 3d, 1w."
+        )
+    value = int(m.group(1))
+    unit = m.group(2).lower()
+    if unit == "h":
+        return timedelta(hours=value)
+    if unit == "d":
+        return timedelta(days=value)
+    if unit == "w":
+        return timedelta(weeks=value)
+    raise argparse.ArgumentTypeError(f"Unknown unit '{unit}'")
+
+
+def _fmt_duration(td: timedelta) -> str:
+    """Format a timedelta back to a human duration string (inverse of parse_duration)."""
+    s = int(td.total_seconds())
+    if s % (7 * 86400) == 0:
+        return f"{s // (7 * 86400)}w"
+    if s % 86400 == 0:
+        return f"{s // 86400}d"
+    return f"{s // 3600}h"
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="GitHub repo activity stats")
     p.add_argument("repo", nargs="?", default=DEFAULT_REPO, help="owner/repo")
-    p.add_argument("--since", type=str, default=None, help="Start date inclusive (YYYY-MM-DD)")
-    p.add_argument("--until", type=str, default=None, help="End date inclusive (YYYY-MM-DD)")
+    p.add_argument("--since", type=parse_since_date, default=None, help="Start date inclusive (YYYY-MM-DD)")
+    p.add_argument("--until", type=parse_until_exclusive, default=None, help="End date inclusive (YYYY-MM-DD)")
     p.add_argument(
         "--exclude-labels",
         type=str,
@@ -724,6 +1081,34 @@ def parse_args() -> argparse.Namespace:
             "call per PR and can be slow or hit rate limits on active repos."
         ),
     )
+    p.add_argument(
+        "--open-prs",
+        action="store_true",
+        default=False,
+        help="Show current open PRs readiness dashboard instead of the historical report.",
+    )
+    p.add_argument(
+        "--problems-only",
+        action="store_true",
+        default=False,
+        help="With --open-prs: show only PRs that have problems (not ready for merge).",
+    )
+    p.add_argument(
+        "--show-system-prs",
+        action="store_true",
+        default=False,
+        help="With --open-prs: include system PRs (github-actions, dependabot, etc.).",
+    )
+    p.add_argument(
+        "--stale",
+        type=parse_duration,
+        default=None,
+        metavar="DURATION",
+        help=(
+            "With --open-prs: show only PRs where the author has been inactive "
+            "longer than DURATION. Examples: 1d, 3d, 1w, 2w."
+        ),
+    )
     return p.parse_args()
 
 
@@ -734,12 +1119,12 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
     repo = args.repo
-    since = parse_since_date(args.since)
-    until_exclusive = parse_until_exclusive(args.until)
+    since = args.since
+    until_exclusive = args.until
 
     if since and until_exclusive and since >= until_exclusive:
         print(
-            f"ERROR: --since ({args.since}) is after --until ({args.until}). Check the dates.",
+            f"ERROR: --since ({since.strftime('%Y-%m-%d')}) is after --until ({(until_exclusive - timedelta(days=1)).strftime('%Y-%m-%d')}). Check the dates.",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -757,13 +1142,37 @@ def main():
     if args.since or args.until:
         parts = []
         if args.since:
-            parts.append(f"from {args.since}")
+            parts.append(f"from {args.since.strftime('%Y-%m-%d')}")
         if args.until:
-            parts.append(f"to {args.until}")
+            parts.append(f"to {(args.until - timedelta(days=1)).strftime('%Y-%m-%d')}")
         date_label = " (" + " ".join(parts) + ")"
 
     def log(msg: str):
         print(msg, file=sys.stderr)
+
+    # -------------------------------------------------------------------
+    # Open PRs dashboard (separate mode)
+    # -------------------------------------------------------------------
+    if args.open_prs:
+        log(f"Fetching open PRs for **{repo}** ...\n")
+        open_prs = fetch_open_prs_graphql(repo, log_fn=log)
+        log(f"  Found {len(open_prs)} open PRs, analyzing readiness ...")
+        analyzed = analyze_open_prs(open_prs, exclude_labels, show_system=args.show_system_prs)
+        total_open = len(analyzed)
+        if args.problems_only:
+            analyzed = [p for p in analyzed if not p["is_ready"]]
+        stale_threshold = args.stale
+        if stale_threshold:
+            now = datetime.now(timezone.utc)
+            analyzed = [
+                p for p in analyzed
+                if p["last_author_activity"] is None
+                or (now - p["last_author_activity"]) > stale_threshold
+            ]
+        print(md_open_prs_dashboard(repo, analyzed, total_open=total_open,
+                                     problems_only=args.problems_only,
+                                     stale_label=_fmt_duration(stale_threshold) if stale_threshold else None))
+        return
 
     log(f"Fetching stats for **{repo}**{date_label} ...\n")
 

@@ -77,6 +77,7 @@ fn default_turn_params(tenant_id: Uuid, chat_id: Uuid, request_id: Uuid) -> Crea
         policy_version_applied: None,
         effective_model: None,
         minimal_generation_floor_applied: None,
+        web_search_enabled: false,
     }
 }
 
@@ -1268,5 +1269,55 @@ async fn cas_mutual_exclusion_exactly_one_winner() {
         rows1 + rows2,
         1,
         "exactly one CAS should win: got {rows1} + {rows2}"
+    );
+}
+
+#[tokio::test]
+async fn create_turn_persists_web_search_enabled() {
+    let db = test_db().await;
+    let tenant_id = Uuid::new_v4();
+    let chat_id = Uuid::new_v4();
+    insert_chat(&db, tenant_id, chat_id).await;
+
+    let repo = TurnRepository;
+    let conn = db.conn().unwrap();
+
+    // Create with web_search_enabled = true
+    let request_id = Uuid::new_v4();
+    let mut params = default_turn_params(tenant_id, chat_id, request_id);
+    params.web_search_enabled = true;
+
+    let turn = repo
+        .create_turn(&conn, &scope(), params)
+        .await
+        .expect("create_turn");
+    assert!(
+        turn.web_search_enabled,
+        "web_search_enabled should be true on insert"
+    );
+
+    // Read back via find_by_chat_and_request_id
+    let found = repo
+        .find_by_chat_and_request_id(&conn, &scope(), chat_id, request_id)
+        .await
+        .expect("find turn")
+        .expect("turn should exist");
+    assert!(
+        found.web_search_enabled,
+        "web_search_enabled should survive round-trip"
+    );
+
+    // Create another turn (different chat) with web_search_enabled = false (default)
+    let chat_id2 = Uuid::new_v4();
+    insert_chat(&db, tenant_id, chat_id2).await;
+    let request_id2 = Uuid::new_v4();
+    let params2 = default_turn_params(tenant_id, chat_id2, request_id2);
+    let turn2 = repo
+        .create_turn(&conn, &scope(), params2)
+        .await
+        .expect("create_turn2");
+    assert!(
+        !turn2.web_search_enabled,
+        "web_search_enabled should default to false"
     );
 }

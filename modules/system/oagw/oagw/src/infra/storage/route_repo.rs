@@ -58,27 +58,35 @@ impl RouteRepository for InMemoryRouteRepo {
             })
     }
 
-    async fn list_by_upstream(
+    async fn list(
         &self,
         tenant_id: Uuid,
-        upstream_id: Uuid,
+        upstream_id: Option<Uuid>,
         query: &ListQuery,
     ) -> Result<Vec<Route>, RepositoryError> {
-        let route_ids: Vec<Uuid> = self
-            .upstream_index
-            .get(&upstream_id)
-            .map(|ids| ids.clone())
-            .unwrap_or_default();
+        let mut routes: Vec<Route> = if let Some(uid) = upstream_id {
+            let route_ids: Vec<Uuid> = self
+                .upstream_index
+                .get(&uid)
+                .map(|ids| ids.clone())
+                .unwrap_or_default();
 
-        let mut routes: Vec<Route> = route_ids
-            .iter()
-            .filter_map(|id| {
-                self.store
-                    .get(id)
-                    .filter(|r| r.tenant_id == tenant_id)
-                    .map(|r| r.clone())
-            })
-            .collect();
+            route_ids
+                .iter()
+                .filter_map(|id| {
+                    self.store
+                        .get(id)
+                        .filter(|r| r.tenant_id == tenant_id)
+                        .map(|r| r.clone())
+                })
+                .collect()
+        } else {
+            self.store
+                .iter()
+                .filter(|r| r.tenant_id == tenant_id)
+                .map(|r| r.clone())
+                .collect()
+        };
 
         routes.sort_by_key(|r| r.id);
 
@@ -383,7 +391,7 @@ mod tests {
             .unwrap();
 
         let routes = repo
-            .list_by_upstream(tenant, u1, &ListQuery { top: 50, skip: 0 })
+            .list(tenant, Some(u1), &ListQuery { top: 50, skip: 0 })
             .await
             .unwrap();
         assert_eq!(routes.len(), 2);
@@ -410,7 +418,7 @@ mod tests {
 
         // Upstream index is also intact.
         let routes = repo
-            .list_by_upstream(owner, upstream, &ListQuery { top: 50, skip: 0 })
+            .list(owner, Some(upstream), &ListQuery { top: 50, skip: 0 })
             .await
             .unwrap();
         assert_eq!(routes.len(), 1);
@@ -441,7 +449,7 @@ mod tests {
 
         // tenant_b's route still in upstream index (list works).
         let routes = repo
-            .list_by_upstream(tenant_b, upstream, &ListQuery { top: 50, skip: 0 })
+            .list(tenant_b, Some(upstream), &ListQuery { top: 50, skip: 0 })
             .await
             .unwrap();
         assert_eq!(routes.len(), 1);

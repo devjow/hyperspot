@@ -2,7 +2,7 @@
 cypilot: true
 type: requirement
 name: Prompt Engineering Review Methodology
-version: 1.1
+version: 1.2
 purpose: Systematic methodology for reviewing and improving agent instructions with compact-prompts optimization
 ---
 
@@ -32,6 +32,8 @@ purpose: Systematic methodology for reviewing and improving agent instructions w
 **Scope**: Any file containing agent instructions — system prompts, skills, workflows, requirements, `AGENTS.md`, and methodologies.
 
 **Out of scope**: This does not provide a “best prompt” template or generate production prompts; it defines a review method and report format.
+
+**Companion methodology**: for bug hunting, hidden failure modes, unsafe behavior, regressions, instruction conflicts, or root-cause analysis in prompts and agent instructions, also use `prompt-bug-finding.md` as the behavioral defect search procedure.
 
 ## Overview
 
@@ -99,13 +101,13 @@ Agent instructions are executable policy for human cognition. Review them like s
 
 **Identity & purpose**: verify a purpose statement, scope boundary, and success criteria.
 
-**Operational elements**: verify entry conditions, exit conditions, error handling, and edge-case guidance.
+**Operational elements**: verify entry conditions, exit conditions, response-completion gates, required terminal sections or handoff blocks, error handling, and edge-case guidance.
 
-**Integration elements**: dependencies are listed, outputs are defined, and handoffs to other workflows are specified.
+**Integration elements**: dependencies are listed, outputs are defined, handoffs to other workflows are specified, and any required final prompt pair or terminal block ordering is explicit.
 
 **Gap analysis**: ask what happens if the agent does not understand, preconditions are not met, multiple interpretations exist, or external resources are unavailable.
 
-**Scenario coverage**: ensure the happy path, error paths, recovery procedures, and escalation triggers are documented.
+**Scenario coverage**: ensure the happy path, error paths, recovery procedures, escalation triggers, and completion branches are documented; check whether the response can terminate after a summary, validation block, or next-step menu even though required final sections are still missing.
 
 ## L5: Anti-Pattern Detection
 
@@ -142,6 +144,8 @@ Agent instructions are executable policy for human cognition. Review them like s
 | Code | Detect when |
 |---|---|
 | `AP-NO-VERIFICATION` | No self-check or validation step exists. |
+| `AP-FALSE-COMPLETION` | The prompt allows the response to end after a summary, validation result, next-step menu, or checkpoint-looking block even though required final sections or handoff prompts are still missing. |
+| `AP-MISSING-TERMINAL-BLOCK` | Required final prompt blocks, handoff sections, or terminal block ordering are unspecified or only implied. |
 | `AP-SKIP-ALLOWED` | Critical steps are easy to skip. |
 | `AP-SILENT-FAIL` | Failures are not surfaced to the user. |
 | `AP-INFINITE-LOOP` | Retry loops can stall indefinitely. |
@@ -198,6 +202,8 @@ Agent instructions are executable policy for human cognition. Review them like s
 **Observable outputs**: require visible artifacts, visible intermediate steps, and explicit compliance evidence.
 
 **Built-in checks**: include validation criteria, a pre-completion self-check, checklist formatting for critical steps, and proof-of-work requirements when appropriate.
+
+**When a workflow requires terminal prompts or final handoff blocks, the pre-completion self-check should verify that those exact blocks were emitted before the response may end.**
 
 **External verification**: prefer rules that can be checked by automated tools, another agent, or a human reviewer.
 
@@ -273,10 +279,12 @@ If a layer exceeds its pass budget, note blockers and continue; incomplete analy
 
 **Required report fields**:
 
-- `Summary`: document type, overall quality (`GOOD | NEEDS_IMPROVEMENT | POOR`), critical issue count, total issue count.
+- `Summary`: document type, overall quality (`GOOD | NEEDS_IMPROVEMENT | POOR`), critical issue count, total issue count. When paired with `prompt-bug-finding.md`, start `Summary` with that methodology's required status block, including `Review status` and `Deterministic gate: PASS | FAIL | SKIPPED`; if the gate is `SKIPPED`, state why and explicitly state `no validator-backed evidence for this review path` before the quality counts.
 - `Context Budget & Evidence`: budget, inputs loaded (`path — size — sections/ranges`), and overflow handling.
 - `Compact-Prompts Findings`: safe reductions found, content kept intentionally, deferred or blocked opportunities, and a behavior-preservation check confirming `MUST`, `MUST NOT`, triggers, thresholds, output rules, and fail-safes remain intact.
-- `Verification Checklist`: all critical issues addressed; no new issues introduced; examples/tests updated when needed; context overflow prevention evidenced; compact-prompts findings reported explicitly.
+- `Verification Checklist`: all critical issues addressed; no new issues introduced; examples/tests updated when needed; context overflow prevention evidenced; compact-prompts findings reported explicitly; and, when the reviewed document requires terminal response blocks, the checklist explicitly states whether false completion paths were ruled out.
+
+When the deterministic gate is `SKIPPED`, do not describe semantic review, checklist review, or manual inspection as deterministic, validator-backed, or tool-validated unless actual validator or tool output exists.
 
 **N/A rule**: mark a check `N/A` only when the document explicitly makes it inapplicable; otherwise mark `FAIL` or `PARTIAL` and explain what is missing.
 
@@ -285,6 +293,7 @@ If a layer exceeds its pass budget, note blockers and continue; incomplete analy
 - **Validate workflow**: use this methodology for semantic validation of instruction documents.
 - **Generate workflow**: apply these principles when creating new instruction documents.
 - **Adapter workflow**: ensure `AGENTS.md` follows these best practices.
+- **Prompt bug review**: pair this methodology with `prompt-bug-finding.md` when the task is defect-oriented rather than general instruction-quality review.
 
 ## References
 
@@ -293,6 +302,8 @@ If a layer exceeds its pass budget, note blockers and continue; incomplete analy
 **Anti-pattern sources**: 14 Prompt Engineering Mistakes; 10 Common LLM Prompt Mistakes; Common Challenges and Solutions.
 
 **Agent-specific resources**: 4 Tips for AI Agent System Prompts; 11 Prompting Techniques for Better AI Agents; System Prompts Design Patterns.
+
+**Companion methodology**: `prompt-bug-finding.md` for bug hunting, hidden failure modes, unsafe behavior, regressions, instruction conflicts, or root-cause analysis in prompts and agent instructions.
 
 ## Validation
 
@@ -305,4 +316,5 @@ Review is complete when:
 - [ ] Implementation guidance provided
 - [ ] Safe compact-prompts opportunities identified and prioritized for prompt/instruction documents
 - [ ] Compact-prompts findings reported explicitly in the review output
+- [ ] Required completion gates, terminal blocks, and false-completion paths were checked explicitly when the document defines a final response contract
 - [ ] Verification plan included

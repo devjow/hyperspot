@@ -140,6 +140,16 @@ The system **MUST** allow users to delete a task permanently.
 **Rationale**: Users need to remove irrelevant or mistaken tasks.
 **Actors**: `cpt-examples-todo-app-actor-user`
 
+#### Real-Time Sync via Changes Feed
+
+- [x] `p1` - **ID**: `cpt-examples-todo-app-fr-changes-feed`
+
+The system **MUST** propagate task changes to all connected devices in real time via a changes feed.
+
+**Rationale**: Cross-device synchronization is a core product capability; users expect changes to appear immediately on all devices.
+**Actors**: `cpt-examples-todo-app-actor-user`
+**Covers**: `cpt-examples-todo-app-upreq-changes-feed`
+
 ### 5.2 Organization
 
 #### Filter Tasks
@@ -177,6 +187,7 @@ User data **MUST** be persisted locally immediately and synced to cloud storage 
 
 **Threshold**: Local persistence: <50ms; cloud sync: <5s when online
 **Rationale**: Module-specific requirement (project default doesn't cover offline-first + sync pattern)
+**Covers**: `cpt-examples-todo-app-upreq-modification-timestamps`
 **Architecture Allocation**: See DESIGN.md § NFR Allocation for how this is realized
 
 #### Offline Support

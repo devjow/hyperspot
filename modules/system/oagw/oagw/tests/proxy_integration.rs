@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use http::{Method, StatusCode};
 use oagw::test_support::{
     APIKEY_AUTH_PLUGIN_ID, AppHarness, MockBody, MockGuard, MockResponse, MockUpstream,
-    OAUTH2_CLIENT_CRED_AUTH_PLUGIN_ID, parse_resource_gts,
+    OAUTH2_CLIENT_CRED_AUTH_PLUGIN_ID,
 };
 use oagw_sdk::Body;
 use oagw_sdk::api::ErrorSource;
@@ -11,7 +11,8 @@ use oagw_sdk::{
     BurstConfig, CorsConfig, CorsHttpMethod, CreateRouteRequest, CreateUpstreamRequest, Endpoint,
     HeadersConfig, HttpMatch, HttpMethod, MatchRules, PassthroughMode, PathSuffixMode,
     PluginBinding, PluginsConfig, RateLimitAlgorithm, RateLimitConfig, RateLimitScope,
-    RateLimitStrategy, RequestHeaderRules, Scheme, Server, SharingMode, SustainedRate, Window,
+    RateLimitStrategy, RequestHeaderRules, ResponseHeaderRules, Scheme, Server, SharingMode,
+    SustainedRate, Window,
 };
 use serde_json::json;
 
@@ -45,7 +46,6 @@ async fn setup_openai_mock() -> AppHarness {
         .expect_status(201)
         .await;
     let upstream_id = resp.json()["id"].as_str().unwrap().to_string();
-    let (_, upstream_uuid) = parse_resource_gts(&upstream_id).unwrap();
 
     for (methods, path) in [
         (vec!["POST", "GET"], "/v1/chat/completions"),
@@ -54,7 +54,7 @@ async fn setup_openai_mock() -> AppHarness {
         h.api_v1()
             .post_route()
             .with_body(serde_json::json!({
-                "upstream_id": upstream_uuid,
+                "upstream_id": &upstream_id,
                 "match": {
                     "http": {
                         "methods": methods,
@@ -1282,12 +1282,11 @@ async fn proxy_crud_invalidation_after_update() {
         .expect_status(201)
         .await;
     let upstream_id = resp.json()["id"].as_str().unwrap().to_string();
-    let (_, upstream_uuid) = parse_resource_gts(&upstream_id).unwrap();
 
     h.api_v1()
         .post_route()
         .with_body(json!({
-            "upstream_id": upstream_uuid,
+            "upstream_id": &upstream_id,
             "match": {
                 "http": {
                     "methods": ["GET"],
@@ -1322,11 +1321,15 @@ async fn proxy_crud_invalidation_after_update() {
 
     // Update upstream to point to mock_b via REST API (triggers invalidation).
     h.api_v1()
-        .patch_upstream(&upstream_id)
+        .put_upstream(&upstream_id)
         .with_body(json!({
             "server": {
                 "endpoints": [{"host": "127.0.0.1", "port": port_b, "scheme": "http"}]
-            }
+            },
+            "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+            "alias": "crud-invalidation",
+            "enabled": true,
+            "tags": []
         }))
         .expect_status(200)
         .await;
@@ -1607,11 +1610,8 @@ async fn proxy_unreachable_backend_returns_rfc9457_problem_body() {
 // negative-8.1 (body-validation): Streaming body exceeding max_body_size returns 413 PayloadTooLarge.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proxy_streaming_body_exceeding_limit_returns_413() {
-    // Gate the upstream response so it cannot reply before the body-forwarding
-    // task detects the limit breach — eliminates the race between the upstream
-    // response and the PayloadTooLarge signal.
     let mut guard = MockGuard::new();
-    let _gate = guard.mock_gated(
+    guard.mock(
         "POST",
         "/v1/upload",
         MockResponse {
@@ -3501,5 +3501,88 @@ async fn cors_multiple_specific_origins() {
             .get("access-control-allow-origin")
             .is_none(),
         "non-matching origin should not get CORS headers"
+    );
+}
+
+// Response header rules: set/add/remove operations applied to upstream response.
+#[tokio::test]
+async fn proxy_response_header_rules_applied() {
+    let h = AppHarness::builder().build().await;
+    let ctx = h.security_context().clone();
+
+    let upstream = h
+        .facade()
+        .create_upstream(
+            ctx.clone(),
+            CreateUpstreamRequest::builder(
+                Server {
+                    endpoints: vec![Endpoint {
+                        scheme: Scheme::Http,
+                        host: "127.0.0.1".into(),
+                        port: h.mock_port(),
+                    }],
+                },
+                "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+            )
+            .alias("resp-rules-test")
+            .headers(HeadersConfig {
+                request: None,
+                response: Some(ResponseHeaderRules {
+                    set: [("x-custom-safe".into(), "overwritten".into())]
+                        .into_iter()
+                        .collect(),
+                    add: [("x-injected".into(), "added-value".into())]
+                        .into_iter()
+                        .collect(),
+                    remove: vec!["x-remove-target".into()],
+                }),
+            })
+            .build(),
+        )
+        .await
+        .unwrap();
+
+    h.facade()
+        .create_route(
+            ctx.clone(),
+            CreateRouteRequest::builder(
+                upstream.id,
+                MatchRules {
+                    http: Some(HttpMatch {
+                        methods: vec![HttpMethod::Get],
+                        path: "/response-headers".into(),
+                        query_allowlist: vec![],
+                        path_suffix_mode: PathSuffixMode::Append,
+                    }),
+                    grpc: None,
+                },
+            )
+            .build(),
+        )
+        .await
+        .unwrap();
+
+    let req = http::Request::builder()
+        .method(Method::GET)
+        .uri("/resp-rules-test/response-headers")
+        .body(Body::Empty)
+        .unwrap();
+    let response = h.facade().proxy_request(ctx.clone(), req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let headers = response.headers();
+
+    // "set" overwrites existing header from upstream mock.
+    assert_eq!(
+        headers.get("x-custom-safe").unwrap(),
+        "overwritten",
+        "response set rule should overwrite upstream header"
+    );
+
+    // "add" injects a new header.
+    assert_eq!(
+        headers.get("x-injected").unwrap(),
+        "added-value",
+        "response add rule should inject header"
     );
 }

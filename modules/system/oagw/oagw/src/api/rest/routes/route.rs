@@ -45,11 +45,11 @@ pub(super) fn register(mut router: Router, openapi: &dyn OpenApiRegistry) -> Rou
         .standard_errors(openapi)
         .register(router, openapi);
 
-    // PATCH /oagw/v1/routes/{id} — Update route
-    router = OperationBuilder::patch("/oagw/v1/routes/{id}")
+    // PUT /oagw/v1/routes/{id} — Update route
+    router = OperationBuilder::put("/oagw/v1/routes/{id}")
         .operation_id("oagw.update_route")
         .summary("Update route")
-        .description("Partially update an existing route configuration")
+        .description("Replace an existing route configuration")
         .tag(API_TAG)
         .path_param("id", "Route GTS identifier")
         .authenticated()
@@ -78,13 +78,18 @@ pub(super) fn register(mut router: Router, openapi: &dyn OpenApiRegistry) -> Rou
         .standard_errors(openapi)
         .register(router, openapi);
 
-    // GET /oagw/v1/upstreams/{upstream_id}/routes — List routes by upstream
-    router = OperationBuilder::get("/oagw/v1/upstreams/{upstream_id}/routes")
+    // GET /oagw/v1/routes — List routes (optional upstream_id filter)
+    router = OperationBuilder::get("/oagw/v1/routes")
         .operation_id("oagw.list_routes")
-        .summary("List routes by upstream")
-        .description("Retrieve routes belonging to a specific upstream")
+        .summary("List routes")
+        .description("Retrieve routes with optional upstream_id filter")
         .tag(API_TAG)
-        .path_param("upstream_id", "Upstream GTS identifier")
+        .query_param_typed(
+            "upstream_id",
+            false,
+            "Upstream GTS identifier to filter by",
+            "string",
+        )
         .query_param_typed(
             "limit",
             false,

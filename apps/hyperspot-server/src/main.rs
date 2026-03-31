@@ -5,8 +5,7 @@ use clap::{Parser, Subcommand};
 use mimalloc::MiMalloc;
 use modkit::bootstrap::{
     AppConfig, dump_effective_modules_config_json, dump_effective_modules_config_yaml,
-    host::init_logging_unified, host::init_panic_tracing, list_module_names, run_migrate,
-    run_server,
+    list_module_names, run_migrate, run_server,
 };
 
 use std::path::PathBuf;
@@ -57,7 +56,7 @@ struct Cli {
 enum Commands {
     /// Start the server
     Run,
-    /// Validate configuration and exit
+    /// Do nothing
     Check,
     /// Run database migrations and exit (for cloud deployments)
     Migrate,
@@ -65,66 +64,13 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Install FIPS crypto provider before anything else.
-    // Must run before any TLS config, HTTP client, DB connection, or JWT operation.
-    #[cfg(feature = "fips")]
-    modkit::bootstrap::init_fips_crypto_provider();
-
     let cli = Cli::parse();
 
     // Layered config:
     // 1) defaults -> 2) YAML (if provided) -> 3) env (APP__*) -> 4) CLI overrides
     // Also normalizes + creates server.home_dir.
-    let mut config = AppConfig::load_or_default(&cli.config)?;
+    let mut config = AppConfig::load_or_default(cli.config.as_ref())?;
     config.apply_cli_overrides(cli.verbose);
-
-    // Application-level default for the OTel service name
-    if config.opentelemetry.resource.service_name.is_none() {
-        config.opentelemetry.resource.service_name = Some("hyperspot".to_owned());
-    }
-
-    // Build OpenTelemetry layer before logging
-    #[cfg(feature = "otel")]
-    let otel_layer = if config.opentelemetry.tracing.enabled {
-        Some(modkit::telemetry::init::init_tracing(
-            &config.opentelemetry,
-        )?)
-    } else {
-        None
-    };
-    #[cfg(not(feature = "otel"))]
-    let otel_layer = None;
-
-    // Initialize logging + otel in one Registry
-    init_logging_unified(&config.logging, &config.server.home_dir, otel_layer);
-
-    // Register custom panic hook to reroute panic backtrace into tracing.
-    init_panic_tracing();
-
-    // Initialize OpenTelemetry metrics (or confirm noop when disabled)
-    #[cfg(feature = "otel")]
-    if let Err(e) = modkit::telemetry::init::init_metrics_provider(&config.opentelemetry) {
-        tracing::error!(error = %e, "OpenTelemetry metrics not initialized");
-    }
-
-    // One-time connectivity probe
-    #[cfg(feature = "otel")]
-    if config.opentelemetry.tracing.enabled
-        && let Err(e) = modkit::telemetry::init::otel_connectivity_probe(&config.opentelemetry)
-    {
-        tracing::error!(error = %e, "OTLP connectivity probe failed");
-    }
-
-    // Smoke test span to confirm traces flow to Jaeger
-    tracing::info_span!("startup_check", app = "hyperspot").in_scope(|| {
-        tracing::info!("startup span alive - traces should be visible in Jaeger");
-    });
-
-    tracing::info!(
-        version = env!("CARGO_PKG_VERSION"),
-        rust_version = env!("CARGO_PKG_RUST_VERSION"),
-        "HyperSpot Server starting",
-    );
 
     // Print config and exit if requested
     if cli.print_config {
@@ -157,17 +103,9 @@ async fn main() -> Result<()> {
     }
 
     // Dispatch subcommands (default: run)
-    match cli.command.as_ref().unwrap_or(&Commands::Run) {
+    match cli.command.unwrap_or(Commands::Run) {
         Commands::Run => run_server(config).await,
-        Commands::Check => check_config(&config),
         Commands::Migrate => run_migrate(config).await,
+        Commands::Check => Ok(()),
     }
-}
-
-fn check_config(config: &AppConfig) -> Result<()> {
-    tracing::info!("Checking configuration...");
-    // If load_layered/load_or_default succeeded and home_dir normalized, we're good.
-    println!("Configuration is valid");
-    println!("{}", config.to_yaml()?);
-    Ok(())
 }

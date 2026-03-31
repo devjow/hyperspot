@@ -7,6 +7,7 @@
 use anyhow::Context;
 #[cfg(feature = "otel")]
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
+use std::sync::Once;
 
 #[cfg(feature = "otel")]
 use opentelemetry_otlp::{Protocol, WithExportConfig};
@@ -33,17 +34,20 @@ use tonic::metadata::{MetadataKey, MetadataMap, MetadataValue};
 /// Build resource with service name and custom attributes
 #[cfg(feature = "otel")]
 pub(crate) fn build_resource(cfg: &OpenTelemetryResource) -> Resource {
-    let service_name = cfg.service_name.as_deref().unwrap_or("unknown_service");
     tracing::debug!(
         "Building OpenTelemetry resource for service: {}",
-        service_name
+        cfg.service_name
     );
-    let mut attrs = vec![KeyValue::new("service.name", service_name.to_owned())];
+    let mut attrs = vec![KeyValue::new("service.name", cfg.service_name.clone())];
 
-    if let Some(attr_map) = &cfg.attributes {
-        for (k, v) in attr_map {
-            attrs.push(KeyValue::new(k.clone(), v.clone()));
+    for (k, v) in &cfg.attributes {
+        // Skip any caller-supplied "service.name" entry: the dedicated field
+        // cfg.service_name already seeds attrs above and a duplicate key would
+        // create ambiguity in the resource attributes.
+        if k == "service.name" {
+            continue;
         }
+        attrs.push(KeyValue::new(k.clone(), v.clone()));
     }
 
     Resource::builder_empty().with_attributes(attrs).build()
@@ -104,7 +108,6 @@ fn build_http_exporter(
     if let Some(hmap) = build_headers_from_cfg_and_env(exporter) {
         b = b.with_headers(hmap);
     }
-    #[allow(clippy::expect_used)]
     b.build().context("build OTLP HTTP exporter")
 }
 
@@ -126,6 +129,8 @@ fn build_grpc_exporter(
     }
     b.build().context("build OTLP gRPC exporter")
 }
+
+static INIT_TRACING: Once = Once::new();
 
 /// Initialize OpenTelemetry tracing from configuration and return a layer
 /// to be attached to `tracing_subscriber`.
@@ -171,17 +176,15 @@ pub fn init_tracing(
         .with_resource(resource)
         .build();
 
-    // Make it global
-    global::set_tracer_provider(provider.clone());
-
     // Create tracer and layer
-    let service_name = otel_cfg
-        .resource
-        .service_name
-        .clone()
-        .unwrap_or_else(|| "unknown_service".to_owned());
+    let service_name = otel_cfg.resource.service_name.clone();
     let tracer = provider.tracer(service_name);
     let otel_layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
+
+    // Make it global
+    INIT_TRACING.call_once(|| {
+        global::set_tracer_provider(provider);
+    });
 
     tracing::info!("OpenTelemetry layer created successfully");
     Ok(otel_layer)
@@ -551,8 +554,8 @@ mod tests {
 
         let otel = OpenTelemetryConfig {
             resource: OpenTelemetryResource {
-                service_name: Some("test-service".to_owned()),
-                attributes: Some(attrs),
+                service_name: "test-service".to_owned(),
+                attributes: attrs,
             },
             tracing: TracingConfig {
                 enabled: true,

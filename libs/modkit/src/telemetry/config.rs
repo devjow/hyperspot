@@ -36,14 +36,29 @@ impl OpenTelemetryConfig {
 }
 
 /// OpenTelemetry resource identity — attached to all traces and metrics.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenTelemetryResource {
     /// Logical service name.
-    /// Fallback defaults (e.g. `"hyperspot"`) are applied by the application during telemetry initialization.
-    pub service_name: Option<String>,
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
     /// Extra resource attributes added to every span and metric data point.
-    pub attributes: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub attributes: BTreeMap<String, String>,
+}
+
+/// Return the default OpenTelemetry service name used when none is configured.
+fn default_service_name() -> String {
+    "cyberfabric".to_owned()
+}
+
+impl Default for OpenTelemetryResource {
+    fn default() -> Self {
+        Self {
+            service_name: default_service_name(),
+            attributes: BTreeMap::default(),
+        }
+    }
 }
 
 /// Tracing configuration for OpenTelemetry distributed tracing

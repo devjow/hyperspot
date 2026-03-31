@@ -91,6 +91,28 @@ async fn create_completed_turn(
     chat_id: Uuid,
     user_id: Uuid,
 ) -> Uuid {
+    create_completed_turn_inner(
+        db,
+        turn_repo,
+        message_repo,
+        tenant_id,
+        chat_id,
+        user_id,
+        false,
+    )
+    .await
+}
+
+/// Create a completed turn with configurable `web_search_enabled`. Returns the `request_id`.
+async fn create_completed_turn_inner(
+    db: &crate::domain::service::DbProvider,
+    turn_repo: &impl TurnRepository,
+    message_repo: &impl crate::domain::repos::MessageRepository,
+    tenant_id: Uuid,
+    chat_id: Uuid,
+    user_id: Uuid,
+    web_search_enabled: bool,
+) -> Uuid {
     let request_id = Uuid::new_v4();
     let turn_id = Uuid::new_v4();
     let scope = AccessScope::for_tenant(tenant_id);
@@ -114,6 +136,7 @@ async fn create_completed_turn(
                 policy_version_applied: None,
                 effective_model: Some("gpt-5.2".to_owned()),
                 minimal_generation_floor_applied: None,
+                web_search_enabled,
             },
         )
         .await
@@ -228,6 +251,7 @@ async fn get_returns_running_turn() {
                 policy_version_applied: None,
                 effective_model: None,
                 minimal_generation_floor_applied: None,
+                web_search_enabled: false,
             },
         )
         .await
@@ -341,6 +365,7 @@ async fn delete_running_turn_returns_invalid_turn_state() {
                 policy_version_applied: None,
                 effective_model: None,
                 minimal_generation_floor_applied: None,
+                web_search_enabled: false,
             },
         )
         .await
@@ -1076,4 +1101,88 @@ async fn get_turn_tenant_only_authz_cross_owner_not_found() {
         matches!(err, MutationError::ChatNotFound { .. }),
         "Cross-owner get must fail with ChatNotFound, got: {err:?}"
     );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// web_search_enabled preservation through retry/edit
+// ════════════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn retry_preserves_web_search_enabled() {
+    let (svc, ctx, chat_id, tenant_id) = setup().await;
+
+    let request_id = create_completed_turn_inner(
+        &svc.db,
+        &*svc.turn_repo,
+        &*svc.message_repo,
+        tenant_id,
+        chat_id,
+        ctx.subject_id(),
+        true,
+    )
+    .await;
+
+    let result = svc.retry(&ctx, chat_id, request_id).await.unwrap();
+
+    // MutationResult must carry the flag
+    assert!(
+        result.web_search_enabled,
+        "retry MutationResult must preserve web_search_enabled=true"
+    );
+
+    // New turn in DB must also have the flag
+    let scope = AccessScope::for_tenant(tenant_id);
+    let conn = svc.db.conn().unwrap();
+    let new_turn = svc
+        .turn_repo
+        .find_by_chat_and_request_id(&conn, &scope, chat_id, result.new_request_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        new_turn.web_search_enabled,
+        "new turn created by retry must have web_search_enabled=true"
+    );
+}
+
+#[tokio::test]
+async fn edit_preserves_web_search_enabled() {
+    let (svc, ctx, chat_id, tenant_id) = setup().await;
+
+    let request_id = create_completed_turn_inner(
+        &svc.db,
+        &*svc.turn_repo,
+        &*svc.message_repo,
+        tenant_id,
+        chat_id,
+        ctx.subject_id(),
+        true,
+    )
+    .await;
+
+    let result = svc
+        .edit(&ctx, chat_id, request_id, "updated content".to_owned())
+        .await
+        .unwrap();
+
+    // MutationResult must carry the flag
+    assert!(
+        result.web_search_enabled,
+        "edit MutationResult must preserve web_search_enabled=true"
+    );
+
+    // New turn in DB must also have the flag
+    let scope = AccessScope::for_tenant(tenant_id);
+    let conn = svc.db.conn().unwrap();
+    let new_turn = svc
+        .turn_repo
+        .find_by_chat_and_request_id(&conn, &scope, chat_id, result.new_request_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        new_turn.web_search_enabled,
+        "new turn created by edit must have web_search_enabled=true"
+    );
+    assert_eq!(result.user_content, "updated content");
 }

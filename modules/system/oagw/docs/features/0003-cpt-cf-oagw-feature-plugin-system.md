@@ -193,21 +193,21 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 - Auth plugin bound to route (not allowed — auth is upstream-only)
 
 **Steps**:
-1. [ ] - `p1` - Actor sends POST or PUT for upstream/route with plugin bindings in request body - `inst-bind-1`
-2. [ ] - `p1` - API: Extract SecurityContext (tenant_id, permissions) - `inst-bind-2`
+1. [x] - `p1` - Actor sends POST or PUT for upstream/route with plugin bindings in request body - `inst-bind-1`
+2. [x] - `p1` - API: Extract SecurityContext (tenant_id, permissions) - `inst-bind-2`
 3. [ ] - `p1` - **FOR EACH** plugin reference in bindings - `inst-bind-3`
    1. [ ] - `p1` - Execute plugin ref resolution (`cpt-cf-oagw-algo-plugin-ref-resolution`) - `inst-bind-3a`
    2. [ ] - `p1` - **IF** resolution fails, **RETURN** 400 ValidationError - `inst-bind-3b`
    3. [ ] - `p1` - Validate plugin type matches binding context (guard/transform only for binding tables; auth only for upstream scalar) - `inst-bind-3c`
    4. [ ] - `p1` - **IF** type mismatch, **RETURN** 400 ValidationError - `inst-bind-3d`
 4. [ ] - `p1` - Validate positions are contiguous from 0 with no gaps - `inst-bind-4`
-5. [ ] - `p1` - **IF** auth plugin binding on upstream - `inst-bind-5`
-   1. [ ] - `p1` - DB: UPDATE oagw_upstream SET auth_plugin_ref = :ref, auth_plugin_uuid = :uuid, auth_config = :config - `inst-bind-5a`
-6. [ ] - `p1` - **IF** guard/transform plugin bindings - `inst-bind-6`
-   1. [ ] - `p1` - DB: DELETE existing bindings for parent, INSERT new oagw_upstream_plugin / oagw_route_plugin rows (atomic transaction) - `inst-bind-6a`
+5. [x] - `p1` - **IF** auth plugin binding on upstream - `inst-bind-5`
+   1. [x] - `p1` - DB: UPDATE oagw_upstream SET auth_plugin_ref = :ref, auth_plugin_uuid = :uuid, auth_config = :config - `inst-bind-5a`
+6. [x] - `p1` - **IF** guard/transform plugin bindings - `inst-bind-6`
+   1. [x] - `p1` - DB: DELETE existing bindings for parent, INSERT new oagw_upstream_plugin / oagw_route_plugin rows (atomic transaction) - `inst-bind-6a`
 7. [ ] - `p1` - Clear `gc_eligible_at` on any newly-referenced custom plugins - `inst-bind-7`
 8. [ ] - `p1` - Mark `gc_eligible_at` on any previously-referenced custom plugins that are now unlinked - `inst-bind-8`
-9. [ ] - `p1` - **RETURN** success response with updated resource - `inst-bind-9`
+9. [x] - `p1` - **RETURN** success response with updated resource - `inst-bind-9`
 
 ## 3. Processes / Business Logic (CDSL)
 
@@ -220,17 +220,17 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 **Output**: Resolved plugin (named registry entry or custom plugin row) or error
 
 **Steps**:
-1. [ ] - `p1` - Parse GTS identifier to extract schema type and instance part (after `~`) - `inst-resolve-1`
+1. [x] - `p1` - Parse GTS identifier to extract schema type and instance part (after `~`) - `inst-resolve-1`
 2. [ ] - `p1` - **IF** instance part parses as UUID - `inst-resolve-2`
    1. [ ] - `p1` - DB: SELECT FROM oagw_plugin WHERE id = :uuid AND tenant_id = :tenant_id - `inst-resolve-2a`
    2. [ ] - `p1` - **IF** not found, **RETURN** error (PluginNotFound) - `inst-resolve-2b`
    3. [ ] - `p1` - Validate that plugin_type matches the schema type extracted from GTS identifier - `inst-resolve-2c`
    4. [ ] - `p1` - **IF** type mismatch, **RETURN** error (ValidationError) - `inst-resolve-2d`
    5. [ ] - `p1` - **RETURN** resolved custom plugin - `inst-resolve-2e`
-3. [ ] - `p1` - **ELSE** (named plugin) - `inst-resolve-3`
-   1. [ ] - `p1` - Look up full GTS identifier in the in-process plugin registry - `inst-resolve-3a`
-   2. [ ] - `p1` - **IF** not found in registry, **RETURN** error (PluginNotFound) - `inst-resolve-3b`
-   3. [ ] - `p1` - **RETURN** resolved named plugin - `inst-resolve-3c`
+3. [x] - `p1` - **ELSE** (named plugin) - `inst-resolve-3`
+   1. [x] - `p1` - Look up full GTS identifier in the in-process plugin registry - `inst-resolve-3a`
+   2. [x] - `p1` - **IF** not found in registry, **RETURN** error (PluginNotFound) - `inst-resolve-3b`
+   3. [x] - `p1` - **RETURN** resolved named plugin - `inst-resolve-3c`
 
 ### Plugin Validation Algorithm
 
@@ -416,7 +416,7 @@ The system **MUST** mark unlinked custom plugins with `gc_eligible_at = NOW() + 
 ## 6. Acceptance Criteria
 
 - [ ] Custom Starlark plugin can be created via POST, listed via GET, retrieved by ID (including source), and deleted via DELETE
-- [ ] Named (built-in) plugins resolve via in-process registry by full GTS identifier without database lookup
+- [x] Named (built-in) plugins resolve via in-process registry by full GTS identifier without database lookup
 - [ ] Custom (UUID-backed) plugins resolve via `oagw_plugin` database lookup with tenant scoping
 - [ ] Plugin deletion returns `409 PluginInUse` when plugin is referenced by any upstream auth config, upstream binding, or route binding
 - [ ] GC marks unlinked custom plugins with `gc_eligible_at` and periodic cleanup deletes them after TTL expiry
@@ -424,7 +424,7 @@ The system **MUST** mark unlinked custom plugins with `gc_eligible_at = NOW() + 
 - [ ] All 11 built-in plugins (6 auth, 2 guard, 3 transform) register in the in-process registry and are resolvable by GTS identifier
 - [ ] Plugin bindings validate type compatibility (auth plugins only on upstream scalar; guard/transform only in binding tables)
 - [ ] Plugin binding positions are contiguous from 0 with no gaps, validated on write
-- [ ] Auth plugin credential references resolve via `cred_store` at request time; no secret material is stored or logged by OAGW
+- [x] Auth plugin credential references resolve via `cred_store` at request time; no secret material is stored or logged by OAGW
 - [ ] Plugins are immutable after creation; no PUT endpoint exists for plugins
 - [ ] All plugin operations are tenant-scoped via secure ORM
 

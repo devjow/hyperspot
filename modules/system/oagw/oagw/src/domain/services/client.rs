@@ -119,7 +119,7 @@ impl ServiceGatewayClientV1 for ServiceGatewayClientV1Facade {
     async fn list_routes(
         &self,
         ctx: SecurityContext,
-        upstream_id: Uuid,
+        upstream_id: Option<Uuid>,
         query: &oagw_sdk::ListQuery,
     ) -> Result<Vec<oagw_sdk::Route>, ServiceGatewayError> {
         let q = model::ListQuery {
@@ -274,6 +274,20 @@ fn domain_err_to_sdk(err: DomainError) -> ServiceGatewayError {
         } => ServiceGatewayError::Forbidden {
             detail: format!("CORS header not allowed: {header} (instance: {instance})"),
         },
+        DomainError::StreamAborted { detail, instance } => {
+            ServiceGatewayError::StreamAborted { detail, instance }
+        }
+        DomainError::LinkUnavailable { detail, instance } => {
+            ServiceGatewayError::LinkUnavailable { detail, instance }
+        }
+        DomainError::CircuitBreakerOpen { detail, instance } => {
+            ServiceGatewayError::CircuitBreakerOpen { detail, instance }
+        }
+        DomainError::IdleTimeout { detail, instance } => {
+            ServiceGatewayError::IdleTimeout { detail, instance }
+        }
+        DomainError::PluginNotFound { detail } => ServiceGatewayError::PluginNotFound { detail },
+        DomainError::PluginInUse { detail } => ServiceGatewayError::PluginInUse { detail },
         DomainError::Forbidden { detail } => ServiceGatewayError::Forbidden { detail },
     }
 }
@@ -303,15 +317,15 @@ fn sdk_update_upstream_to_domain(
     req: oagw_sdk::UpdateUpstreamRequest,
 ) -> model::UpdateUpstreamRequest {
     model::UpdateUpstreamRequest {
-        server: req.server().cloned().map(server_to_domain),
-        protocol: req.protocol().map(|s| s.to_string()),
+        server: server_to_domain(req.server().clone()),
+        protocol: req.protocol().to_string(),
         alias: req.alias().map(|s| s.to_string()),
         auth: req.auth().cloned().map(auth_config_to_domain),
         headers: req.headers().cloned().map(headers_config_to_domain),
         plugins: req.plugins().cloned().map(plugins_config_to_domain),
         rate_limit: req.rate_limit().cloned().map(rate_limit_config_to_domain),
         cors: req.cors().cloned().map(cors_config_to_domain),
-        tags: req.tags().map(|s| s.to_vec()),
+        tags: req.tags().to_vec(),
         enabled: req.enabled(),
     }
 }
@@ -331,11 +345,11 @@ fn sdk_create_route_to_domain(req: oagw_sdk::CreateRouteRequest) -> model::Creat
 
 fn sdk_update_route_to_domain(req: oagw_sdk::UpdateRouteRequest) -> model::UpdateRouteRequest {
     model::UpdateRouteRequest {
-        match_rules: req.match_rules().cloned().map(match_rules_to_domain),
+        match_rules: match_rules_to_domain(req.match_rules().clone()),
         plugins: req.plugins().cloned().map(plugins_config_to_domain),
         rate_limit: req.rate_limit().cloned().map(rate_limit_config_to_domain),
         cors: req.cors().cloned().map(cors_config_to_domain),
-        tags: req.tags().map(|s| s.to_vec()),
+        tags: req.tags().to_vec(),
         priority: req.priority(),
         enabled: req.enabled(),
     }

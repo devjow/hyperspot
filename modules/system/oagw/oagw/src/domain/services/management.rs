@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use super::ControlPlaneService;
-use std::net::IpAddr;
 
 use crate::domain::error::DomainError;
 use crate::domain::model::{
-    CreateRouteRequest, CreateUpstreamRequest, Endpoint, ListQuery, Route, UpdateRouteRequest,
-    UpdateUpstreamRequest, Upstream,
+    CreateRouteRequest, CreateUpstreamRequest, Endpoint, ListQuery, MatchRules, Route,
+    UpdateRouteRequest, UpdateUpstreamRequest, Upstream,
 };
 use crate::domain::repo::{RouteRepository, UpstreamRepository};
 
@@ -159,14 +158,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
         // Snapshot old endpoints before applying server update (needed for alias enforcement).
         let old_endpoints = existing.server.endpoints.clone();
 
-        // Apply partial update.
-        if let Some(server) = req.server {
-            validate_endpoints(&server.endpoints)?;
-            existing.server = server;
-        }
-        if let Some(protocol) = req.protocol {
-            existing.protocol = protocol;
-        }
+        // Full replacement: validate and apply server.
+        validate_endpoints(&req.server.endpoints)?;
+        existing.server = req.server;
+        existing.protocol = req.protocol;
 
         // Enforce alias re-evaluation when endpoints change.
         let endpoints_changed = existing.server.endpoints != old_endpoints;
@@ -195,14 +190,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 
         // Validate ancestor bind constraints if the resulting alias matches
         // an ancestor upstream.
-        let effective_auth = req.auth.as_ref().or(existing.auth.as_ref());
-        let effective_rate_limit = req.rate_limit.as_ref().or(existing.rate_limit.as_ref());
-        let effective_plugins = req.plugins.as_ref().or(existing.plugins.as_ref());
-        let effective_cors = req.cors.as_ref().or(existing.cors.as_ref());
-        let has_overrides = effective_auth.is_some()
-            || effective_rate_limit.is_some()
-            || effective_plugins.is_some()
-            || effective_cors.is_some();
+        let has_overrides = req.auth.is_some()
+            || req.rate_limit.is_some()
+            || req.plugins.is_some()
+            || req.cors.is_some();
 
         if has_overrides || endpoints_changed || req.alias.is_some() {
             let tenant_chain = self.build_tenant_chain(ctx).await?;
@@ -211,37 +202,26 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
                 &tenant_chain,
                 &existing.alias,
                 &BindOverrides {
-                    auth: effective_auth,
-                    rate_limit: effective_rate_limit,
-                    plugins: effective_plugins,
-                    cors: effective_cors,
+                    auth: req.auth.as_ref(),
+                    rate_limit: req.rate_limit.as_ref(),
+                    plugins: req.plugins.as_ref(),
+                    cors: req.cors.as_ref(),
                 },
             )
             .await?;
         }
 
-        if let Some(auth) = req.auth {
-            existing.auth = Some(auth);
+        // Full replacement: directly assign all fields (None = unset).
+        existing.auth = req.auth;
+        existing.headers = req.headers;
+        existing.plugins = req.plugins;
+        existing.rate_limit = req.rate_limit;
+        if let Some(ref cors) = req.cors {
+            crate::domain::cors::validate_cors_config(cors)?;
         }
-        if let Some(headers) = req.headers {
-            existing.headers = Some(headers);
-        }
-        if let Some(plugins) = req.plugins {
-            existing.plugins = Some(plugins);
-        }
-        if let Some(rate_limit) = req.rate_limit {
-            existing.rate_limit = Some(rate_limit);
-        }
-        if let Some(cors) = req.cors {
-            crate::domain::cors::validate_cors_config(&cors)?;
-            existing.cors = Some(cors);
-        }
-        if let Some(tags) = req.tags {
-            existing.tags = tags;
-        }
-        if let Some(enabled) = req.enabled {
-            existing.enabled = enabled;
-        }
+        existing.cors = req.cors;
+        existing.tags = req.tags;
+        existing.enabled = req.enabled;
 
         self.upstreams
             .update(existing)
@@ -298,6 +278,9 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             enabled: req.enabled,
         };
 
+        validate_match_rules(&route.match_rules)?;
+        self.check_route_overlap(&route, None).await?;
+
         self.routes.create(route).await.map_err(DomainError::from)
     }
 
@@ -312,12 +295,12 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
     async fn list_routes(
         &self,
         ctx: &SecurityContext,
-        upstream_id: Uuid,
+        upstream_id: Option<Uuid>,
         query: &ListQuery,
     ) -> Result<Vec<Route>, DomainError> {
         let tenant_id = ctx.subject_tenant_id();
         self.routes
-            .list_by_upstream(tenant_id, upstream_id, query)
+            .list(tenant_id, upstream_id, query)
             .await
             .map_err(DomainError::from)
     }
@@ -335,28 +318,21 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .await
             .map_err(|_| DomainError::not_found("route", id))?;
 
-        if let Some(match_rules) = req.match_rules {
-            existing.match_rules = match_rules;
+        // Full replacement: directly assign all fields (None = unset).
+        existing.match_rules = req.match_rules;
+        existing.plugins = req.plugins;
+        existing.rate_limit = req.rate_limit;
+        if let Some(ref cors) = req.cors {
+            crate::domain::cors::validate_cors_config(cors)?;
         }
-        if let Some(plugins) = req.plugins {
-            existing.plugins = Some(plugins);
-        }
-        if let Some(rate_limit) = req.rate_limit {
-            existing.rate_limit = Some(rate_limit);
-        }
-        if let Some(cors) = req.cors {
-            crate::domain::cors::validate_cors_config(&cors)?;
-            existing.cors = Some(cors);
-        }
-        if let Some(tags) = req.tags {
-            existing.tags = tags;
-        }
-        if let Some(priority) = req.priority {
-            existing.priority = priority;
-        }
-        if let Some(enabled) = req.enabled {
-            existing.enabled = enabled;
-        }
+        existing.cors = req.cors;
+        existing.tags = req.tags;
+        existing.priority = req.priority;
+        existing.enabled = req.enabled;
+
+        validate_match_rules(&existing.match_rules)?;
+        self.check_route_overlap(&existing, Some(existing.id))
+            .await?;
 
         self.routes
             .update(existing)
@@ -399,6 +375,75 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 // ===========================================================================
 
 impl ControlPlaneServiceImpl {
+    /// Check that no existing **enabled** route under the same upstream shares
+    /// `(path_prefix, priority, method)` with the candidate route.
+    ///
+    /// `exclude_id` is `Some(route.id)` on update to skip the route being
+    /// modified (it will be compared against its new state, not itself).
+    ///
+    /// Returns `DomainError::Conflict` on violation (maps to 409).
+    async fn check_route_overlap(
+        &self,
+        candidate: &Route,
+        exclude_id: Option<Uuid>,
+    ) -> Result<(), DomainError> {
+        // Disabled routes cannot cause match-time ambiguity.
+        if !candidate.enabled {
+            return Ok(());
+        }
+
+        let candidate_http = match &candidate.match_rules.http {
+            Some(h) => h,
+            None => return Ok(()), // No HTTP match rules → no overlap to check.
+        };
+
+        // Fetch all routes for this (tenant, upstream).
+        let all = self
+            .routes
+            .list(
+                candidate.tenant_id,
+                Some(candidate.upstream_id),
+                &ListQuery {
+                    top: u32::MAX,
+                    skip: 0,
+                },
+            )
+            .await
+            .map_err(DomainError::from)?;
+
+        for existing in &all {
+            // Skip self on update.
+            if Some(existing.id) == exclude_id {
+                continue;
+            }
+            // Only enabled routes can conflict.
+            if !existing.enabled {
+                continue;
+            }
+            // Must have HTTP match rules.
+            let Some(existing_http) = &existing.match_rules.http else {
+                continue;
+            };
+            // Must share path and priority.
+            if existing_http.path != candidate_http.path || existing.priority != candidate.priority
+            {
+                continue;
+            }
+            // Check for any overlapping method.
+            for m in &candidate_http.methods {
+                if existing_http.methods.contains(m) {
+                    return Err(DomainError::conflict(format!(
+                        "route overlap: an enabled route already exists on upstream '{}' \
+                         with path '{}', priority {}, method {:?}",
+                        candidate.upstream_id, candidate_http.path, candidate.priority, m
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate bind constraints against the **closest** ancestor with a matching
     /// alias. Delegates to [`validate_bind_constraints`] for policy permissions,
     /// sharing mode enforcement, and `secret_ref` accessibility.
@@ -601,6 +646,22 @@ impl ControlPlaneServiceImpl {
 // Free functions — validation, permissions, visibility, config merge, alias
 // ===========================================================================
 
+/// Ensure exactly one of `http` or `grpc` is present in the match rules.
+///
+/// Rejects routes where both fields are `None` (matches nothing) or both
+/// are `Some` (ambiguous protocol).
+fn validate_match_rules(rules: &MatchRules) -> Result<(), DomainError> {
+    match (&rules.http, &rules.grpc) {
+        (None, None) => Err(DomainError::validation(
+            "match rules must specify exactly one of 'http' or 'grpc'",
+        )),
+        (Some(_), Some(_)) => Err(DomainError::validation(
+            "match rules must specify exactly one of 'http' or 'grpc', not both",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Validate the endpoint list for a server configuration.
 ///
 /// Rules:
@@ -624,10 +685,7 @@ fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
     // Enabling IPv6 requires SSRF protections (deny-lists for link-local, private
     // ranges, IPv4-mapped addresses).
     for (i, ep) in endpoints.iter().enumerate() {
-        if strip_brackets(&ep.host)
-            .parse::<std::net::Ipv6Addr>()
-            .is_ok()
-        {
+        if ep.normalized_host().parse::<std::net::Ipv6Addr>().is_ok() {
             return Err(DomainError::validation(format!(
                 "endpoint[{i}] uses IPv6 address '{}'; IPv6 endpoints are not yet supported",
                 ep.host
@@ -636,10 +694,7 @@ fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
     }
 
     // Check all-IP vs all-hostname consistency.
-    let ip_count = endpoints
-        .iter()
-        .filter(|ep| strip_brackets(&ep.host).parse::<IpAddr>().is_ok())
-        .count();
+    let ip_count = endpoints.iter().filter(|ep| ep.is_ip()).count();
     if ip_count != 0 && ip_count != endpoints.len() {
         return Err(DomainError::validation(
             "all endpoints must use either IP addresses or hostnames; mixed configurations are not allowed",
@@ -758,14 +813,6 @@ fn validate_alias(alias: &str) -> Result<(), DomainError> {
     Ok(())
 }
 
-/// Strip surrounding `[` and `]` from a host string so that bracketed IPv6
-/// literals (e.g. `[2001:db8::1]`) can be parsed by `Ipv6Addr` / `IpAddr`.
-fn strip_brackets(host: &str) -> &str {
-    host.strip_prefix('[')
-        .and_then(|s| s.strip_suffix(']'))
-        .unwrap_or(host)
-}
-
 /// Normalize an alias to lowercase. Hostname trailing dots are already
 /// handled by `Endpoint::normalized_host()` during derivation; this covers
 /// user-provided explicit aliases. All trailing dots are stripped.
@@ -775,10 +822,7 @@ fn normalize_alias(alias: &str) -> String {
 
 /// Check whether the given endpoints are all IP addresses.
 fn endpoints_are_ip(endpoints: &[Endpoint]) -> bool {
-    !endpoints.is_empty()
-        && endpoints
-            .iter()
-            .all(|ep| strip_brackets(&ep.host).parse::<IpAddr>().is_ok())
+    !endpoints.is_empty() && endpoints.iter().all(Endpoint::is_ip)
 }
 
 /// Attempt to derive an alias from the endpoint list.
@@ -1650,6 +1694,35 @@ mod tests {
         }
     }
 
+    /// Build an UpdateUpstreamRequest that mirrors the given upstream (full replacement).
+    fn make_update_from_upstream(u: &Upstream) -> UpdateUpstreamRequest {
+        UpdateUpstreamRequest {
+            server: u.server.clone(),
+            protocol: u.protocol.clone(),
+            alias: Some(u.alias.clone()),
+            auth: u.auth.clone(),
+            headers: u.headers.clone(),
+            plugins: u.plugins.clone(),
+            rate_limit: u.rate_limit.clone(),
+            cors: u.cors.clone(),
+            tags: u.tags.clone(),
+            enabled: u.enabled,
+        }
+    }
+
+    /// Build an UpdateRouteRequest that mirrors the given route (full replacement).
+    fn make_update_from_route(r: &Route) -> UpdateRouteRequest {
+        UpdateRouteRequest {
+            match_rules: r.match_rules.clone(),
+            plugins: r.plugins.clone(),
+            rate_limit: r.rate_limit.clone(),
+            cors: r.cors.clone(),
+            tags: r.tags.clone(),
+            priority: r.priority,
+            enabled: r.enabled,
+        }
+    }
+
     fn make_create_route(upstream_id: Uuid) -> CreateRouteRequest {
         CreateRouteRequest {
             upstream_id,
@@ -1689,17 +1762,9 @@ mod tests {
         assert_eq!(fetched.id, u.id);
 
         // Update alias (allowed for IP-based endpoints)
-        let updated = svc
-            .update_upstream(
-                &ctx,
-                u.id,
-                UpdateUpstreamRequest {
-                    alias: Some("openai-v2".into()),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.alias = Some("openai-v2".into());
+        let updated = svc.update_upstream(&ctx, u.id, update_req).await.unwrap();
         assert_eq!(updated.alias, "openai-v2");
         assert_eq!(updated.id, u.id);
 
@@ -1859,16 +1924,9 @@ mod tests {
             .unwrap();
 
         // Disable the upstream.
-        svc.update_upstream(
-            &ctx,
-            u.id,
-            UpdateUpstreamRequest {
-                enabled: Some(false),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.enabled = false;
+        svc.update_upstream(&ctx, u.id, update_req).await.unwrap();
 
         let chain = svc.build_tenant_chain(&ctx).await.unwrap();
         let err = svc
@@ -3404,19 +3462,14 @@ mod tests {
             .unwrap();
 
         // Child tries to update auth — should fail because ancestor is enforce.
+        let mut update_req = make_update_from_upstream(&child_upstream);
+        update_req.auth = Some(AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
         let err = svc
-            .update_upstream(
-                &child_ctx,
-                child_upstream.id,
-                UpdateUpstreamRequest {
-                    auth: Some(AuthConfig {
-                        plugin_type: "oauth2".into(),
-                        sharing: SharingMode::Inherit,
-                        config: None,
-                    }),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&child_ctx, child_upstream.id, update_req)
             .await
             .unwrap_err();
         match err {
@@ -3456,15 +3509,10 @@ mod tests {
             .unwrap();
 
         // Child updates alias to match ancestor — with allow-all enforcer this passes.
+        let mut update_req = make_update_from_upstream(&child_upstream);
+        update_req.alias = Some("openai".into());
         let updated = svc
-            .update_upstream(
-                &child_ctx,
-                child_upstream.id,
-                UpdateUpstreamRequest {
-                    alias: Some("openai".into()),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&child_ctx, child_upstream.id, update_req)
             .await
             .unwrap();
         assert_eq!(updated.alias, "openai");
@@ -3500,15 +3548,10 @@ mod tests {
 
         // Alias-only update to match ancestor — must fail because the child's
         // existing auth override conflicts with the ancestor's enforce mode.
+        let mut update_req = make_update_from_upstream(&child_upstream);
+        update_req.alias = Some("openai".into());
         let err = svc
-            .update_upstream(
-                &child_ctx,
-                child_upstream.id,
-                UpdateUpstreamRequest {
-                    alias: Some("openai".into()),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&child_ctx, child_upstream.id, update_req)
             .await
             .unwrap_err();
         match err {
@@ -3538,19 +3581,14 @@ mod tests {
             .unwrap();
 
         // Update auth — no ancestor match, should succeed without permission checks.
+        let mut update_req = make_update_from_upstream(&child_upstream);
+        update_req.auth = Some(AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
         let updated = svc
-            .update_upstream(
-                &child_ctx,
-                child_upstream.id,
-                UpdateUpstreamRequest {
-                    auth: Some(AuthConfig {
-                        plugin_type: "oauth2".into(),
-                        sharing: SharingMode::Inherit,
-                        config: None,
-                    }),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&child_ctx, child_upstream.id, update_req)
             .await
             .unwrap();
         assert_eq!(updated.auth.unwrap().plugin_type, "oauth2");
@@ -4246,15 +4284,10 @@ mod tests {
         assert_eq!(u.alias, "api.openai.com");
 
         // Try to override alias on hostname-based upstream — should fail.
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.alias = Some("custom".into());
         let err = svc
-            .update_upstream(
-                &ctx,
-                u.id,
-                UpdateUpstreamRequest {
-                    alias: Some("custom".into()),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&ctx, u.id, update_req)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation { .. }));
@@ -4273,23 +4306,16 @@ mod tests {
         assert_eq!(u.alias, "api.openai.com");
 
         // Update endpoints to a different host — alias should recompute.
-        let updated = svc
-            .update_upstream(
-                &ctx,
-                u.id,
-                UpdateUpstreamRequest {
-                    server: Some(Server {
-                        endpoints: vec![Endpoint {
-                            scheme: Scheme::Https,
-                            host: "api.anthropic.com".into(),
-                            port: 443,
-                        }],
-                    }),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.server = Server {
+            endpoints: vec![Endpoint {
+                scheme: Scheme::Https,
+                host: "api.anthropic.com".into(),
+                port: 443,
+            }],
+        };
+        update_req.alias = None; // let alias be re-derived
+        let updated = svc.update_upstream(&ctx, u.id, update_req).await.unwrap();
         assert_eq!(updated.alias, "api.anthropic.com");
     }
 
@@ -4305,21 +4331,17 @@ mod tests {
             .unwrap();
 
         // Switch to IP endpoints without providing alias.
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.server = Server {
+            endpoints: vec![Endpoint {
+                scheme: Scheme::Https,
+                host: "10.0.0.1".into(),
+                port: 443,
+            }],
+        };
+        update_req.alias = None; // no explicit alias provided
         let err = svc
-            .update_upstream(
-                &ctx,
-                u.id,
-                UpdateUpstreamRequest {
-                    server: Some(Server {
-                        endpoints: vec![Endpoint {
-                            scheme: Scheme::Https,
-                            host: "10.0.0.1".into(),
-                            port: 443,
-                        }],
-                    }),
-                    ..Default::default()
-                },
-            )
+            .update_upstream(&ctx, u.id, update_req)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation { .. }));
@@ -4337,24 +4359,16 @@ mod tests {
             .unwrap();
 
         // Switch to IP endpoints with explicit alias.
-        let updated = svc
-            .update_upstream(
-                &ctx,
-                u.id,
-                UpdateUpstreamRequest {
-                    server: Some(Server {
-                        endpoints: vec![Endpoint {
-                            scheme: Scheme::Https,
-                            host: "10.0.0.1".into(),
-                            port: 443,
-                        }],
-                    }),
-                    alias: Some("my-backend".into()),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
+        let mut update_req = make_update_from_upstream(&u);
+        update_req.server = Server {
+            endpoints: vec![Endpoint {
+                scheme: Scheme::Https,
+                host: "10.0.0.1".into(),
+                port: 443,
+            }],
+        };
+        update_req.alias = Some("my-backend".into());
+        let updated = svc.update_upstream(&ctx, u.id, update_req).await.unwrap();
         assert_eq!(updated.alias, "my-backend");
     }
 
@@ -4559,5 +4573,340 @@ mod tests {
 
         let u = svc.create_upstream(&ctx, req).await.unwrap();
         assert_eq!(u.alias, "my-uk-backends");
+    }
+
+    // -- Route overlap determinism tests --
+
+    #[tokio::test]
+    async fn create_route_overlap_same_path_priority_method_returns_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // First route succeeds.
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Second route with identical (path, priority, method) → 409 Conflict.
+        let err = svc
+            .create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Conflict { .. }),
+            "expected Conflict, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_route_different_method_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // POST route.
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // GET route on same path and priority — no overlap.
+        let get_route_req = CreateRouteRequest {
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    methods: vec![HttpMethod::Get],
+                    path: "/v1/chat/completions".into(),
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::Append,
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            cors: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        svc.create_route(&ctx, get_route_req).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_different_priority_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Same path and method, different priority — no overlap.
+        let mut req = make_create_route(u.id);
+        req.priority = 10;
+        svc.create_route(&ctx, req).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_different_path_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Different path — no overlap.
+        let mut req = make_create_route(u.id);
+        req.match_rules.http.as_mut().unwrap().path = "/v1/models".into();
+        svc.create_route(&ctx, req).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_disabled_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Disabled duplicate — no conflict (disabled routes don't cause ambiguity).
+        let mut req = make_create_route(u.id);
+        req.enabled = false;
+        svc.create_route(&ctx, req).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_against_disabled_existing_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // First route is disabled.
+        let mut req = make_create_route(u.id);
+        req.enabled = false;
+        svc.create_route(&ctx, req).await.unwrap();
+
+        // Second route enabled with same tuple — allowed because existing is disabled.
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_different_upstream_no_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u1 = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+        let u2 = svc
+            .create_upstream(&ctx, make_create_upstream_ip("anthropic"))
+            .await
+            .unwrap();
+
+        svc.create_route(&ctx, make_create_route(u1.id))
+            .await
+            .unwrap();
+
+        // Same (path, priority, method) but different upstream — no overlap.
+        svc.create_route(&ctx, make_create_route(u2.id))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_route_partial_method_overlap_returns_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // Route with [Post, Put].
+        let req1 = CreateRouteRequest {
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    methods: vec![HttpMethod::Post, HttpMethod::Put],
+                    path: "/v1/chat".into(),
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::Append,
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            cors: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        svc.create_route(&ctx, req1).await.unwrap();
+
+        // Route with [Put, Delete] — overlaps on Put.
+        let req2 = CreateRouteRequest {
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    methods: vec![HttpMethod::Put, HttpMethod::Delete],
+                    path: "/v1/chat".into(),
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::Append,
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            cors: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        let err = svc.create_route(&ctx, req2).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::Conflict { .. }),
+            "expected Conflict, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_route_introducing_overlap_returns_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // Route A: POST /v1/chat, priority 0.
+        let _route_a = svc
+            .create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Route B: POST /v1/models, priority 0.
+        let mut req_b = make_create_route(u.id);
+        req_b.match_rules.http.as_mut().unwrap().path = "/v1/models".into();
+        let route_b = svc.create_route(&ctx, req_b).await.unwrap();
+
+        // Update route B's path to match route A → conflict.
+        let mut update_req = make_update_from_route(&route_b);
+        update_req.match_rules = MatchRules {
+            http: Some(HttpMatch {
+                methods: vec![HttpMethod::Post],
+                path: "/v1/chat/completions".into(),
+                query_allowlist: vec![],
+                path_suffix_mode: PathSuffixMode::Append,
+            }),
+            grpc: None,
+        };
+        let err = svc
+            .update_route(&ctx, route_b.id, update_req)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Conflict { .. }),
+            "expected Conflict, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_route_no_self_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        let route = svc
+            .create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Update tags only — same (path, priority, method) but it's the same route.
+        let mut update_req = make_update_from_route(&route);
+        update_req.tags = vec!["new-tag".into()];
+        let updated = svc.update_route(&ctx, route.id, update_req).await.unwrap();
+        assert_eq!(updated.tags, vec!["new-tag".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn update_route_enabling_into_overlap_returns_conflict() {
+        let svc = make_service();
+        let tenant = Uuid::new_v4();
+        let ctx = test_ctx(tenant);
+
+        let u = svc
+            .create_upstream(&ctx, make_create_upstream_ip("openai"))
+            .await
+            .unwrap();
+
+        // Route A: enabled.
+        svc.create_route(&ctx, make_create_route(u.id))
+            .await
+            .unwrap();
+
+        // Route B: disabled duplicate.
+        let mut req_b = make_create_route(u.id);
+        req_b.enabled = false;
+        let route_b = svc.create_route(&ctx, req_b).await.unwrap();
+
+        // Enable route B → conflict with route A.
+        let mut update_req = make_update_from_route(&route_b);
+        update_req.enabled = true;
+        let err = svc
+            .update_route(&ctx, route_b.id, update_req)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Conflict { .. }),
+            "expected Conflict, got: {err:?}"
+        );
     }
 }

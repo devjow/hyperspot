@@ -23,6 +23,7 @@ pub struct CreateTurnParams {
     pub policy_version_applied: Option<i64>,
     pub effective_model: Option<String>,
     pub minimal_generation_floor_applied: Option<i32>,
+    pub web_search_enabled: bool,
 }
 
 /// Parameters for CAS update to completed state.
@@ -50,6 +51,22 @@ pub struct CasTerminalParams {
     pub assistant_message_id: Option<Uuid>,
     /// Provider response ID (e.g. `OpenAI` `response_id`); set for completed turns.
     pub provider_response_id: Option<String>,
+}
+
+/// Preflight fields to backfill on a mutation turn after quota evaluation.
+///
+/// The mutation path creates turns with NULL quota fields; this struct carries
+/// the computed preflight values so they can be persisted before the provider
+/// task spawns (ensuring the orphan watchdog has complete data).
+#[domain_model]
+pub struct UpdatePreflightParams {
+    pub turn_id: Uuid,
+    pub reserve_tokens: i64,
+    pub max_output_tokens_applied: i32,
+    pub reserved_credits_micro: i64,
+    pub policy_version_applied: i64,
+    pub effective_model: String,
+    pub minimal_generation_floor_applied: i32,
 }
 
 /// Repository trait for turn persistence operations.
@@ -129,6 +146,46 @@ pub trait TurnRepository: Send + Sync {
         chat_id: Uuid,
     ) -> Result<Option<TurnModel>, DomainError>;
 
+    /// Update `last_progress_at = now()` for a running turn.
+    ///
+    /// Called from the streaming task which passes the request-scoped `AccessScope`
+    /// for defense-in-depth tenant scoping.
+    ///
+    /// Returns `rows_affected` (0 if turn is no longer running — benign, no error).
+    async fn update_progress_at<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        turn_id: Uuid,
+    ) -> Result<u64, DomainError>;
+
+    /// Find running turns with stale progress (orphan candidates).
+    ///
+    /// No `AccessScope` — system-level background worker query under leader election.
+    /// Returns at most `limit` rows ordered by oldest progress first.
+    async fn find_orphan_candidates<C: DBRunner>(
+        &self,
+        runner: &C,
+        timeout_secs: u64,
+        limit: u32,
+    ) -> Result<Vec<TurnModel>, DomainError>;
+
+    /// CAS update for orphan finalization with full predicate re-check.
+    ///
+    /// The terminal UPDATE re-checks ALL orphan predicates:
+    /// `state = 'running' AND deleted_at IS NULL AND last_progress_at <= now() - timeout`.
+    /// This prevents "false orphan finalization after renewed progress" (DESIGN.md P1 invariant).
+    ///
+    /// Returns `rows_affected`:
+    /// - `0`: turn is no longer orphan-eligible (already finalized, soft-deleted, or progress renewed)
+    /// - `1`: turn transitioned to `Failed` with `error_code = 'orphan_timeout'`
+    async fn cas_finalize_orphan<C: DBRunner>(
+        &self,
+        runner: &C,
+        turn_id: Uuid,
+        timeout_secs: u64,
+    ) -> Result<u64, DomainError>;
+
     /// SELECT the most recent non-deleted turn for a chat with `FOR UPDATE` row lock.
     /// Used within mutation transactions to serialize concurrent retry/edit/delete.
     async fn find_latest_for_update<C: DBRunner>(
@@ -137,4 +194,22 @@ pub trait TurnRepository: Send + Sync {
         scope: &AccessScope,
         chat_id: Uuid,
     ) -> Result<Option<TurnModel>, DomainError>;
+
+    /// Backfill preflight quota fields on a running turn.
+    ///
+    /// The mutation path (`mutate_for_stream`) creates the turn with NULL quota
+    /// fields because preflight runs after the mutation transaction. This method
+    /// persists the computed preflight values so the orphan watchdog can settle
+    /// quota correctly if the pod crashes after preflight.
+    ///
+    /// Only updates the row if `state = 'running'` (CAS guard prevents writing
+    /// to already-finalized turns).
+    ///
+    /// Returns `rows_affected` (0 if turn is no longer running).
+    async fn update_preflight_fields<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        params: UpdatePreflightParams,
+    ) -> Result<u64, DomainError>;
 }

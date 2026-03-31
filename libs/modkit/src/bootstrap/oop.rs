@@ -442,7 +442,7 @@ pub async fn run_oop_with_options(opts: OopRunOptions) -> Result<()> {
     };
 
     // Load configuration
-    let mut config = AppConfig::load_or_default(&opts.config_path)?;
+    let mut config = AppConfig::load_or_default(opts.config_path.as_ref())?;
     config.apply_cli_overrides(args.verbose);
 
     // Try to read rendered module config from master host via env var BEFORE logging init

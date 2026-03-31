@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::domain::model::{PassthroughMode, RequestHeaderRules};
+use crate::domain::model::{PassthroughMode, RequestHeaderRules, ResponseHeaderRules};
 use http::{HeaderMap, HeaderName, HeaderValue};
 use oagw_sdk::api::ErrorSource;
 
@@ -122,16 +122,45 @@ pub fn sanitize_response_headers(headers: &mut HeaderMap) {
     strip_internal_headers(headers);
 }
 
-/// Apply set/add/remove header rules from upstream config.
-pub fn apply_header_rules(headers: &mut HeaderMap, rules: &RequestHeaderRules) {
+trait HeaderRules {
+    fn remove(&self) -> &[String];
+    fn set(&self) -> &HashMap<String, String>;
+    fn add(&self) -> &HashMap<String, String>;
+}
+
+impl HeaderRules for RequestHeaderRules {
+    fn remove(&self) -> &[String] {
+        &self.remove
+    }
+    fn set(&self) -> &HashMap<String, String> {
+        &self.set
+    }
+    fn add(&self) -> &HashMap<String, String> {
+        &self.add
+    }
+}
+
+impl HeaderRules for ResponseHeaderRules {
+    fn remove(&self) -> &[String] {
+        &self.remove
+    }
+    fn set(&self) -> &HashMap<String, String> {
+        &self.set
+    }
+    fn add(&self) -> &HashMap<String, String> {
+        &self.add
+    }
+}
+
+fn apply_rules(headers: &mut HeaderMap, rules: &impl HeaderRules) {
     // Remove first.
-    for name in &rules.remove {
+    for name in rules.remove() {
         if let Ok(n) = HeaderName::from_bytes(name.to_lowercase().as_bytes()) {
             headers.remove(n);
         }
     }
     // Set (overwrite).
-    for (name, value) in &rules.set {
+    for (name, value) in rules.set() {
         if let (Ok(n), Ok(v)) = (
             HeaderName::from_bytes(name.to_lowercase().as_bytes()),
             HeaderValue::from_str(value),
@@ -140,7 +169,7 @@ pub fn apply_header_rules(headers: &mut HeaderMap, rules: &RequestHeaderRules) {
         }
     }
     // Add (append).
-    for (name, value) in &rules.add {
+    for (name, value) in rules.add() {
         if let (Ok(n), Ok(v)) = (
             HeaderName::from_bytes(name.to_lowercase().as_bytes()),
             HeaderValue::from_str(value),
@@ -148,6 +177,50 @@ pub fn apply_header_rules(headers: &mut HeaderMap, rules: &RequestHeaderRules) {
             headers.append(n, v);
         }
     }
+}
+
+/// Apply set/add/remove header rules from upstream config to outbound request headers.
+pub fn apply_request_header_rules(headers: &mut HeaderMap, rules: &RequestHeaderRules) {
+    apply_rules(headers, rules);
+}
+
+/// Apply set/add/remove header rules to upstream response headers.
+pub fn apply_response_header_rules(headers: &mut HeaderMap, rules: &ResponseHeaderRules) {
+    apply_rules(headers, rules);
+}
+
+/// Returns `true` if the Content-Type header (when present) is a valid MIME type.
+/// Returns `false` if duplicates exist, the value is not valid UTF-8, or it
+/// cannot be parsed as a MIME type. Returns `true` if the header is absent.
+pub fn is_valid_content_type(headers: &HeaderMap) -> bool {
+    let mut iter = headers.get_all(http::header::CONTENT_TYPE).iter();
+    let Some(ct) = iter.next() else {
+        return true;
+    };
+    // Reject duplicate Content-Type headers.
+    if iter.next().is_some() {
+        return false;
+    }
+    ct.to_str()
+        .ok()
+        .and_then(|v| v.parse::<mime::Mime>().ok())
+        .is_some()
+}
+
+/// Returns `true` if the Transfer-Encoding header is absent or exactly `chunked`.
+/// Returns `false` for duplicates or any encoding other than `chunked`.
+pub fn is_valid_transfer_encoding(headers: &HeaderMap) -> bool {
+    let mut iter = headers.get_all(http::header::TRANSFER_ENCODING).iter();
+    let Some(val) = iter.next() else {
+        return true;
+    };
+    // Reject duplicate Transfer-Encoding headers (HTTP smuggling vector).
+    if iter.next().is_some() {
+        return false;
+    }
+    val.to_str()
+        .ok()
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("chunked"))
 }
 
 /// Set the Host header to match the upstream endpoint.
@@ -398,7 +471,7 @@ mod tests {
             passthrough_allowlist: vec![],
         };
 
-        apply_header_rules(&mut headers, &rules);
+        apply_request_header_rules(&mut headers, &rules);
         assert_eq!(headers.get("x-api-version").unwrap(), "v2");
     }
 
@@ -419,7 +492,7 @@ mod tests {
             passthrough_allowlist: vec![],
         };
 
-        apply_header_rules(&mut headers, &rules);
+        apply_request_header_rules(&mut headers, &rules);
         let values: Vec<&str> = headers
             .get_all("x-tag")
             .iter()
@@ -443,7 +516,7 @@ mod tests {
             passthrough_allowlist: vec![],
         };
 
-        apply_header_rules(&mut headers, &rules);
+        apply_request_header_rules(&mut headers, &rules);
         assert!(headers.get("x-remove-me").is_none());
         assert_eq!(headers.get("x-keep-me").unwrap(), "stay");
     }
@@ -556,5 +629,114 @@ mod tests {
         assert!(headers.get("x-oagw-debug").is_none());
         assert!(headers.get("x-oagw-trace-id").is_none());
         assert_eq!(headers.get("x-custom").unwrap(), "keep");
+    }
+
+    #[test]
+    fn response_header_rules_set_add_remove() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-remove-me", "gone".parse().unwrap());
+        headers.insert("x-overwrite", "old".parse().unwrap());
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let rules = ResponseHeaderRules {
+            set: [("x-overwrite".into(), "new".into())].into_iter().collect(),
+            add: [("x-extra".into(), "added".into())].into_iter().collect(),
+            remove: vec!["x-remove-me".into()],
+        };
+
+        apply_response_header_rules(&mut headers, &rules);
+
+        assert!(headers.get("x-remove-me").is_none());
+        assert_eq!(headers.get("x-overwrite").unwrap(), "new");
+        assert_eq!(headers.get("x-extra").unwrap(), "added");
+        assert_eq!(headers.get("content-type").unwrap(), "application/json");
+    }
+
+    #[test]
+    fn response_header_rules_empty_is_noop() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-keep", "value".parse().unwrap());
+
+        let rules = ResponseHeaderRules::default();
+        apply_response_header_rules(&mut headers, &rules);
+
+        assert_eq!(headers.get("x-keep").unwrap(), "value");
+    }
+
+    #[test]
+    fn valid_content_type_accepted() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        assert!(is_valid_content_type(&headers));
+    }
+
+    #[test]
+    fn valid_content_type_with_charset_accepted() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "text/html; charset=utf-8".parse().unwrap());
+        assert!(is_valid_content_type(&headers));
+    }
+
+    #[test]
+    fn missing_content_type_accepted() {
+        let headers = HeaderMap::new();
+        assert!(is_valid_content_type(&headers));
+    }
+
+    #[test]
+    fn invalid_content_type_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "not a valid mime type!!!".parse().unwrap());
+        assert!(!is_valid_content_type(&headers));
+    }
+
+    #[test]
+    fn transfer_encoding_absent_is_valid() {
+        let headers = HeaderMap::new();
+        assert!(is_valid_transfer_encoding(&headers));
+    }
+
+    #[test]
+    fn transfer_encoding_chunked_is_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("transfer-encoding", "chunked".parse().unwrap());
+        assert!(is_valid_transfer_encoding(&headers));
+    }
+
+    #[test]
+    fn transfer_encoding_chunked_case_insensitive() {
+        let mut headers = HeaderMap::new();
+        headers.insert("transfer-encoding", "Chunked".parse().unwrap());
+        assert!(is_valid_transfer_encoding(&headers));
+    }
+
+    #[test]
+    fn transfer_encoding_gzip_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("transfer-encoding", "gzip".parse().unwrap());
+        assert!(!is_valid_transfer_encoding(&headers));
+    }
+
+    #[test]
+    fn transfer_encoding_mixed_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("transfer-encoding", "gzip, chunked".parse().unwrap());
+        assert!(!is_valid_transfer_encoding(&headers));
+    }
+
+    #[test]
+    fn duplicate_content_type_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.append("content-type", "application/json".parse().unwrap());
+        headers.append("content-type", "text/html".parse().unwrap());
+        assert!(!is_valid_content_type(&headers));
+    }
+
+    #[test]
+    fn duplicate_transfer_encoding_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.append("transfer-encoding", "chunked".parse().unwrap());
+        headers.append("transfer-encoding", "chunked".parse().unwrap());
+        assert!(!is_valid_transfer_encoding(&headers));
     }
 }

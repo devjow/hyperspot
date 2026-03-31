@@ -297,7 +297,6 @@ Hard caps: token budgets (`max_input_tokens`, `max_output_tokens`) MUST remain c
 | Message | A single turn in a chat (role: user/assistant/system). Stores content, token estimate, compression status. Always includes a required `attachments` field — an always-present array of `AttachmentSummary` objects (empty array when none), derived from the `message_attachments` join table (not stored on the `messages` row). Each `AttachmentSummary` contains `attachment_id`, `kind`, `filename`, `status`, and `img_thumbnail` (for images). Always includes a required `request_id` (UUID) — within a normal turn, user and assistant messages share the same value (turn correlation key); system/background messages use an independently server-generated UUID v4. Assistant messages record the **effective_model** (the model actually used after quota/policy evaluation). Includes a nullable `my_reaction` field (`"like"`, `"dislike"`, or `null`) representing the requesting user's reaction on the message. |
 | Attachment | File uploaded to a chat (document or image). Identified by internal `attachment_id` (UUID). Stores `provider_file_id` internally (never exposed via API). Documents are linked to the chat's vector store; images are not. Has processing status and `attachment_kind (document|image)`. For image attachments, an optional `img_thumbnail` (server-generated preview, `image/webp`, fit inside configured WxH preserving aspect ratio; max decoded size 128 KiB by default, configurable via `thumbnail_max_bytes`) is produced on upload and stored in Mini Chat database only (never uploaded to provider); null for documents and when thumbnail generation is unavailable or failed. `doc_summary` is always null for images. |
 | ThreadSummary | Compressed representation of older messages in a chat. Replaces old history in the context window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ThreadSummaryTask | Durable background task record for automatic thread summary generation. Stores the frozen summary range and lifecycle state (`pending`, `claimed`, `completed`, `stale`, `failed`). Exists only for system/background execution, references one chat, and is independent from user-visible `chat_turns`. |
 | ChatVectorStore | Mapping from `(tenant_id, chat_id)` to provider `vector_store_id` (OpenAI or Azure OpenAI Vector Stores API). One vector store per chat (created on first document upload). Physical and logical isolation are both per chat (see File Search Retrieval Scope).                                                                                                                                                                                                                                                                                                                 |
 | AuditEvent | Structured event emitted to platform `audit_service`: prompt, response, user/tenant, timestamps, policy decisions, usage. Not stored locally.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | QuotaUsage | Per-user usage counters for rate limiting and budget enforcement. Tracks daily and monthly periods per tier in credits. Credits are computed from provider-reported token usage using the model credit multipliers in the policy snapshot. Premium models have stricter limits; standard-tier models have separate, higher limits.                                                                                                                                                                                                                                                  |
@@ -308,8 +307,6 @@ Hard caps: token budgets (`max_input_tokens`, `max_output_tokens`) MUST remain c
 - Chat -> Message: 1..\*
 - Chat -> Attachment: 0..\*
 - Chat -> ThreadSummary: 0..1
-- Chat -> ThreadSummaryTask: 0..*
-- ThreadSummaryTask -> Chat: *..1 (references exactly one chat; independent from `chat_turns`)
 - Message -> Attachment: 0..\* (M:N via `message_attachments` join table; user messages reference attachments from `attachment_ids`)
 - Attachment -> ChatVectorStore: belongs to (via chat_id; documents only — images are not indexed)
 - Message -> AuditEvent: 1..1 (each turn emits an audit event to platform `audit_service`)
@@ -349,11 +346,11 @@ graph TB
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-component-chat-service`
 
-- **mini-chat module** — A ModKit module (`#[modkit::module(name = "mini-chat", deps = ["authz-resolver"], capabilities = [db, rest])]`). The domain service layer is the core orchestrator and Policy Enforcement Point (PEP): receives user messages, evaluates authorization via AuthZ Resolver (PolicyEnforcer → AccessScope), builds context plan, invokes LLM via `llm_provider`, relays streaming tokens, persists messages and usage via infra/storage repositories, evaluates the thread summary trigger after eligible turns are durably persisted, enqueues durable `thread_summary_tasks`, and MAY send a best-effort local wake-up to the current background worker leader.
+- **mini-chat module** — A ModKit module (`#[modkit::module(name = "mini-chat", deps = ["authz-resolver"], capabilities = [db, rest])]`). The domain service layer is the core orchestrator and Policy Enforcement Point (PEP): receives user messages, evaluates authorization via AuthZ Resolver (PolicyEnforcer → AccessScope), builds context plan, invokes LLM via `llm_provider`, relays streaming tokens, persists messages and usage via infra/storage repositories, and evaluates the thread summary trigger during request processing using the assembled context/token estimate. When the trigger fires, thread-summary outbox work is transactionally enqueued in the transaction that durably persists or finalizes the causing turn; chat-deletion cleanup outbox work is transactionally enqueued in the transaction that durably applies chat soft-delete.
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-component-chat-store`
 
-- **infra/storage** — SeaORM persistence layer with `#[derive(Scopable)]` entities, ORM repositories, and migrations. All queries are scoped via `AccessScope` (compiled from PolicyEnforcer decisions). Source of truth for chats, messages, attachments, thread summaries, thread summary tasks, chat vector store mappings, and quota usage.
+- **infra/storage** — SeaORM persistence layer with `#[derive(Scopable)]` entities, ORM repositories, and migrations. All queries are scoped via `AccessScope` (compiled from PolicyEnforcer decisions). Source of truth for chats, messages, attachments, thread summaries, chat vector store mappings, cleanup outcome state, and quota usage. The shared outbox table is infrastructure-owned and is used as the durable execution substrate for Mini-Chat asynchronous work.
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-component-llm-provider`
 
@@ -446,7 +443,7 @@ System tasks (thread summary update, document summary generation) MUST be isolat
    - MUST be a server-generated UUID v4 (unique per system task invocation)
    - NOT derived from any user request_id
    - Rationale: System tasks are idempotent on their own identity, not correlated with user turns
-   - For durable thread summary work, this stable `system_request_id` MUST be persisted on the `thread_summary_tasks` row at enqueue time and reused unchanged across every later claim, reclaim, retry, and terminal emission for that same durable task row.
+   - For durable outbox-driven system work, this stable `system_request_id` MUST be persisted in the serialized outbox payload at enqueue time and reused unchanged across every later retry, replay, dead-letter handoff, and terminal emission for that same durable outbox message.
 
 6. **Serialized usage-event `dedupe_key` format for system tasks:**
 
@@ -510,7 +507,7 @@ System tasks DO create:
 - serialized outbox messages enqueued through `modkit_db::outbox` (for billing attribution)
 - Metrics/audit events (for observability)
 
-For automatic thread summary work, `thread_summary_tasks.system_request_id` is the authoritative persisted carrier of that stable system-task identity. It is generated exactly once when the durable task row is inserted and MUST be reused unchanged by reclaim/retry paths rather than regenerated per worker attempt.
+For automatic thread summary work, the serialized thread-summary outbox payload is the authoritative persisted carrier of that stable system-task identity. `system_request_id` is generated exactly once when the durable outbox message is inserted and MUST be reused unchanged by every later retry or replay of that same message rather than regenerated per handler attempt.
 
 **Implementation guard:** Any code that assumes all LLM invocations have a corresponding `chat_turns` row is incorrect and will fail for system tasks.
 
@@ -1499,49 +1496,44 @@ sequenceDiagram
 sequenceDiagram
     participant CS as mini-chat module
     participant DB as Postgres
+    participant OB as shared outbox
     participant OG as outbound_gateway
     participant OAI as OpenAI / Azure OpenAI
 
     CS->>CS: Check summary trigger (assembled request token estimate exceeds compression threshold)
     CS->>DB: Load current summary frontier (base_frontier)
     CS->>DB: Determine frozen_target_frontier relative to base_frontier using message order (created_at, id)
-    CS->>DB: Insert durable thread_summary_tasks row or detect duplicate frozen range
-    opt Row inserted and this process is current leader
-        CS->>CS: Send best-effort local wake-up (`tokio::mpsc`)
-    end
-    Note over CS: Background summary worker leader claims and executes tasks asynchronously
-    CS->>DB: Claim pending thread_summary_tasks row durably
-    CS->>DB: Load task frontier range and fetch non-deleted, non-compressed messages in that range ordered by created_at ASC, id ASC
+    CS->>DB: Commit causing turn and enqueue durable thread-summary outbox message in the same transaction
+    OB->>CS: Deliver thread-summary work asynchronously
+    CS->>DB: Load current frontier and fetch non-deleted, non-compressed messages in (base_frontier, frozen_target_frontier] ordered by created_at ASC, id ASC
     CS->>OG: POST /outbound/llm/responses (update summary prompt)
     OG->>OAI: Responses API
     alt Provider error / timeout
         OAI-->>OG: Error / timeout
         OG-->>CS: Error / timeout
-        CS->>DB: Mark task failed
+        CS->>CS: Keep previous summary unchanged
     else Updated summary returned
         OAI-->>OG: Updated summary
         OG-->>CS: Updated summary
         CS->>DB: Atomic commit (CAS on base_frontier): save new thread_summary, advance frontier, mark exact range compressed
         alt CAS succeeds
             DB-->>CS: Commit OK
-            CS->>DB: Mark task completed
         else Frontier already advanced
             DB-->>CS: 0 rows updated
-            CS->>DB: Mark task stale
             CS->>CS: Finish without another commit
         end
     end
 ```
 
-**Description**: Thread summary is updated asynchronously after a chat turn when trigger conditions are met. `thread_summaries` stores only committed summary state. Durable pending, claimed, and terminal background work is stored in `thread_summary_tasks`. Summary generation is a background/system task and MUST run as `requester_type=system`. It MUST NOT create a `chat_turns` record, MUST NOT debit per-user quota, and MUST still emit usage for tenant/system attribution.
+**Description**: Thread summary is updated asynchronously after a chat turn when trigger conditions are met. Summary generation is a background/system task and MUST run as `requester_type=system`. It MUST NOT create a `chat_turns` record, MUST NOT debit per-user quota, and MUST still emit usage for tenant/system attribution. Mini Chat MUST use the shared transactional outbox as the durable execution substrate for this work and MUST NOT define a second Mini-Chat-specific leader-elected or polling worker framework for automatic summary execution.
 
 ##### Trigger timing
 
-- The system MUST evaluate the thread summary trigger only after the current chat turn has been durably persisted.
-- The trigger evaluation MAY reuse the assembled request token estimate computed for the just-completed turn.
-- If the trigger condition is met, the system MUST enqueue a durable `thread_summary_tasks` row after turn completion.
+- The system MUST evaluate the thread summary trigger using the assembled request/context token estimate already computed for the current turn.
+- The trigger decision MAY be computed before terminal turn commit, but durable scheduling MUST occur only in the transaction that makes the causing turn durable.
+- If the trigger condition is met, the CAS-winning turn persistence/finalization path MUST enqueue a durable thread-summary outbox message in the same DB transaction as the domain state change that caused the work.
 - Thread summary generation is asynchronous and MUST NOT block or modify the user-visible response path of the current turn.
-- Any summary produced by that task is eligible only for subsequent turns and MUST NOT alter the `ContextPlan` of the in-flight turn that caused the trigger.
+- Any summary produced by that outbox-driven work is eligible only for subsequent turns and MUST NOT alter the `ContextPlan` of the in-flight turn that caused the trigger.
 
 **P1 — Simple summarization (no quality gate):**
 
@@ -1561,7 +1553,7 @@ The effective input token budget is defined as:
 
 `token_budget = min(configured_max_input_tokens, model_context_window - reserved_output_tokens)`
 
-If the estimated assembled request tokens exceed the compression threshold, the system SHOULD enqueue a durable summary task after the causing turn completes.
+If the estimated assembled request tokens exceed the compression threshold, the system SHOULD enqueue durable thread-summary work in the transaction that durably persists or finalizes the causing turn.
 
 **Heuristic triggers**
 
@@ -1569,122 +1561,84 @@ Implementations MAY use message-count or turn-count heuristics only as cheap sig
 
 Such heuristics MUST NOT be used as the sole correctness criterion for summary generation.
 
-- When a durable `thread_summary_tasks` row is inserted and later claimed, the worker MUST bind the run to the frozen target frontier persisted in that row in the per-chat message order `(created_at ASC, id ASC)`.
-- The worker MUST load exactly the non-deleted, non-compressed messages whose order key is in `(base_frontier, frozen_target_frontier]`.
+##### Execution stages and invariants
+
+1. **Trigger decision in the request path**
+
+- The request path MUST evaluate the trigger from the assembled request/context estimate for the current turn.
+- The request path MUST NOT block the user-visible turn on summary generation.
+
+2. **Durable scheduling**
+
+- If the trigger fires, the system MUST serialize a durable outbox message for thread-summary execution in the same DB transaction that durably persists the causing turn.
+- The serialized message MUST contain, at minimum, `tenant_id`, `chat_id`, stable `system_request_id`, `base_frontier_created_at`, `base_frontier_message_id`, `frozen_target_created_at`, `frozen_target_message_id`, and `system_task_type = "thread_summary_update"`.
+- The outbox queue SHOULD partition by `chat_id` so that all thread-summary messages for the same chat are assigned to the same partition and processed sequentially. Different chats MAY be processed in parallel across partitions. The partition count (e.g. 8) controls concurrency across chats, not within a single chat; the concrete value is implementation-defined and configured via `thread_summary.partition_count`.
+- Partition-level ordering reduces unnecessary concurrent summary execution for the same chat, but correctness MUST NOT depend on partition ordering alone — it relies on the frozen range identity and CAS-protected frontier advancement described below.
+
+3. **Asynchronous execution**
+
+- The shared outbox framework is responsible for delivery, partitioned ordering, lease/reclaim, retries with backoff, dead-letter handling, and reconciliation.
+- The thread-summary handler MAY run under either the transactional or decoupled outbox execution mode allowed by the shared infrastructure contract. Mini Chat MUST rely only on the shared outbox guarantees and MUST NOT define a second dedicated summary worker state machine.
+- A handler attempt MUST bind itself to the frozen target frontier carried by the durable outbox message.
+- The handler MUST load exactly the non-deleted, non-compressed messages whose order key is in `(base_frontier, frozen_target_frontier]`.
 - Messages appended after `frozen_target_frontier` MUST be excluded from the current run. They MUST NOT cancel, widen, or invalidate the in-flight run and are eligible only for a future summary cycle.
-- The worker MUST attempt at most one CAS-backed summary commit per claimed execution.
-- Reclaim eligibility is based on stale `claimed_at`, not on a fenced provider-completion signal. A reclaimed task MAY therefore start a second worker attempt for the same frozen range while an earlier attempt is still externally in flight or has already made the provider call.
-- If the LLM call succeeds, the worker MUST attempt one atomic commit that:
-  1. saves the new `thread_summary`,
-  2. advances the stored summary frontier to `frozen_target_frontier`, and
-  3. marks exactly that summarized range as `is_compressed = true`.
-- The commit MUST succeed only if the stored summary frontier still equals the worker's `base_frontier` (compare-and-set).
-- If the CAS precondition fails because another worker already advanced the frontier, the task is stale and MUST finish without another summary commit for that frozen range.
-- Duplicate provider/LLM calls for the same frozen range are an accepted P1 operational side effect under crash, restart, or reclaim timing. They are not a correctness violation by themselves.
-- The correctness boundary is narrower: the frozen range identity remains fixed, the same durable `system_request_id` remains fixed across reclaim, and no more than one successful CAS commit may advance the summary frontier for that frozen range.
-- If the LLM call fails (provider error, timeout), the system MUST keep the previous summary unchanged, MUST NOT advance the frontier, and MUST NOT mark messages as compressed. P1 does not automatically retry the same frozen range tuple unless a later trigger creates a different wider frozen range.
+
+4. **CAS-protected commit**
+
+- If the LLM call succeeds, the handler MUST attempt one atomic commit that:
+- saves the new `thread_summary`,
+- advances the stored summary frontier to `frozen_target_frontier`, and
+- marks exactly that summarized range as `is_compressed = true`.
+- The commit MUST succeed only if the stored summary frontier still equals the handler's `base_frontier` (compare-and-set).
+- If the CAS precondition fails because another successful commit already advanced the frontier, the current attempt MUST finish without another summary commit for that frozen range.
+- At most one successful CAS commit MAY advance the summary frontier for a given frozen summarized range.
+- Duplicate provider/LLM calls for the same frozen range are an accepted P1 operational side effect of outbox retry or replay. They are not a correctness violation by themselves.
+- If the LLM call fails before a successful CAS commit, the system MUST keep the previous summary unchanged, MUST NOT advance the frontier, and MUST NOT mark messages as compressed.
 - No length or entropy validation is performed in P1.
 
 Observability (P1):
 
-- Increment `mini_chat_summary_fallback_total` when the worker keeps the previous summary unchanged because the LLM call failed before a successful CAS commit.
-- Expose `mini_chat_thread_summary_backlog{state}` (gauge) with `state` from `pending|claimed|failed|stale`.
-- Expose `mini_chat_thread_summary_oldest_pending_age_seconds` (gauge).
-- Expose `mini_chat_thread_summary_oldest_claimed_age_seconds` (gauge).
-- Increment `mini_chat_thread_summary_reclaimed_total` when reconciliation returns an abandoned `claimed` task to `pending`.
-- Increment `mini_chat_thread_summary_llm_calls_total{result}` (counter) with a bounded `result` allowlist such as `ok|provider_error|timeout`.
-- `mini_chat_thread_summary_llm_calls_total{result}` MAY exceed the number of successfully committed summary tasks because reclaim or restart can trigger duplicate provider calls for the same frozen range; this is expected in P1 and MUST NOT by itself be interpreted as a correctness failure.
-- Increment `mini_chat_thread_summary_cas_conflicts_total` when a claimed task loses the CAS precondition and transitions to `stale`.
+- Increment `mini_chat_thread_summary_trigger_total{result}` when trigger evaluation runs; `result` SHOULD distinguish at least `scheduled|not_needed`.
+- Increment `mini_chat_thread_summary_execution_total{result}` (counter) with a bounded `result` allowlist such as `success|provider_error|timeout|retry`.
+- `mini_chat_thread_summary_execution_total{result}` MAY exceed the number of successful frontier advances because outbox retry or replay can trigger duplicate provider calls for the same frozen range; this is expected in P1 and MUST NOT by itself be interpreted as a correctness failure.
+- Increment `mini_chat_thread_summary_cas_conflicts_total` when a handler loses the CAS precondition because another commit already advanced the frontier.
+- Increment `mini_chat_summary_fallback_total` when the system keeps the previous summary unchanged because summary generation failed before a successful CAS commit.
+- Queue lag, retry backlog, lease churn, and dead-letter depth for summary execution SHOULD be consumed from the shared outbox metrics surface rather than re-specified as Mini-Chat task-table metrics.
 
-##### Execution model
-
-Automatic thread summary generation is executed by a single active background worker leader.
-
-The worker MUST depend on a `LeaderElector` abstraction rather than directly on deployment-specific primitives.
-
-**LeaderElector responsibilities**:
-
-- Determine whether the current process is the active background worker leader.
-- Provide a mechanism to periodically re-check leadership.
-- Allow the worker to stop claiming or processing new tasks if leadership is lost.
-
-**Implementations**:
-
-- **`k8s::LeaderElector`** — Used in Kubernetes deployments. Leadership MUST be determined using Kubernetes Lease or an equivalent cluster leader election mechanism. At most one pod may hold leadership at a time. Only the current leader MAY claim and execute `thread_summary_tasks`.
-- **`NoopLeaderElector`** — Used in environments without Kubernetes (for example local development, single-instance deployments, or deployments without a cluster control plane). `NoopLeaderElector` MUST always report that the current process is leader. All background summary work is executed in the local process. This mode assumes that only one Mini Chat process runs or that duplicate background workers are otherwise prevented by deployment policy. `NoopLeaderElector` does not provide distributed coordination. If multiple instances run without a real leader election mechanism, duplicate task execution MAY occur, but durable `thread_summary_tasks` deduplication and CAS frontier checks still prevent incorrect summary commits.
-
-The leader election mechanism affects **who executes tasks**, not **how tasks are stored or deduplicated**. Durable task state in Postgres (`thread_summary_tasks`) remains the authoritative source of truth regardless of leader election implementation.
-
-The implementation MAY use an in-process notification mechanism such as `tokio::mpsc` to wake the current leader after a task is enqueued. Such a channel is only a best-effort local wake-up optimization and MUST NOT be the source of truth for task existence, deduplication, claim, or recovery.
-
-The leader MUST also run a periodic reconciliation loop to discover pending or abandoned tasks after restart, lease failover, or lost in-process notifications.
-
-P1 execution does not provide exactly-once provider invocation for automatic summary generation. Leader election determines who is allowed to claim work, but reclaim is still based on durable task staleness (`claimed_at`) rather than an external fenced lease with the provider. As a result, crash recovery or delayed completion MAY cause more than one provider call for the same frozen range. The persisted safety guarantee is limited to durable task identity, preserved `system_request_id`, and at-most-one successful CAS frontier advancement.
-
-**Thread summary worker configuration knobs** (deployment config):
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `thread_summary_worker.enabled` | bool | true | Enables automatic thread summary background processing |
-| `thread_summary_worker.reconcile_interval_secs` | integer | 60 | Maximum interval between reconciliation scans for pending or abandoned tasks |
-| `thread_summary_worker.claim_timeout_secs` | integer | 300 | Abandonment timeout for a `claimed` task before it becomes reclaim-eligible |
-| `thread_summary_worker.max_attempts` | integer | 3 | Max claim/execution attempts per task before marking as `failed` |
-
-##### Claim and recovery semantics
-
-- A leader worker MUST durably claim a `pending` `thread_summary_tasks` row before executing it.
-- Claiming MUST record durable in-DB claimed state (`status = claimed`, `claimed_by`, `claimed_at`) before any LLM call is issued.
-- A `claimed` task is reclaim-eligible only when `status = 'claimed'` and `claimed_at <= now() - interval '1 second' * thread_summary_worker.claim_timeout_secs`.
-- Reconciliation MUST run at least once per `thread_summary_worker.reconcile_interval_secs`.
-- Reconciliation MUST return an abandoned reclaim-eligible task to `pending`, clear `claimed_by`, refresh `updated_at`, and preserve both the frozen summary range and the persisted `system_request_id`.
-- Reclaim eligibility based on stale `claimed_at` MAY lead to a second worker attempt for the same frozen range.
-- Allowed recovery transitions are: `pending -> claimed`, `claimed -> pending` (abandoned reclaim), `claimed -> completed`, `claimed -> stale`, and `claimed -> failed`.
-- Reclaim MUST preserve the same frozen summary range and MUST NOT create a new automatic task for that range.
-- Therefore duplicate provider/LLM calls for that frozen range are operationally possible under crash, restart, or reclaim timing and are accepted in P1.
-- If the committed summary frontier has already advanced beyond the task's `base_frontier` when the task is processed or reclaimed, the task MUST transition to `stale` without attempting a new summary commit.
-- If the LLM call or execution fails before a successful CAS commit, the worker MUST increment the task's `attempt_count`. If `attempt_count < thread_summary_worker.max_attempts`, the task MUST transition back to `pending` for retry. If `attempt_count >= thread_summary_worker.max_attempts`, the task MUST transition to `failed` and the frontier MUST NOT advance.
-- If the CAS commit succeeds, the task MUST transition to `completed`.
-- The system MUST guarantee at most one successful CAS commit per frozen summary range.
-- The system MUST NOT claim or imply exactly-one provider invocation for a frozen summary range.
-
-##### Thread Summary Worker - Stable Range and Commit Invariant
+##### Thread Summary - Stable Range and Commit Invariant
 
 **Definitions**:
 
 - **Summary frontier** — the inclusive per-chat frontier stored in `thread_summaries` as `(summarized_up_to_created_at, summarized_up_to_message_id)`. It identifies the last message already represented in `summary_text`. If no `thread_summaries` row exists for the chat, the frontier is empty.
-- **Durable summary task** — a `thread_summary_tasks` row representing automatic background summary work for one frozen summary range. `thread_summaries` stores committed state only; `thread_summary_tasks` stores pending, claimed, and terminal task state.
-- **Frozen target frontier** — the inclusive upper bound `(target_created_at, target_message_id)` captured at enqueue time and persisted in the `thread_summary_tasks` row. Recomputing the target frontier at worker execution time is not sufficient.
+- **Durable summary work item** — one serialized thread-summary message in the shared outbox. `thread_summaries` stores committed summary state only; the shared outbox stores durable delivery state for asynchronous execution.
+- **Frozen target frontier** — the inclusive upper bound `(target_created_at, target_message_id)` captured at enqueue time and persisted in the outbox payload. Recomputing the target frontier at handler execution time is not sufficient.
 - **Message order** — thread summary selection MUST use the strict total order `(created_at ASC, id ASC)`. `created_at` alone is insufficient because multiple messages may share the same timestamp. `id` is the UUID message identifier and is used only as a deterministic tie-breaker when `created_at` values are equal.
 
 **Range selection**:
 
-For a task with `base_frontier` and `frozen_target_frontier`, the worker MUST summarize exactly the set of messages in the same chat that satisfy all of the following:
+For a work item with `base_frontier` and `frozen_target_frontier`, the handler MUST summarize exactly the set of messages in the same chat that satisfy all of the following:
 
 1. `deleted_at IS NULL`
 2. `is_compressed = false`
 3. `(created_at, id) > base_frontier`
 4. `(created_at, id) <= frozen_target_frontier`
 
-The worker MUST load these messages ordered by `(created_at ASC, id ASC)`.
+The handler MUST load these messages ordered by `(created_at ASC, id ASC)`.
 
-**Active task identity and deduplication**
+**Durable work identity and enqueue discipline**
 
-The durable `thread_summary_tasks` table MUST treat a summary task as uniquely identified by the tuple:
+The intended summarized range is identified by the tuple:
 
 `(chat_id, base_frontier_created_at, base_frontier_message_id, frozen_target_created_at, frozen_target_message_id)`.
 
-The implementation MUST enforce durable uniqueness of automatic tasks for that frozen summary range in Postgres.
+The request path SHOULD avoid enqueueing a second thread-summary outbox message for the same frozen range when it can observe that the stored frontier and computed target range are unchanged, but correctness MUST NOT depend on perfect enqueue-time deduplication.
 
-If a later summary trigger observes the same frozen summary range, the system MUST NOT create or start another automatic task for that range.
-
-This invariant exists to guarantee that duplicate durable tasks and duplicate successful commits for the same frozen summary range cannot occur due to concurrent workers, repeated triggers, restart recovery, or leader failover.
-
-**Task stability and concurrency**:
+**Range stability and concurrency**:
 
 - Messages created after `frozen_target_frontier` remain outside the current run and are eligible only for a future run after the frontier advances.
 - The commit MUST be atomic and MUST advance the summary frontier only if the stored frontier still equals `base_frontier`.
-- Only one worker can win that compare-and-set. Any losing or stale worker MUST treat its task as stale and MUST NOT write a new committed summary for that frozen range.
-- If the compare-and-set commit fails, the worker MUST terminate the task without issuing any additional commit attempt for that task.
+- Only one handler attempt can win that compare-and-set. Any losing or stale attempt MUST NOT write a new committed summary for that frozen range.
+- If the compare-and-set commit fails, the attempt MUST terminate without issuing any additional commit attempt for that frozen range.
 
 **Frozen-range commit invariant**:
 
@@ -1692,19 +1646,17 @@ For P1 automatic background processing, a frozen summary range identified by
 `(chat_id, base_frontier, frozen_target_frontier)`
 MUST have at most one successful summary commit.
 
-The durable `system_request_id` attached to that task MUST remain unchanged across claim, reclaim, retry, and stale-task handling for the same frozen range.
+The durable `system_request_id` attached to one serialized work item MUST remain unchanged across every retry or replay of that same outbox message.
 
-Concurrent workers, append-triggered rescheduling, restart recovery, or stale-task handling MUST NOT produce more than one committed summary result for the same frozen range.
+Concurrent handlers, append-triggered rescheduling, outbox retry, or replay MUST NOT produce more than one committed summary result for the same frozen range.
 
-Concurrent workers, reclaim after stale `claimed_at`, restart recovery, or leader failover MAY still produce duplicate external provider calls for that frozen range. P1 explicitly accepts that operational side effect. The persisted correctness guarantee is narrower: no more than one successful CAS commit may advance the summary frontier for that frozen range, and no second durable task identity may be created for the same frozen range.
+Duplicate external provider calls for that frozen range MAY still occur. P1 explicitly accepts that operational side effect. The persisted correctness guarantee is narrower: no more than one successful CAS commit may advance the summary frontier for that frozen range.
 
-If a task for `(chat_id, base_frontier, frozen_target_frontier)` reaches `failed` after exhausting `thread_summary_worker.max_attempts`, the system MUST NOT automatically enqueue a second task for that same tuple.
+A failed execution attempt does not advance the frontier. To prevent a permanently stuck frontier the following recovery paths apply:
 
-A `failed` task does not advance the frontier. To prevent a permanently stuck frontier the following recovery paths apply:
-
-1. **Wider-range supersession**: if later messages advance the chat frontier, the system MAY enqueue a new automatic task with the same `chat_id`, the same `base_frontier`, and a larger `frozen_target_frontier`. Such a wider-range task MAY re-summarize content that was included in the previously failed narrower range. This is intentional and valid in P1.
-2. **Operator intervention**: an operator MAY manually reset a `failed` task back to `pending` (clearing `attempt_count`) or delete it and enqueue a replacement. This is the expected P1 recovery path when no new messages arrive to trigger supersession.
-3. **Observability**: the metric `mini_chat_thread_summary_backlog{state="failed"}` MUST be monitored. An alert SHOULD fire when any task remains in `failed` for longer than a configurable threshold so that stuck frontiers are detected before they impact user experience.
+1. **Wider-range supersession**: if later messages advance the chat frontier, the system MAY enqueue a new automatic work item with the same `chat_id`, the same `base_frontier`, and a larger `frozen_target_frontier`. Such a wider-range work item MAY re-summarize content that was included in the previously failed narrower range. This is intentional and valid in P1.
+2. **Operator intervention**: an operator MAY re-drive summary generation by enqueueing a replacement outbox message for the same or a wider frozen range when no new messages arrive to trigger supersession.
+3. **Observability**: summary execution failure counters and shared outbox dead-letter visibility MUST be monitored so that stuck frontiers are detected before they impact user experience.
 
 **P2+ — Summary quality gate (deferred):**
 
@@ -1734,29 +1686,26 @@ sequenceDiagram
     participant AG as api_gateway
     participant CS as mini-chat module
     participant DB as Postgres
+    participant OB as shared outbox
     participant OG as outbound_gateway
     participant OAI as OpenAI / Azure OpenAI
 
     UI->>AG: DELETE /v1/chats/{id}
     AG->>CS: DeleteChat(chat_id, security_ctx)
-    CS->>DB: Soft-delete chat (set deleted_at)
-    CS->>DB: Mark attachments for cleanup (cleanup_status = 'pending')
+    CS->>DB: Soft-delete chat, mark attachments pending, enqueue chat-cleanup outbox message in one transaction
     CS-->>AG: 204 No Content
     AG-->>UI: 204 No Content
 
-    Note over CS: Background cleanup worker (async)
-
+    OB->>CS: Deliver chat-cleanup work asynchronously
     loop For each attachment with cleanup_status = 'pending'
-        CS->>DB: Claim attachment (cleanup_status = 'in_progress', SKIP LOCKED)
         CS->>OG: DELETE /outbound/llm/files/{provider_file_id}
         OG->>OAI: Files API delete
         OAI-->>OG: OK (or 404 — already deleted)
         OG-->>CS: OK
-        CS->>DB: Update attachment (cleanup_status = 'done')
+        CS->>DB: Update attachment cleanup outcome (`done` or terminal `failed`)
     end
 
-    opt Reconciliation sees persisted chat_vector_stores row and all attachment cleanup rows are done
-        CS->>DB: Re-read chat_vector_stores row for soft-deleted chat
+    opt All attachment cleanup rows are terminal and chat_vector_stores row still exists
         CS->>OG: DELETE /outbound/llm/vector_stores/{vector_store_id}
         OG->>OAI: Vector Stores API delete
         OAI-->>OG: OK (or 404 — already deleted)
@@ -1765,60 +1714,53 @@ sequenceDiagram
     end
 ```
 
-**Description**: Chat deletion is a two-phase operation: synchronous soft-delete (immediate 204 response) followed by asynchronous cleanup of external provider resources. The cleanup worker is responsible for removing external provider resources associated with soft-deleted chats. These resources include provider files and provider vector stores. Cleanup is performed asynchronously and is idempotent. The worker scans only attachments belonging to soft-deleted chats and performs provider deletion through OAGW. For provider-retention completion, attachment cleanup is complete only when every relevant attachment row is `done`; terminal `failed` rows remain unresolved cleanup debt. For vector-store cleanup, the remaining `chat_vector_stores` row is the durable marker that provider-side cleanup is still outstanding. A worker crash after the last attachment becomes `done` MUST NOT lose this work: periodic reconciliation MUST rediscover that row and retry vector-store deletion until success, `404 Not Found`, or blocking attachment cleanup debt.
+**Description**: Chat deletion is a two-phase operation: synchronous soft-delete (immediate 204 response) followed by asynchronous cleanup of external provider resources. Cleanup of provider files and provider vector stores for soft-deleted chats MUST be driven by the shared transactional outbox. Mini Chat MUST rely on the shared outbox for durable enqueue, partitioned ordering, retries with backoff, lease/reclaim, dead-letter handling, and reconciliation. Mini Chat MUST NOT define a second module-local polling or claim/reclaim worker for this cleanup path.
 
 ##### Cleanup responsibility boundaries
 
 There are two distinct cleanup paths in the system:
 
 1. Attachment deletion via API uses the transactional outbox mechanism.
-2. Chat deletion cleanup uses the cleanup worker.
+2. Chat deletion cleanup uses a chat-scoped outbox message emitted when the chat is soft-deleted.
 
 Normative rules:
 
 - Attachment deletion (`DELETE /v1/chats/{chat_id}/attachments/{attachment_id}`) MUST use the transactional outbox mechanism to trigger provider deletion.
-- Chat deletion cleanup MUST be performed by the cleanup worker.
-- The cleanup worker MAY act as a fallback mechanism only for attachments whose parent chat has already been soft-deleted.
-- A failed outbox-driven delete for an attachment whose parent chat is still active MUST remain owned by the attachment-delete path; it MUST NOT be silently picked up by the cleanup worker.
+- Chat deletion cleanup MUST be performed only by the outbox-driven soft-delete cleanup path.
+- A failed outbox-driven delete for an attachment whose parent chat is still active MUST remain owned by the attachment-delete path; it MUST NOT be silently picked up by the chat-deletion cleanup path.
 - The two mechanisms MUST NOT both attempt cleanup for the same attachment simultaneously.
-- Ownership transfer from the attachment-delete path to the cleanup worker occurs only when the chat itself becomes soft-deleted, after which the cleanup worker exclusively owns provider cleanup for that attachment.
+- Ownership transfer from the attachment-delete path to the chat-deletion cleanup path occurs only when the chat itself becomes soft-deleted, after which the soft-delete cleanup path exclusively owns provider cleanup for that attachment.
 
 ##### Attachment cleanup state machine
 
-`attachments.cleanup_status` uses the following worker state machine:
+`attachments.cleanup_status` uses the following domain-outcome state machine:
 
-- `pending` — eligible for claim
-- `in_progress` — currently claimed by a cleanup worker
+- `pending` — provider cleanup is still outstanding for the soft-deleted chat
 - `done` — provider cleanup finished successfully
-- `failed` — cleanup permanently failed after exhausting retries
+- `failed` — cleanup reached terminal failure after exhausting the configured per-attachment retry budget
 
 Allowed transitions:
 
-- `pending` -> `in_progress`
-- `in_progress` -> `done`
-- `in_progress` -> `pending` (retryable failure)
-- `in_progress` -> `failed` (after `cleanup_worker.max_attempts`)
+- `pending` -> `done`
+- `pending` -> `failed`
 
 Normative rules:
 
+- The `attachments` table MUST enforce the valid state values with a database-level constraint: `CHECK (cleanup_status IN ('pending', 'done', 'failed'))` (nullable column; the constraint applies only when the column is non-NULL). This constraint ensures that the state-machine transitions (`pending` -> `done`, `pending` -> `failed`) are the only transitions expressible at the persistence layer, and that canonical backlog queries (e.g. `WHERE cleanup_status = 'pending'`) and metrics derived from `cleanup_status` are valid regardless of application-layer bugs.
 - `done` and `failed` are terminal states.
-- The cleanup worker MUST NOT reclaim rows in terminal states.
-- Retry backoff MUST be applied between attempts using truncated exponential backoff: delay = min(`cleanup_worker.backoff_base_secs` * 2^(`cleanup_attempts` - 1), `cleanup_worker.backoff_max_secs`). The worker MUST NOT re-claim a `pending` row whose `cleanup_updated_at + backoff_delay > now()`.
-- On retryable failure, the worker MUST increment `attachments.cleanup_attempts`, record `last_cleanup_error`, set `cleanup_updated_at = now()`, and reset `cleanup_status` to `pending`.
-- On successful claim, the worker MUST set `cleanup_status = 'in_progress'` and `cleanup_updated_at = now()`.
-- If a row remains `in_progress` past the configured stale-claim timeout without a newer `cleanup_updated_at`, reconciliation MUST increment `attachments.cleanup_attempts`, clear the stale claim by setting `cleanup_status = 'pending'`, and set `cleanup_updated_at = now()`.
+- On retryable provider or infrastructure failure, the handler MUST increment `attachments.cleanup_attempts`, record `last_cleanup_error`, set `cleanup_updated_at = now()`, leave `cleanup_status = 'pending'`, and return control to the shared outbox retry mechanism.
+- On successful provider deletion or provider `404 Not Found`, the handler MUST set `cleanup_status = 'done'` and `cleanup_updated_at = now()`.
+- If `attachments.cleanup_attempts` reaches `chat_deletion_cleanup.max_attempts_per_attachment`, the handler MUST set `cleanup_status = 'failed'`, update `last_cleanup_error`, set `cleanup_updated_at = now()`, and treat the attachment as terminal unresolved provider-file debt.
 - `failed` is terminal for the row lifecycle, but it MUST NOT be treated as equivalent to cleanup completion for chat-level provider purge semantics.
 
-##### Row claiming semantics
+##### Outbox payload and execution semantics
 
-- The cleanup worker MUST process only attachments belonging to chats where `chats.deleted_at IS NOT NULL`.
-- Active chats (`chats.deleted_at IS NULL`) MUST NOT be processed by the cleanup worker.
-- Multiple cleanup worker instances MAY run concurrently without leader election.
-- The worker MUST claim candidate rows using `SELECT ... FOR UPDATE SKIP LOCKED` (or equivalent).
-- Candidate selection MUST filter `attachments.cleanup_status = 'pending'` and `chats.deleted_at IS NOT NULL`.
-- Claim order SHOULD be `ORDER BY chats.deleted_at ASC`.
-- Each claim cycle MUST use `LIMIT cleanup_worker.batch_size`.
-- A reconciliation pass MUST run at least once per `cleanup_worker.reconcile_interval_secs` and MUST re-enqueue only rows whose parent chat is soft-deleted and whose `cleanup_status = 'in_progress'` with `cleanup_updated_at <= now() - interval '1 second' * cleanup_worker.stale_in_progress_timeout_secs`.
+- The soft-delete transaction MUST serialize, at minimum, `tenant_id`, `chat_id`, stable `system_request_id`, `reason = "chat_soft_delete"`, and `chat_deleted_at` in the chat-cleanup outbox payload. (`system_request_id` follows the same stable-identity convention as thread summary payloads — a server-generated UUID v4 persisted at enqueue time and reused unchanged across retries.)
+- The handler MUST use `tenant_id` and `chat_id` from that payload to load the current attachment rows and `chat_vector_stores` row for the soft-deleted chat.
+- Active chats (`chats.deleted_at IS NULL`) MUST NOT be processed by the chat-deletion cleanup handler.
+- The queue SHOULD partition by `chat_id` so that all cleanup messages for the same chat are assigned to the same partition and processed sequentially. This ensures that attachment cleanup and vector-store cleanup for a given chat stay ordered through chat-scoped partitioning plus the persisted `attachments.cleanup_status` and `chat_vector_stores` row state. Different chats MAY be cleaned in parallel across partitions. The partition count (e.g. 8) controls concurrency across chats, not within a single chat; the concrete value is implementation-defined and configured via `chat_deletion_cleanup.partition_count`.
+- Correctness of cleanup does not depend on partition ordering alone — it relies on idempotent provider deletion, per-attachment terminal state tracking, and the vector-store ordering invariant (all attachments terminal before vector-store delete).
+- Mini Chat MUST rely on the shared outbox for retry, backoff, lease/reclaim, dead-letter handling, and reconciliation rather than re-implementing those mechanics in attachment row state.
 
 ##### Vector store cleanup ordering
 
@@ -1826,47 +1768,44 @@ Each chat has at most one vector store (created on first document upload). The `
 
 Normative rules:
 
-- The cleanup worker exclusively owns vector-store deletion for soft-deleted chats.
-- The worker MUST periodically reconcile persisted `chat_vector_stores` rows whose parent chat is soft-deleted, even if no attachment row is currently `pending`.
-- A vector store is delete-eligible only if every attachment cleanup row for that soft-deleted chat is in a terminal state (`done` or `failed`) and none remain `pending` or `in_progress`.
-- Equivalently, the worker MUST NOT delete the vector store while any attachment cleanup row for that chat is `pending` or `in_progress`.
-- If the vector store becomes delete-eligible and any attachment row is `failed`, the worker MUST emit `mini_chat_cleanup_vector_store_with_failed_attachments_total` before proceeding with vector-store deletion. The metric signals that provider-side file cleanup debt remains, but the vector store itself is no longer retained as a blocking resource.
-- If a vector store is delete-eligible, the worker MUST attempt provider deletion through OAGW.
+- The chat-deletion cleanup handler exclusively owns vector-store deletion for soft-deleted chats.
+- A vector store is delete-eligible only if every attachment cleanup row for that soft-deleted chat is in a terminal state (`done` or `failed`) and none remain `pending`.
+- Equivalently, the handler MUST NOT delete the vector store while any attachment cleanup row for that chat is `pending`.
+- If the vector store becomes delete-eligible and any attachment row is `failed`, the handler MUST emit `mini_chat_cleanup_vector_store_with_failed_attachments_total` before proceeding with vector-store deletion. The metric signals that provider-side file cleanup debt remains, but the vector store itself is no longer retained as a blocking resource.
+- If a vector store is delete-eligible, the handler MUST attempt provider deletion through OAGW.
 - Provider `404 Not Found` for vector-store deletion MUST be treated as success.
-- On successful delete or `404 Not Found`, the worker MUST delete the corresponding `chat_vector_stores` row. Deleting that row is the durable completion marker for vector-store cleanup.
-- On retryable provider or infrastructure failure, the worker MUST leave the `chat_vector_stores` row unchanged and retry in a later reconciliation cycle.
-- P1 does not require a separate vector-store-specific persisted `pending|in_progress|failed` state machine. Recovery is driven by periodic reconciliation over the persisted `chat_vector_stores` row plus attachment cleanup state.
+- On successful delete or `404 Not Found`, the handler MUST delete the corresponding `chat_vector_stores` row. Deleting that row is the durable completion marker for vector-store cleanup.
+- On retryable provider or infrastructure failure, the handler MUST leave the `chat_vector_stores` row unchanged and return control to the shared outbox retry mechanism.
+- P1 does not require a separate vector-store-specific persisted state machine. Recovery is driven by re-running the same durable cleanup message against the current attachment cleanup state and the persisted `chat_vector_stores` row.
 
 ##### Additional invariants
 
-1. **Idempotency**: every cleanup step MUST be idempotent. Provider `DELETE` calls that return `404 Not Found` (resource already deleted) MUST be treated as success, not failure. The cleanup worker MUST NOT fail or retry on `404` responses from the provider.
+1. **Idempotency**: every cleanup step MUST be idempotent. Provider `DELETE` calls that return `404 Not Found` (resource already deleted) MUST be treated as success, not failure. The cleanup handler MUST NOT fail or retry on `404` responses from the provider.
 
 2. **No identifier reuse**: `vector_store_id` and `provider_file_id` are provider-assigned opaque identifiers. Mini Chat MUST NOT assume or rely on any reuse semantics — each provider resource has a unique lifecycle. Since chat IDs are UUIDs, the scenario of "chat recreated with the same ID" does not occur in practice; soft-deleted chat rows are retained for audit and are excluded from active queries by `deleted_at IS NOT NULL`.
 
-3. **Failure tolerance**: if the cleanup worker crashes or restarts after the last attachment row reaches a terminal state but before vector-store deletion completes, the remaining `chat_vector_stores` row preserves the outstanding cleanup work. Periodic reconciliation MUST rediscover and retry that vector-store deletion. A chat is not fully purged from provider storage until both conditions hold: (a) every relevant attachment cleanup row is in a terminal state (`done` or `failed`), and (b) the corresponding `chat_vector_stores` row has been removed after provider delete success or `404 Not Found`. If any attachment row is `failed`, individual provider-file cleanup debt remains unresolved, but vector-store deletion is not blocked — the worker proceeds with vector-store deletion and emits `mini_chat_cleanup_vector_store_with_failed_attachments_total`. Because `failed` rows are terminal in P1 and excluded from automatic re-enqueue, clearing per-file debt requires operator intervention or a future recovery policy outside P1 scope. Canonical backlog visibility MUST use `mini_chat_cleanup_backlog{state,resource_type="file"}` for persisted attachment row states only.
+3. **Failure tolerance**: if a process crashes or restarts after some attachment rows reach terminal state but before vector-store deletion completes, the remaining `chat_vector_stores` row preserves the outstanding cleanup work and the same durable outbox message remains retryable within the shared outbox framework. A chat is not fully purged from provider storage until both conditions hold: (a) every relevant attachment cleanup row is in a terminal state (`done` or `failed`), and (b) the corresponding `chat_vector_stores` row has been removed after provider delete success or `404 Not Found`. If any attachment row is `failed`, individual provider-file cleanup debt remains unresolved, but vector-store deletion is not blocked — the handler proceeds with vector-store deletion and emits `mini_chat_cleanup_vector_store_with_failed_attachments_total`. Because `failed` rows are terminal in P1 and excluded from automatic re-enqueue, clearing per-file debt requires operator intervention or a future recovery policy outside P1 scope.
+
+4. **Provider-side orphan files (P2)**: if a process crashes after a successful provider Files API upload but before `cas_set_uploaded` persists the `provider_file_id` in the local database, the uploaded file becomes an orphan on the provider side. Mini Chat has no record of its `provider_file_id` and therefore the P1 cleanup handler cannot delete it. This orphan window is narrow (microseconds between provider HTTP response and local DB commit) and the cost is limited to provider storage. P2 SHOULD implement a **provider file reconciliation job** that periodically lists files via the provider Files API (`GET /files?purpose=assistants`), compares with locally-known `provider_file_id` values, and deletes unmatched orphans. Provider-side filenames follow the structured convention `{chat_id}_{attachment_id}.{ext}` (see `structured_filename()`), so the reconciliation job can parse the filename to extract `chat_id` and `attachment_id`, then verify against the local database whether the file is tracked. The reconciliation job MUST be leader-elected (single instance) and MUST NOT delete files younger than a configurable grace period (e.g. 1 hour) to avoid racing with in-progress uploads. Deleting a provider vector store does NOT delete its referenced files — it only removes the index references — so orphan file cleanup cannot rely on vector store deletion alone.
 
 **Cleanup configuration knobs** (deployment config):
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `cleanup_worker.enabled` | bool | true | Enables the cleanup worker |
-| `cleanup_worker.poll_interval_secs` | integer | 60 | Cleanup worker poll interval |
-| `cleanup_worker.reconcile_interval_secs` | integer | 300 | Maximum interval between reconciliation scans for stuck `in_progress` rows |
-| `cleanup_worker.stale_in_progress_timeout_secs` | integer | 900 | Timeout after which a soft-deleted chat attachment stuck in `in_progress` becomes re-enqueue eligible |
-| `cleanup_worker.batch_size` | integer | 32 | Max attachments claimed per poll cycle |
-| `cleanup_worker.max_attempts` | integer | 5 | Max retry attempts per attachment before marking as `failed` |
-| `cleanup_worker.backoff_base_secs` | integer | 1 | Base delay for truncated exponential backoff between retries |
-| `cleanup_worker.backoff_max_secs` | integer | 60 | Maximum backoff delay cap |
+| `chat_deletion_cleanup.enabled` | bool | true | Enables outbox-driven provider cleanup for soft-deleted chats |
+| `chat_deletion_cleanup.queue_name` | string | implementation-defined | Shared outbox queue used for soft-deleted chat cleanup |
+| `chat_deletion_cleanup.partition_count` | integer | implementation-defined (e.g. 8) | Number of shared outbox partitions for chat cleanup; controls concurrency across chats (all work for a given chat is serialized within its assigned partition) |
+| `chat_deletion_cleanup.max_attempts_per_attachment` | integer | 5 | Max provider delete attempts recorded per attachment before terminal `failed` |
 
 **Observability (P1)**:
 
 - `mini_chat_cleanup_completed_total{resource_type="file|vector_store"}` (counter) — successful cleanup operations
 - `mini_chat_cleanup_failed_total{resource_type="file"}` (counter) — attachment cleanup rows that transition to terminal `failed`
-- `mini_chat_cleanup_retry_total{resource_type="file|vector_store",reason}` (counter) — retryable cleanup attempts
-- `mini_chat_cleanup_backlog{state,resource_type="file"}` (gauge) — canonical cleanup backlog metric for persisted attachment row states only; `state` MUST cover `pending|in_progress|failed`
-- Any pending-only operational view SHOULD be derived from `mini_chat_cleanup_backlog{state="pending",resource_type="file"}` rather than treated as a separate canonical metric.
+- `mini_chat_cleanup_retry_total{resource_type="file|vector_store",reason}` (counter) — handler retries delegated to the shared outbox after retryable cleanup attempts
+- `mini_chat_cleanup_backlog{state,resource_type="file"}` (gauge) — canonical cleanup backlog metric for persisted attachment row states only; `state` MUST cover `pending|failed`
+- `mini_chat_cleanup_vector_store_with_failed_attachments_total` (counter) — vector-store deletions executed after attachment cleanup reached terminal outcomes that included at least one `failed` attachment row
 
-Vector-store cleanup does not have an independent persisted `pending|in_progress|failed` state machine in P1. Any vector-store visibility MUST therefore be expressed as counters or derived reconciliation queries over `chat_vector_stores`, not as file-style state backlog metrics.
+Vector-store cleanup does not have an independent persisted state machine in P1. Any vector-store visibility MUST therefore be expressed as counters or shared-outbox/dead-letter visibility plus derived queries over `chat_vector_stores`, not as file-style state backlog metrics.
 
 ### 3.7 Database Schemas & Tables
 
@@ -2018,7 +1957,7 @@ Soft-delete rules:
 | img_thumbnail_height | INTEGER | Thumbnail height in pixels (nullable) |
 | summary_model | TEXT | Model used to generate the summary (nullable) |
 | summary_updated_at | TIMESTAMPTZ | When the summary was last generated (nullable) |
-| cleanup_status | VARCHAR(16) | `pending`, `in_progress`, `done`, `failed` (nullable). For chat-level provider purge semantics, only `done` counts as cleanup complete; `failed` remains unresolved cleanup debt. |
+| cleanup_status | VARCHAR(16) | `pending`, `done`, `failed` (nullable). `pending` means provider cleanup is still outstanding for the soft-deleted chat. For chat-level provider purge semantics, only `done` counts as cleanup complete; `failed` remains unresolved cleanup debt. |
 | cleanup_attempts | INTEGER | Cleanup retry attempts (default 0) |
 | last_cleanup_error | TEXT | Last cleanup error (nullable) |
 | cleanup_updated_at | TIMESTAMPTZ | When cleanup state was last updated (nullable) |
@@ -2027,7 +1966,7 @@ Soft-delete rules:
 
 **PK**: `id`
 
-**Constraints**: NOT NULL on `tenant_id`, `chat_id`, `uploaded_by_user_id`, `filename`, `status`, `attachment_kind`, `storage_backend`, `created_at`. FK `chat_id` -> `chats.id` ON DELETE CASCADE. CHECK `attachment_kind IN ('document', 'image')`.
+**Constraints**: NOT NULL on `tenant_id`, `chat_id`, `uploaded_by_user_id`, `filename`, `status`, `attachment_kind`, `storage_backend`, `created_at`. FK `chat_id` -> `chats.id` ON DELETE CASCADE. CHECK `attachment_kind IN ('document', 'image')`. CHECK `cleanup_status IN ('pending', 'done', 'failed')` (applied only when `cleanup_status IS NOT NULL`).
 
 **Secure ORM**: No independent `#[secure]` — accessed through parent chat. Owner isolation inherited from chat-level scoping (`chat_id` obtained from a scoped chat query).
 
@@ -2066,50 +2005,6 @@ Writers MUST populate `chat_id` from the parent message's `messages.chat_id` (no
 - The `attachments` array in the API `Message` object is derived via a lateral join from `message_attachments` to `attachments` in the `listMessages` query, projecting only the `AttachmentSummary` fields (`attachment_id`, `kind`, `filename`, `status`, `img_thumbnail`).
 - For assistant and system messages, the join table will have zero rows (empty `attachments` array in API response).
 
-#### Table: thread_summary_tasks
-
-- [ ] `p1` - **ID**: `cpt-cf-mini-chat-dbtable-thread-summary-tasks`
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | UUID | Task identifier |
-| chat_id | UUID | Parent chat (FK -> chats.id) |
-| base_frontier_created_at | TIMESTAMPTZ | Base frontier `created_at` component (nullable only when the chat has no committed `thread_summaries` row yet) |
-| base_frontier_message_id | UUID | Base frontier `id` component (nullable only when the chat has no committed `thread_summaries` row yet) |
-| frozen_target_created_at | TIMESTAMPTZ | Frozen target frontier `created_at` component |
-| frozen_target_message_id | UUID | Frozen target frontier `id` component |
-| system_request_id | UUID | Stable system-task request identifier generated when the durable task row is inserted and reused unchanged across reclaim/retry/outbox/audit emission for that same task |
-| status | TEXT | Task lifecycle state: `pending`, `claimed`, `completed`, `stale`, or `failed` |
-| claimed_by | TEXT | Leader identity that claimed the task (nullable; pod name or process identity) |
-| claimed_at | TIMESTAMPTZ | Durable claim timestamp (nullable) |
-| last_error | TEXT | Last execution error for failed tasks (nullable) |
-| created_at | TIMESTAMPTZ | Creation time (NOT NULL, DEFAULT now()) |
-| updated_at | TIMESTAMPTZ | Last update time (NOT NULL, DEFAULT now()) |
-
-**PK**: `id`
-
-**Constraints**: FK `chat_id` -> `chats.id` ON DELETE CASCADE. NOT NULL on `chat_id`, `frozen_target_created_at`, `frozen_target_message_id`, `system_request_id`, `status`, `created_at`, `updated_at`. CHECK `status IN ('pending', 'claimed', 'completed', 'stale', 'failed')`. CHECK `(base_frontier_created_at IS NULL) = (base_frontier_message_id IS NULL)`. The tuple `(chat_id, base_frontier_created_at, base_frontier_message_id, frozen_target_created_at, frozen_target_message_id)` uniquely identifies the frozen summary range. The implementation MUST enforce uniqueness of automatic tasks for that frozen summary range, including the empty-frontier case where both `base_frontier_*` columns are NULL. `base_frontier_*` columns are NULL only when the chat has no committed `thread_summaries` row yet.
-
-**Implementation note**: In Postgres, a standard UNIQUE constraint does not treat `NULL` values as equal. Therefore, the implementation MUST enforce frozen-range uniqueness for the empty-frontier case explicitly, for example via:
-- a partial unique index for rows where both `base_frontier_*` columns are NULL, plus
-- a separate unique index for rows where both `base_frontier_*` columns are NOT NULL,
-or an equivalent generated-key strategy.
-
-**Indexes**: `(status, created_at)` for pending task discovery and reconciliation scans; `(status, claimed_at)` for abandonment and reclaim scans.
-
-**Status semantics (normative)**:
-
-- `pending` — durable task exists and is awaiting claim by the active leader.
-- `claimed` — task has been durably claimed by a leader and is in progress.
-- `completed` — the successful summary commit already advanced the frontier.
-- `stale` — another worker or task already advanced the frontier and this task can no longer commit.
-- `failed` — the LLM call or execution failed and the frontier was not advanced.
-- `system_request_id` remains stable across all non-terminal and terminal transitions of the row and MUST NOT be regenerated by reclaim or retry logic.
-
-**Durable task semantics (normative)**: This table is the authoritative source of truth for automatic thread summary task existence, deduplication, claim state, recovery, and failover safety. It is independent from `chat_turns` and is not user-visible.
-
-**Secure ORM**: No independent `#[secure]` — accessed through parent chat for internal/system use only. Background worker queries MUST operate on this table as system-owned internal state.
-
 #### Table: thread_summaries
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-dbtable-thread-summaries`
@@ -2143,7 +2038,7 @@ Before that point, the chat has no `thread_summaries` row and its summary fronti
 
 It MUST NOT be used as the sole storage for pending or in-flight summary work.
 
-Pending and in-flight automatic summary work MUST be stored in `thread_summary_tasks`.
+Pending and in-flight automatic summary work MUST be represented by the shared outbox message plus the durable frontier state in `thread_summaries` and `messages`. Mini Chat MUST NOT create a second module-local claim/reclaim table solely to duplicate shared outbox execution semantics.
 
 **Secure ORM**: No independent `#[secure]` — accessed through parent chat.
 
@@ -2183,7 +2078,7 @@ Pending and in-flight automatic summary work MUST be stored in `thread_summary_t
 - All queries against `chat_vector_stores` MUST include `tenant_id` in the WHERE clause (enforced by `AccessScope` scoping).
 - The system MUST NOT allow any code path to look up, query, or reference a vector store row belonging to a different tenant.
 
-**Implementation note (normative)**: direct access to `chat_vector_stores` by primary key (`id`) or by `vector_store_id` alone is **forbidden** in request-handling code. All access MUST go through chat-scoped repository methods that enforce `(tenant_id, user_id, chat_id)` via `AccessScope` — typically by first loading the parent chat through a scoped query and then joining or filtering `chat_vector_stores` on `(tenant_id, chat_id)`. Any query against this table that does not include `tenant_id` and a chat-scoped join (or equivalent proven chat-scope guarantee) is a tenant-isolation violation. Background jobs (cleanup worker, orphan reaper) that operate outside a user `AccessScope` MUST still include `tenant_id` in every query.
+**Implementation note (normative)**: direct access to `chat_vector_stores` by primary key (`id`) or by `vector_store_id` alone is **forbidden** in request-handling code. All access MUST go through chat-scoped repository methods that enforce `(tenant_id, user_id, chat_id)` via `AccessScope` — typically by first loading the parent chat through a scoped query and then joining or filtering `chat_vector_stores` on `(tenant_id, chat_id)`. Any query against this table that does not include `tenant_id` and a chat-scoped join (or equivalent proven chat-scope guarantee) is a tenant-isolation violation. Background processes that operate outside a user `AccessScope` MUST still include `tenant_id` in every query.
 
 **Creation protocol (P1, insert-first get-or-create):**
 
@@ -2191,7 +2086,7 @@ The domain service creates the vector store lazily on the first document upload 
 
 1. Begin transaction.
 2. Attempt INSERT:
-   ```
+   ```sql
    INSERT INTO chat_vector_stores (tenant_id, chat_id, vector_store_id, provider, created_at)
    VALUES (:tenant_id, :chat_id, NULL, :provider, now())
    ```
@@ -2221,7 +2116,7 @@ The domain service creates the vector store lazily on the first document upload 
 
 **Deletion race**:
 
-If the chat is soft-deleted before vector store creation completes, the creation transaction MUST fail: the upload handler loads the chat via a scoped query before entering the creation protocol. If the chat is soft-deleted, the scoped query returns not-found and the upload is rejected with 404 before reaching step 1. If deletion occurs after the chat-load check but before transaction commit, the cleanup worker will delete the orphaned row (the cleanup worker treats "not found" / "already deleted" as success).
+If the chat is soft-deleted before vector store creation completes, the creation transaction MUST fail: the upload handler loads the chat via a scoped query before entering the creation protocol. If the chat is soft-deleted, the scoped query returns not-found and the upload is rejected with 404 before reaching step 1. If deletion occurs after the chat-load check but before transaction commit, the outbox-driven chat-deletion cleanup path will delete the orphaned row and MUST treat provider "not found" / "already deleted" as success.
 
 #### Table: quota_usage
 
@@ -3170,7 +3065,7 @@ The shared outbox pipeline delivers the `attachment_cleanup` message to the Mini
 1. Remove the document from the chat vector store (provider Vector Stores API).
 2. Delete the file from the provider Files API.
 
-If either provider call fails transiently, the handler MUST return `Retry` so the shared outbox applies lease-aware retry/backoff. If the message is permanently malformed or unrecoverable, the handler MAY return `Reject`, which moves the message to the shared outbox dead-letter store for operator recovery. Partial failure is safe: the attachment is already soft-deleted and excluded from retrieval. Provider-side orphans are eventually cleaned up by retries, dead-letter replay, or by the chat deletion cleanup worker.
+If either provider call fails transiently, the handler MUST return `Retry` so the shared outbox applies lease-aware retry/backoff. If the message is permanently malformed or unrecoverable, the handler MAY return `Reject`, which moves the message to the shared outbox dead-letter store for operator recovery. Partial failure is safe: the attachment is already soft-deleted and excluded from retrieval. Provider-side orphans are eventually cleaned up by retries, dead-letter replay, or by the outbox-driven chat-deletion cleanup path.
 
 **Invariants**:
 
@@ -3626,13 +3521,10 @@ The following metric series MUST be exposed (types and label sets shown). These 
 
 ##### Thread summary health
 
-- `mini_chat_summary_fallback_total` (counter)
-- `mini_chat_thread_summary_backlog{state}` (gauge; `state`: `pending|claimed|failed|stale`)
-- `mini_chat_thread_summary_oldest_pending_age_seconds` (gauge)
-- `mini_chat_thread_summary_oldest_claimed_age_seconds` (gauge)
-- `mini_chat_thread_summary_reclaimed_total` (counter)
-- `mini_chat_thread_summary_llm_calls_total{result}` (counter; `result`: `ok|provider_error|timeout`)
+- `mini_chat_thread_summary_trigger_total{result}` (counter; `result`: `scheduled|not_needed`)
+- `mini_chat_thread_summary_execution_total{result}` (counter; `result`: `success|provider_error|timeout|retry`)
 - `mini_chat_thread_summary_cas_conflicts_total` (counter)
+- `mini_chat_summary_fallback_total` (counter)
 
 ##### Turn mutations
 
@@ -3671,11 +3563,11 @@ The following metric series MUST be exposed (types and label sets shown). These 
 
 ##### Cleanup and drift
 
-- `mini_chat_cleanup_job_runs_total{kind}` (counter; `kind`: `delete_chat|reconcile`; `temporary_cleanup` deferred to P2)
-- `mini_chat_cleanup_attempts_total{op,result}` (counter; `op`: `vs_remove|file_delete`; `result`: `ok|not_found_ok|retryable_fail|fatal_fail`)
-- `mini_chat_cleanup_orphan_found_total{kind}` (counter; `kind`: `provider_file|vs_entry`)
-- `mini_chat_cleanup_orphan_fixed_total{kind}` (counter)
-- `mini_chat_cleanup_backlog{state,resource_type="file"}` (gauge; canonical cleanup backlog family for persisted attachment row states only. `state`: `pending|in_progress|failed`)
+- `mini_chat_cleanup_completed_total{resource_type}` (counter; `resource_type`: `file|vector_store`)
+- `mini_chat_cleanup_failed_total{resource_type}` (counter; `resource_type`: `file`)
+- `mini_chat_cleanup_retry_total{resource_type,reason}` (counter; `resource_type`: `file|vector_store`)
+- `mini_chat_cleanup_backlog{state,resource_type="file"}` (gauge; canonical cleanup backlog family for persisted attachment row states only. `state`: `pending|failed`)
+- `mini_chat_cleanup_vector_store_with_failed_attachments_total` (counter)
 - `mini_chat_cleanup_latency_ms{op}` (histogram)
 
 ##### Audit emission health
@@ -3686,8 +3578,8 @@ The following metric series MUST be exposed (types and label sets shown). These 
 
 ##### Outbox integration health and monitoring (P1)
 
-- `mini_chat_outbox_enqueue_total{kind,result}` (counter; `kind`: `usage|attachment_cleanup`; `result`: `ok|error`)
-- `mini_chat_outbox_handler_total{kind,result}` (counter; `kind`: `usage|attachment_cleanup`; `result`: `success|retry|reject`)
+- `mini_chat_outbox_enqueue_total{kind,result}` (counter; `kind`: `usage|attachment_cleanup|chat_cleanup|thread_summary`; `result`: `ok|error`)
+- `mini_chat_outbox_handler_total{kind,result}` (counter; `kind`: `usage|attachment_cleanup|chat_cleanup|thread_summary`; `result`: `success|retry|reject`)
 - `mini_chat_outbox_dead_letter_backlog{kind}` (gauge; current pending dead-letter count for Mini-Chat messages filtered by queue/payload_type)
 - `mini_chat_outbox_dead_letter_oldest_age_seconds{kind}` (gauge; age of oldest pending dead letter for Mini-Chat messages)
 
@@ -3708,11 +3600,11 @@ The following metric series MUST be exposed (types and label sets shown). These 
 - `mini_chat_time_to_abort_ms` p99 > 200 ms
 - `mini_chat_active_streams` approaching configured concurrency cap
 - Provider error spikes: elevated `mini_chat_provider_errors_total{status=~"429|5.."}`
-- Summary queue lag: sustained `mini_chat_thread_summary_oldest_pending_age_seconds` above the expected reconciliation window
-- Summary stuck claims: sustained `mini_chat_thread_summary_oldest_claimed_age_seconds` above `thread_summary_worker.claim_timeout_secs`
-- Summary failures: sustained `mini_chat_thread_summary_backlog{state=~"failed|stale"}` above normal background noise
+- Summary execution failures: sustained increase in `mini_chat_thread_summary_execution_total{result=~"provider_error|timeout"}` or `mini_chat_summary_fallback_total`
+- Summary CAS churn: sustained increase in `mini_chat_thread_summary_cas_conflicts_total`
 - Orphan watchdog activity: sustained increase in `mini_chat_orphan_detected_total{reason="stale_progress"}` without a corresponding increase in `mini_chat_orphan_finalized_total{reason="stale_progress"}`
-- Cleanup backlog growth: rising `mini_chat_cleanup_backlog{state="pending",resource_type="file"}` or sustained `mini_chat_cleanup_backlog{state="failed",resource_type=~"file|vector_store"}`
+- Cleanup backlog growth: rising `mini_chat_cleanup_backlog{state="pending",resource_type="file"}` or sustained `mini_chat_cleanup_backlog{state="failed",resource_type="file"}`
+- Summary or cleanup dead letters: `mini_chat_outbox_dead_letter_backlog{kind=~"thread_summary|chat_cleanup"}` > 0
 - Mini-Chat usage dead letters: `mini_chat_outbox_dead_letter_backlog{kind="usage"}` > 0
 - Audit emission failures: sustained `mini_chat_audit_emit_total{result="failed"}`
 - Quota anomalies: sustained increase in `mini_chat_quota_negative_total`
@@ -3731,12 +3623,13 @@ Alerts (P1) are defined as explicit condition -> window -> severity mappings:
 | `mini_chat_time_to_abort_ms` p99 > 200 ms | 5m | critical |
 | `mini_chat_audit_emit_total{result="failed"}` > 0 | 5m | critical |
 | Provider failure rate `rate(mini_chat_provider_errors_total[5m]) / rate(mini_chat_provider_requests_total[5m])` exceeds configured threshold | 5m | critical |
-| `mini_chat_thread_summary_oldest_pending_age_seconds` exceeds `thread_summary_worker.reconcile_interval_secs` | 15m | warning |
-| `mini_chat_thread_summary_oldest_claimed_age_seconds` exceeds `thread_summary_worker.claim_timeout_secs` | 15m | critical |
-| `mini_chat_thread_summary_backlog{state=~"failed|stale"}` > 0 | 15m | warning |
+| `rate(mini_chat_thread_summary_execution_total{result=~"provider_error\|timeout"}[15m])` sustained above configured threshold | 15m | warning |
+| `mini_chat_outbox_dead_letter_backlog{kind="thread_summary"}` > 0 | 15m | critical |
+| `mini_chat_thread_summary_cas_conflicts_total` increases above configured background threshold | 15m | warning |
 | `rate(mini_chat_orphan_detected_total{reason="stale_progress"}[15m]) > 0` AND `rate(mini_chat_orphan_finalized_total{reason="stale_progress"}[15m]) = 0` | 15m | critical |
 | `mini_chat_cleanup_backlog{state="pending",resource_type="file"}` grows monotonically | 60m | warning |
-| `mini_chat_cleanup_backlog{state="failed",resource_type=~"file|vector_store"}` > 0 | 15m | critical |
+| `mini_chat_cleanup_backlog{state="failed",resource_type="file"}` > 0 | 15m | critical |
+| `mini_chat_outbox_dead_letter_backlog{kind="chat_cleanup"}` > 0 | 15m | critical |
 | `mini_chat_outbox_dead_letter_backlog{kind="usage"}` > 0 | 15m | critical |
 | `mini_chat_outbox_dead_letter_oldest_age_seconds{kind="usage"}` > 3600 | 15m | warning |
 
@@ -3806,12 +3699,15 @@ Operators MUST be able to reconstruct the full request lifecycle using logs, tra
 4. Query `audit_service` for the corresponding audit event(s) and confirm:
   - prompt/response were emitted
   - redaction rules applied
-  - usage (tokens, `selected_model`, `effective_model`) was recorded
-5. Consult operational dashboards/alerts:
+5. Verify usage was recorded for the turn:
+  - `input_tokens` and `output_tokens` are non-null on the assistant message and/or `chat_turns` row
+  - `selected_model` (from `chats.model`) and `effective_model` (from `chat_turns.effective_model`) are both present and consistent with expected downgrade behavior
+  - if a downgrade occurred, confirm `effective_model` differs from `selected_model` and the turn metadata reflects the downgrade reason
+6. Consult operational dashboards/alerts:
   - streaming health (`mini_chat_stream_failed_total`, `mini_chat_provider_errors_total`)
   - cancellation health (`mini_chat_time_to_abort_ms`, `mini_chat_cancel_orphan_total`)
   - orphan watchdog health (`mini_chat_orphan_detected_total{reason="stale_progress"}`, `mini_chat_orphan_finalized_total{reason="stale_progress"}`, `mini_chat_orphan_scan_duration_seconds`)
-  - summary health (`mini_chat_summary_fallback_total`, `mini_chat_thread_summary_backlog`, `mini_chat_thread_summary_oldest_pending_age_seconds`, `mini_chat_thread_summary_oldest_claimed_age_seconds`, `mini_chat_thread_summary_reclaimed_total`, `mini_chat_thread_summary_cas_conflicts_total`)
+  - summary health (`mini_chat_summary_fallback_total`, `mini_chat_thread_summary_trigger_total`, `mini_chat_thread_summary_execution_total`, `mini_chat_thread_summary_cas_conflicts_total`)
   - cleanup/audit health (`mini_chat_cleanup_backlog`, `mini_chat_audit_emit_total`)
 
 ### SSE Infrastructure Requirements
@@ -4072,26 +3968,18 @@ The following are explicitly out of scope for P1 crash recovery:
 
 When a chat is deleted:
 1. Soft-delete the chat record (`deleted_at` set)
-2. Mark all attachments for cleanup (`cleanup_status=pending`) and return immediately (no synchronous provider cleanup in the HTTP request)
-3. A background cleanup worker performs idempotent retries:
-  - For each attachment (documents and images): delete the provider file via OAGW using the internal `provider_file_id`, and update per-attachment cleanup state with retries/backoff
-  - Only after all attachments for the chat have reached cleanup status `done`, delete the chat's vector store via OAGW (single API call — simpler than per-file removal since the store is dedicated to the chat)
-  - After successful vector store deletion (or provider 404 "already deleted"), delete the `chat_vector_stores` row
-  - Cleanup worker rules:
-    - Cleanup worker MUST treat "not found" / "already deleted" for vector store deletion as success
-    - Cleanup worker MUST treat "already deleted" / "not found" for provider file deletion as success
-    - Recommended order: delete provider files first, then delete the vector store, then delete the `chat_vector_stores` row
-    - If some attachments are marked `failed` after exhausting retries, vector store deletion is NOT blocked — the worker proceeds once all attachment rows are terminal (`done` or `failed`). The chat MUST NOT be treated as fully purged from provider file storage until all individual file cleanup debt is resolved, but the vector store resource is released
-    - Because `failed` rows are terminal and excluded from automatic re-enqueue in P1, clearing per-file cleanup debt requires operator intervention or a future recovery policy outside P1 scope
-4. Partial failures are recorded per attachment (`cleanup_attempts`, `last_cleanup_error`) and retried with backoff
+2. Mark all attachments for cleanup (`cleanup_status=pending`), persist the soft-delete transition, and enqueue a durable chat-cleanup outbox message in the same transaction
+3. The shared outbox invokes the chat-cleanup handler asynchronously:
+  - For each attachment (documents and images) still owned by the soft-deleted chat and still in `cleanup_status=pending`, delete the provider file via OAGW using the internal `provider_file_id`
+  - Treat provider `404` / `not found` for file deletion as successful idempotent cleanup
+  - Record per-attachment terminal outcome in Mini Chat (`done` or `failed`) using `cleanup_attempts`, `last_cleanup_error`, and `cleanup_updated_at`
+  - Only after all attachments for the chat have reached terminal cleanup outcomes (`done` or `failed`), delete the chat's vector store via OAGW
+  - Treat provider `404` / `not found` for vector-store deletion as success and then delete the `chat_vector_stores` row
+  - If some attachments are terminal `failed`, vector-store deletion is NOT blocked; the chat MUST NOT be treated as fully purged from provider file storage until that per-file cleanup debt is resolved, but the vector store resource is released
+4. Retry, backoff, lease/reclaim, dead-letter handling, and reconciliation for this asynchronous flow are owned by the shared outbox infrastructure, not by a Mini-Chat-specific polling worker
 5. (P2) Temporary chats will follow the same flow, triggered by a scheduled job after 24h
 
-**Vector store cleanup**: when a chat is deleted, the cleanup worker deletes the chat's entire vector store via OAGW (single API call). This is simpler than per-file removal since the store is dedicated to the chat. If the vector store has already been deleted (e.g., by the orphan reaper), treat as success.
-
-P1 operational requirement: run a periodic reconcile job according to `cleanup_worker.reconcile_interval_secs` to reduce provider drift and manual cleanup.
-
-- Re-enqueue attachment cleanup only for rows in `cleanup_status=in_progress` whose parent chat is soft-deleted and whose `cleanup_updated_at` has exceeded `cleanup_worker.stale_in_progress_timeout_secs` (worker crash recovery). Rows in terminal states (`done`, `failed`) are excluded. `failed` rows remain unresolved per-file provider-cleanup debt but do not block vector store deletion. Clearing per-file debt requires operator intervention or a future recovery policy outside P1 scope because `failed` rows are not automatically re-enqueued.
-- Emit cleanup drift metrics (`mini_chat_cleanup_orphan_found_total`, `mini_chat_cleanup_orphan_fixed_total`) based on what can be detected from DB state and provider responses.
+**Vector store cleanup**: when a chat is deleted, the outbox-driven cleanup path deletes the chat's entire vector store via OAGW (single API call). This is simpler than per-file removal since the store is dedicated to the chat. If the vector store has already been deleted, treat as success.
 
 ## 5. Quota Enforcement and Billing Integration
 
@@ -6963,18 +6851,16 @@ Orphan cleanup is asynchronous and MUST NOT block any user-visible request path.
 - `mini_chat_orphan_finalized_total{reason}` (counter) — increments only when the watchdog successfully wins the CAS finalization and transitions the turn to terminal orphan outcome; `reason`: `stale_progress`
 - `mini_chat_orphan_scan_duration_seconds` (histogram) — watchdog scan duration
 
-### B.9.2 Cleanup worker
+### B.9.2 Chat-deletion cleanup (outbox-driven)
 
 | Parameter | Type | Default | Source |
 |-----------|------|---------|--------|
-| `cleanup_worker.enabled` | `bool` | `true` | **ConfigMap** |
-| `cleanup_worker.poll_interval_secs` | `integer` | `60` | **ConfigMap** |
-| `cleanup_worker.reconcile_interval_secs` | `integer` | `300` | **ConfigMap** |
-| `cleanup_worker.stale_in_progress_timeout_secs` | `integer` | `900` | **ConfigMap** |
-| `cleanup_worker.batch_size` | `integer` | `32` | **ConfigMap** |
-| `cleanup_worker.max_attempts` | `integer` | `5` | **ConfigMap** |
+| `chat_deletion_cleanup.enabled` | `bool` | `true` | **ConfigMap** |
+| `chat_deletion_cleanup.queue_name` | `string` | implementation-defined | **ConfigMap** |
+| `chat_deletion_cleanup.partition_count` | `integer` | implementation-defined (e.g. 8) | **ConfigMap** |
+| `chat_deletion_cleanup.max_attempts_per_attachment` | `integer` | `5` | **ConfigMap** |
 
-The cleanup worker is responsible for removing external provider resources associated with soft-deleted chats.
+Chat-deletion cleanup is responsible for removing external provider resources associated with soft-deleted chats.
 
 These resources include:
 
@@ -6983,7 +6869,7 @@ These resources include:
 
 Cleanup is performed asynchronously and is idempotent.
 
-Attachment cleanup is driven by persisted `attachments.cleanup_status` rows. Vector-store cleanup is driven by periodic reconciliation over persisted `chat_vector_stores` rows whose parent chat is soft-deleted. A vector store becomes delete-eligible only when all attachment cleanup rows for that chat are `done`; any `failed` attachment row blocks provider purge. If vector-store deletion fails retryably, the `chat_vector_stores` row remains in place and the worker retries in a later reconciliation cycle. Because P1 does not define a separate vector-store row-state machine, canonical backlog state metrics apply to attachment rows only. `cleanup_worker.max_attempts` applies to attachment cleanup rows only.
+Attachment cleanup is driven by the durable chat-cleanup outbox message plus persisted `attachments.cleanup_status` rows. Vector-store cleanup is driven by re-processing that same durable cleanup message against the persisted `chat_vector_stores` row whose parent chat is soft-deleted. A vector store becomes delete-eligible only when all attachment cleanup rows for that chat have reached terminal outcomes (`done` or `failed`). If vector-store deletion fails retryably, the `chat_vector_stores` row remains in place and the shared outbox retries the same cleanup message later. Because P1 does not define a separate vector-store row-state machine, canonical backlog state metrics apply to attachment rows only.
 
 ### B.9.3 Shared `modkit-db::outbox` integration
 
@@ -7002,12 +6888,14 @@ Mini-Chat does not define a separate Mini-Chat-specific dispatcher row-state con
 
 Concrete deployment keys for these parameters are integration-specific, but their semantics MUST match the shared `modkit-db::outbox` API rather than a Mini-Chat-specific dispatcher row model.
 
-### B.9.4 Thread summary worker
+### B.9.4 Thread summary (outbox-driven)
 
 | Parameter | Type | Default | Source |
 |-----------|------|---------|--------|
-| Message count trigger threshold | — | `20` | **ConfigMap** |
-| Token budget trigger | — | — | **ConfigMap** |
+| `thread_summary.enabled` | `bool` | `true` | **ConfigMap** |
+| `thread_summary.queue_name` | `string` | implementation-defined | **ConfigMap** |
+| `thread_summary.partition_count` | `integer` | implementation-defined (e.g. 8) | **ConfigMap** |
+| `thread_summary.compression_threshold_pct` | — | `80` | **ConfigMap** |
 | User turn interval trigger | — | `15` | **ConfigMap** |
 | `summary_quality.min_length` | — | — | **ConfigMap** |
 | `summary_quality.min_entropy` | — | — | **ConfigMap** |

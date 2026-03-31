@@ -8,7 +8,7 @@ project_root = ".."
 format = "Cypilot"
 path = "config/kits/sdlc"
 source = "github:cyberfabric/cyber-pilot-kit-sdlc"
-version = "1.2.0"
+version = "1.3.0"
 
 [kits.sdlc.resources]
 [kits.sdlc.resources.adr_template]
@@ -70,6 +70,18 @@ path = "../docs/checklists/PRD.md"
 
 [kits.sdlc.resources.prd_example]
 path = "../docs/spec-templates/cf-sdlc/PRD/examples"
+
+[kits.sdlc.resources.upstream_reqs_template]
+path = "../docs/spec-templates/cf-sdlc/UPSTREAM_REQS/template.md"
+
+[kits.sdlc.resources.upstream_reqs_rules]
+path = "config/kits/sdlc/artifacts/UPSTREAM_REQS/rules.md"
+
+[kits.sdlc.resources.upstream_reqs_checklist]
+path = "../docs/checklists/UPSTREAM_REQS.md"
+
+[kits.sdlc.resources.upstream_reqs_example]
+path = "../docs/spec-templates/cf-sdlc/UPSTREAM_REQS/examples"
 
 [kits.sdlc.resources.pr_code_review_template]
 path = "config/kits/sdlc/artifacts/PR-CODE-REVIEW-TEMPLATE/template.md"

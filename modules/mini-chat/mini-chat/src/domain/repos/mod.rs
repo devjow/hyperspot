@@ -24,13 +24,15 @@ pub(crate) use message_repo::{
     InsertAssistantMessageParams, InsertUserMessageParams, MessageRepository, SnapshotBoundary,
 };
 pub(crate) use model_resolver::ModelResolver;
-pub(crate) use outbox_enqueuer::{AttachmentCleanupEvent, OutboxEnqueuer};
+pub(crate) use outbox_enqueuer::{
+    AttachmentCleanupEvent, ChatCleanupEvent, CleanupOutcome, CleanupReason, OutboxEnqueuer,
+};
 pub(crate) use policy_snapshot_provider::PolicySnapshotProvider;
 pub(crate) use quota_usage_repo::{IncrementReserveParams, QuotaUsageRepository, SettleParams};
 pub(crate) use reaction_repo::{ReactionRepository, UpsertReactionParams};
 pub(crate) use thread_summary_repo::{ThreadSummaryModel, ThreadSummaryRepository};
 pub(crate) use turn_repo::{
-    CasCompleteParams, CasTerminalParams, CreateTurnParams, TurnRepository,
+    CasCompleteParams, CasTerminalParams, CreateTurnParams, TurnRepository, UpdatePreflightParams,
 };
 pub(crate) use user_limits_provider::UserLimitsProvider;
 pub(crate) use vector_store_repo::{InsertVectorStoreParams, VectorStoreRepository};

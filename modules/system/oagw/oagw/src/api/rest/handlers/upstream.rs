@@ -50,7 +50,7 @@ pub async fn get_upstream(
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, Problem> {
     let instance = format!("/oagw/v1/upstreams/{id}");
-    let uuid = parse_gts_id(&id, &instance)?;
+    let uuid = parse_gts_id(&id, gts::UPSTREAM_SCHEMA, &instance)?;
     let upstream = state
         .cp
         .get_upstream(&ctx, uuid)
@@ -81,7 +81,7 @@ pub async fn update_upstream(
     Json(req): Json<UpdateUpstreamRequest>,
 ) -> Result<impl IntoResponse, Problem> {
     let instance = format!("/oagw/v1/upstreams/{id}");
-    let uuid = parse_gts_id(&id, &instance)?;
+    let uuid = parse_gts_id(&id, gts::UPSTREAM_SCHEMA, &instance)?;
     let upstream = state
         .cp
         .update_upstream(&ctx, uuid, req.into())
@@ -97,7 +97,7 @@ pub async fn delete_upstream(
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, Problem> {
     let instance = format!("/oagw/v1/upstreams/{id}");
-    let uuid = parse_gts_id(&id, &instance)?;
+    let uuid = parse_gts_id(&id, gts::UPSTREAM_SCHEMA, &instance)?;
     state
         .cp
         .delete_upstream(&ctx, uuid)
