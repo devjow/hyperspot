@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -71,22 +70,12 @@ impl AuthPluginRegistry {
     ///
     /// # Errors
     /// Returns `PluginError::Internal` if the plugin is not registered.
-    // @cpt-begin:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-1
-    // @cpt-begin:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3
-    // @cpt-begin:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3a
-    // @cpt-begin:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3b
-    // @cpt-begin:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3c
     pub fn resolve(&self, plugin_id: &str) -> Result<Arc<dyn AuthPlugin>, PluginError> {
         self.plugins
             .get(plugin_id)
             .cloned()
             .ok_or_else(|| PluginError::Internal(format!("unknown auth plugin: {plugin_id}")))
     }
-    // @cpt-end:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3c
-    // @cpt-end:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3b
-    // @cpt-end:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3a
-    // @cpt-end:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-3
-    // @cpt-end:cpt-cf-oagw-algo-plugin-ref-resolution:p1:inst-resolve-1
 }
 
 // ---------------------------------------------------------------------------

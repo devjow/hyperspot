@@ -1,6 +1,4 @@
-// Updated:  2026-03-27 by Constructor Tech
 /// Gateway-originated error with all information needed to produce a Problem Details response.
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-3
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ServiceGatewayError {
     #[error("{detail}")]
@@ -103,4 +101,3 @@ pub enum StreamingError {
     #[error("WebSocket bridge error: {detail}")]
     WebSocketBridge { detail: String },
 }
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-3

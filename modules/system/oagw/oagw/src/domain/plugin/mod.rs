@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -46,7 +45,6 @@ pub struct AuthContext {
 ///
 /// Implementations mutate [`AuthContext`] to inject authentication material
 /// (e.g., API keys, bearer tokens) into the outbound request headers.
-// @cpt-dod:cpt-cf-oagw-dod-plugin-chain:p1
 #[async_trait]
 pub trait AuthPlugin: Send + Sync {
     /// Apply authentication to the outbound request context.

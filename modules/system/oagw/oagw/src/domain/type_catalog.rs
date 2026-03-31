@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 //! Centralized catalog of all OAGW GTS entities for Types Registry registration.
 //!
 //! Returns all 21 entities (7 schemas + 14 instances) in a single batch,
@@ -30,22 +29,6 @@ fn instance_entity(gts_id: &str, description: &str) -> Value {
 }
 
 /// Returns all OAGW GTS entities (7 schemas + 13 instances) for batch registration.
-// @cpt-flow:cpt-cf-oagw-flow-domain-gts-provisioning:p1
-// @cpt-dod:cpt-cf-oagw-dod-domain-gts-provisioning:p1
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-1
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-2
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-3
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-4
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-5
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-6
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-7
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-8
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-9
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-9a
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-10
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-10a
-// @cpt-begin:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-11
-// GTS entities: 7 schemas + 14 instances for types-registry registration.
 pub fn oagw_gts_entities() -> Vec<Value> {
     vec![
         // -- Schemas (7) --
@@ -85,19 +68,6 @@ pub fn oagw_gts_entities() -> Vec<Value> {
         instance_entity(REQUEST_ID_TRANSFORM_PLUGIN_ID, "Request ID injection"),
     ]
 }
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-11
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-10a
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-10
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-9a
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-9
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-8
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-7
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-6
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-5
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-4
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-3
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-2
-// @cpt-end:cpt-cf-oagw-flow-domain-gts-provisioning:p1:inst-gts-1
 
 #[cfg(test)]
 mod tests {

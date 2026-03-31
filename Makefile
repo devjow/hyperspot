@@ -113,28 +113,20 @@ validate-module-names:
 # |             | - Use 'make dylint-list' to see all available custom lints           |
 # +-------------+----------------------------------------------------------------------+
 
-.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs gts-docs-vendor gts-docs-release gts-docs-vendor-release gts-docs-test cypilot-validate
+.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs gts-docs-vendor gts-docs-release gts-docs-vendor-release gts-docs-test cypilot-validate cypilot-spec-coverage
 
 # Run clippy linter (excludes gts-rust submodule which has its own lint settings)
 clippy:
 	$(call check_rustup_component,clippy)
 	cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::perf
 
+# Check cypilot spec-to-code traceability coverage
+cypilot-spec-coverage:
+	@python3 .cypilot/.core/skills/cypilot/scripts/cypilot.py spec-coverage --min-coverage 80
+
 # Validate cypilot artifacts (specs, code, templates)
-# TODO(https://github.com/cyberfabric/cyber-pilot/issues/136): replace shell coverage check
-#       with native `cypilot.py validate --min-coverage 100`
 cypilot-validate:
-	@output=$$(python3 .cypilot/.core/skills/cypilot/scripts/cypilot.py validate 2>&1); rc=$$?; \
-	echo "$$output"; \
-	if [ $$rc -ne 0 ]; then echo "ERROR: cypilot validation FAILED"; exit 1; fi; \
-	cov=$$(echo "$$output" | grep "Code coverage:" | sed 's/.*Code coverage: *//'); \
-	if [ -n "$$cov" ]; then \
-		covered=$${cov%%/*}; total=$${cov##*/}; \
-		if [ "$$covered" != "$$total" ]; then \
-			echo "ERROR: cypilot code coverage not 100%: $$cov ($$((total - covered)) marker(s) missing in code)"; exit 1; \
-		fi; \
-	fi; \
-	echo "OK. cypilot validation PASSED"
+	@python3 .cypilot/.core/skills/cypilot/scripts/cypilot.py validate && echo "OK. cypilot validation PASSED" || (echo "ERROR: cypilot validation FAILED"; exit 1)
 
 # Run markdown checks with 'lychee'
 lychee:

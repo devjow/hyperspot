@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,46 +52,6 @@ const HOP_BY_HOP: &[&str] = &[
 // PingoraProxy — ProxyHttp implementation (D3)
 // ---------------------------------------------------------------------------
 
-// @cpt-algo:cpt-cf-oagw-algo-pingora-bridge:p1
-// @cpt-dod:cpt-cf-oagw-dod-pingora-proxy:p1
-//
-// Bridge instruction markers — implementation spans session_bridge.rs + ProxyHttp impl below.
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-1
-// Inject x-oagw-internal-* metadata headers for Pingora endpoint selection.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-1
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-2
-// Create in-memory tokio::io::duplex stream pair (write half, read half).
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-2
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-3
-// Serialize HTTP/1.1 request headers into write half.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-3
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-4
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-4a
-// IF body with Content-Length → write full body with framing.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-4a
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-4
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-5
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-5a
-// ELSE IF streaming body → write headers, then stream chunks; Connection: close for EOF.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-5a
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-5
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-6
-// Feed duplex read half to Pingora http_proxy_service as client session.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-6
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-7
-// Pingora ProxyHttp resolves HttpPeer from internal headers, forwards to upstream.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-7
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-8
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-8a
-// IF Pingora error → fail_to_proxy converts ErrorType → DomainError → Problem response.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-8a
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-8
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-9
-// Parse HTTP/1.1 response from duplex read half (status, headers, body).
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-9
-// @cpt-begin:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-10
-// RETURN parsed http::Response<Body>.
-// @cpt-end:cpt-cf-oagw-algo-pingora-bridge:p1:inst-bridge-10
 pub struct PingoraProxy {
     connect_timeout: Duration,
     read_timeout: Duration,

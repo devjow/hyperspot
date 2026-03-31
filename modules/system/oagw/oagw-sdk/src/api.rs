@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use async_trait::async_trait;
 use modkit_security::SecurityContext;
 use uuid::Uuid;
@@ -17,7 +16,6 @@ use crate::{
 /// Distinguishes gateway-originated errors from upstream-originated errors.
 ///
 /// Available on proxy responses via `resp.extensions().get::<ErrorSource>()`.
-// @cpt-algo:cpt-cf-oagw-algo-error-source-classification:p1
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorSource {
     Gateway,
@@ -42,9 +40,6 @@ impl ErrorSource {
 /// Public API trait for the Outbound API Gateway (Version 1).
 ///
 /// This trait is registered in `ClientHub` by the OAGW module:
-// @cpt-algo:cpt-cf-oagw-algo-domain-sdk-definition:p2
-// @cpt-dod:cpt-cf-oagw-dod-domain-sdk-crate:p1
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-1
 /// ```ignore
 /// let gw = hub.get::<dyn ServiceGatewayClientV1>()?;
 /// ```
@@ -150,4 +145,3 @@ pub trait ServiceGatewayClientV1: Send + Sync {
         req: http::Request<Body>,
     ) -> Result<http::Response<Body>, ServiceGatewayError>;
 }
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-1

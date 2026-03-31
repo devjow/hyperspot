@@ -1,12 +1,9 @@
-// Updated:  2026-03-27 by Constructor Tech
 use modkit_macros::domain_model;
 use uuid::Uuid;
 
 use super::repo::RepositoryError;
 
 /// Domain-layer errors for OAGW control-plane and data-plane operations.
-// @cpt-algo:cpt-cf-oagw-algo-error-source-classification:p1
-// @cpt-dod:cpt-cf-oagw-dod-error-source-distinction:p1
 #[domain_model]
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {

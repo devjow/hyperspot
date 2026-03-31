@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use axum::Json;
 use axum::extract::{Extension, Path, Query};
 use axum::response::IntoResponse;
@@ -28,7 +27,6 @@ fn to_response(r: Route) -> RouteResponse {
     }
 }
 
-// @cpt-dod:cpt-cf-oagw-dod-mgmt-route-crud:p1
 pub async fn create_route(
     Extension(state): Extension<AppState>,
     Extension(ctx): Extension<SecurityContext>,

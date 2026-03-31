@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::sync::Arc;
 
 use super::ControlPlaneService;
@@ -70,94 +69,18 @@ impl ControlPlaneServiceImpl {
 impl ControlPlaneService for ControlPlaneServiceImpl {
     // -- Upstream CRUD --
 
-    // @cpt-flow:cpt-cf-oagw-flow-mgmt-create-upstream:p1
-    // @cpt-flow:cpt-cf-oagw-flow-tenant-share-upstream:p2
-    // @cpt-algo:cpt-cf-oagw-algo-mgmt-validate-upstream:p1
     async fn create_upstream(
         &self,
         ctx: &SecurityContext,
         req: CreateUpstreamRequest,
     ) -> Result<Upstream, DomainError> {
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-1
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-2
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-3
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-4
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-5
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-6
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-6a
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-8
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-9
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-10
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11a
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11b
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-12
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-13
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-1
-        // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-1
-        // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-1
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-2
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-3
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-4
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-4a
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-5
         validate_endpoints(&req.server.endpoints)?;
         if let Some(ref cors) = req.cors {
             crate::domain::cors::validate_cors_config(cors)?;
         }
 
-        // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2a
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-7
         // Enforce alias derivation / explicit rules.
         let alias = enforce_alias_create(req.alias.as_deref(), &req.server.endpoints)?;
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-7
-        // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2a
-        // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2b
-        // Protocol validated at DTO deserialization level via Scheme enum.
-        // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2b
-        // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2e
-        // Sharing modes validated implicitly via domain model type constraints.
-        // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2e
-        // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2
-        // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-1
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5a
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5a1
-        // Auth secret_ref format validated at bind-time in validate_secret_ref_accessible.
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5a1
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-5
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-6
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-6a
-        // Protocol validated at DTO deserialization level via Protocol enum.
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-6a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-6
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-7
-        // Validation complete — errors returned via Result<_, DomainError>.
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-7
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-1
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-13
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-12
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11b
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-11
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-10
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-9
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-8
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-6a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-6
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-5
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-4
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-3
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-2
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-upstream:p1:inst-create-us-1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-5
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-4a
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-4
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-3
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-2
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-1
 
         let tenant_id = ctx.subject_tenant_id();
         let id = Uuid::new_v4();
@@ -193,32 +116,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             tags: req.tags,
         };
 
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-6
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-7
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-7a
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-8
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-9
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-10
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11a
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11b
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-12
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-13
         self.upstreams
             .create(upstream)
             .await
             .map_err(DomainError::from)
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-13
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-12
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11b
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11a
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-11
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-10
-        // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-9
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-8
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-7a
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-7
-        // @cpt-end:cpt-cf-oagw-flow-tenant-share-upstream:p2:inst-share-6
     }
 
     async fn get_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<Upstream, DomainError> {
@@ -229,17 +130,6 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .map_err(|_| DomainError::not_found("upstream", id))
     }
 
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-2
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3c
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3d
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4c
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4c1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4d
     async fn list_upstreams(
         &self,
         ctx: &SecurityContext,
@@ -251,36 +141,7 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .await
             .map_err(DomainError::from)
     }
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4d
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4c1
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4c
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4b
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4a
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-4
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3d
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3c
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-3
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-2
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-list-upstreams:p1:inst-list-us-1
 
-    // @cpt-flow:cpt-cf-oagw-flow-mgmt-update-upstream:p1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-2
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-3
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-4
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-5
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-5a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-6
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-8
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-9
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-10
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-12
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-13
     async fn update_upstream(
         &self,
         ctx: &SecurityContext,
@@ -304,7 +165,6 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 
         // Enforce alias re-evaluation when endpoints change.
         let endpoints_changed = existing.server.endpoints != old_endpoints;
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7a
         if endpoints_changed {
             let alias = enforce_alias_update(
                 req.alias.as_deref(),
@@ -313,30 +173,19 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
                 &old_endpoints,
             )?;
             existing.alias = alias;
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7a
         } else if let Some(ref user_alias) = req.alias {
             let normalized = normalize_alias(user_alias);
             // No endpoint change — allow alias update only for IP-based endpoints,
             // or when the provided alias exactly matches the derived value (no-op).
-            // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b1
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-1
             if let Some(derived) = compute_derived_alias(&existing.server.endpoints)
                 && normalized != derived
             {
-                // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-1a
                 return Err(DomainError::validation(
                     "alias cannot be overridden for hostname-based endpoints",
                 ));
-                // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-1a
             }
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-1
-            // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b1
-            // @cpt-begin:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b2
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-2
             validate_alias(&normalized)?;
             existing.alias = normalized;
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-only-2
-            // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b2
         }
 
         // Validate ancestor bind constraints if the resulting alias matches
@@ -378,35 +227,9 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .update(existing)
             .await
             .map_err(DomainError::from)
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-13
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-12
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11b
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-11
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-10
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-9
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-8
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7b
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-7
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-6
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-5a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-5
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-4
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-3
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-2
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-update-upstream:p1:inst-update-us-1
     }
 
-    // @cpt-flow:cpt-cf-oagw-flow-mgmt-delete-upstream:p1
     async fn delete_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<(), DomainError> {
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-1
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-2
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-3
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-4
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-5
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-5a
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-6
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-7
         let tenant_id = ctx.subject_tenant_id();
         // Cascade delete routes before removing the upstream.
         self.routes
@@ -417,59 +240,20 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .delete(tenant_id, id)
             .await
             .map_err(|_| DomainError::not_found("upstream", id))
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-7
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-6
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-5a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-5
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-4
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-3
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-2
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-delete-upstream:p1:inst-delete-us-1
     }
 
     // -- Route CRUD --
 
-    // @cpt-flow:cpt-cf-oagw-flow-mgmt-route-crud:p1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1c
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1d
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1e
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1f
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2c
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2d
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2e
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3a
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3b
-    // @cpt-begin:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3c
-    // Route CRUD: create, get, list, update, delete operations.
-    // @cpt-flow:cpt-cf-oagw-flow-mgmt-create-route:p1
-    // @cpt-algo:cpt-cf-oagw-algo-mgmt-validate-route:p1
     async fn create_route(
         &self,
         ctx: &SecurityContext,
         req: CreateRouteRequest,
     ) -> Result<Route, DomainError> {
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-1
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-2
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-3
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-10
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-11
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-12
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-1
         if let Some(ref cors) = req.cors {
             crate::domain::cors::validate_cors_config(cors)?;
         }
 
         let tenant_id = ctx.subject_tenant_id();
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-2
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-3
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-3a
         // Validate that the upstream exists and belongs to this tenant.
         self.upstreams
             .get_by_id(tenant_id, req.upstream_id)
@@ -480,9 +264,6 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
                     req.upstream_id
                 ))
             })?;
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-3a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-3
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-2
 
         let route = Route {
             id: Uuid::new_v4(),
@@ -497,59 +278,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             enabled: req.enabled,
         };
 
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-4
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-5
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-5a
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-6
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-7
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-8
-        // @cpt-begin:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-9
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4a
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4a1
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4b
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4b1
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5a
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5a1
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-6
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-6a
         validate_match_rules(&route.match_rules)?;
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-6a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-6
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5a1
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-5
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4b1
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4b
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4a1
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-4
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-7
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-8
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-8a
         self.check_route_overlap(&route, None).await?;
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-8a
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-8
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-7
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-1
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-9
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-8
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-7
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-6
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-5a
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-5
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-4
 
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-9
         self.routes.create(route).await.map_err(DomainError::from)
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-route:p1:inst-val-rt-9
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-12
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-11
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-10
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-3
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-2
-        // @cpt-end:cpt-cf-oagw-flow-mgmt-create-route:p1:inst-create-rt-1
     }
 
     async fn get_route(&self, ctx: &SecurityContext, id: Uuid) -> Result<Route, DomainError> {
@@ -615,23 +347,6 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             .await
             .map_err(|_| DomainError::not_found("route", id))
     }
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3c
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3b
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3a
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-3
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2e
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2d
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2c
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2b
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2a
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-2
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1f
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1e
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1d
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1c
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1b
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1a
-    // @cpt-end:cpt-cf-oagw-flow-mgmt-route-crud:p1:inst-route-crud-1
 
     // -- Resolution --
 
@@ -740,7 +455,6 @@ impl ControlPlaneServiceImpl {
     /// root → descendant.
     ///
     /// No-op if no ancestor has the alias (fresh upstream, no bind needed).
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-3
     async fn validate_ancestor_bind(
         &self,
         ctx: &SecurityContext,
@@ -763,7 +477,6 @@ impl ControlPlaneServiceImpl {
         }
         Ok(())
     }
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-3
 
     /// Build the ordered tenant chain `[self, parent, ..., root]`.
     ///
@@ -802,11 +515,6 @@ impl ControlPlaneServiceImpl {
     /// When `method_path` is `Some((method, path))`, a route is also resolved
     /// across the tenant chain (searching by each ancestor upstream ID) and
     /// folded into the effective config via `compute_effective_config`.
-    // @cpt-flow:cpt-cf-oagw-flow-tenant-alias-resolve:p2
-    // @cpt-algo:cpt-cf-oagw-algo-tenant-alias-shadow:p2
-    // @cpt-algo:cpt-cf-oagw-algo-alias-resolution:p1
-    // @cpt-dod:cpt-cf-oagw-dod-alias-resolution:p1
-    // @cpt-dod:cpt-cf-oagw-dod-tenant-alias-shadowing:p2
     pub(crate) async fn resolve_alias(
         &self,
         ctx: &SecurityContext,
@@ -814,99 +522,40 @@ impl ControlPlaneServiceImpl {
         alias: &str,
         method_path: Option<(&str, &str)>,
     ) -> Result<(Upstream, Option<Route>), DomainError> {
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-1
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-2
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-1
         let tenant_id = ctx.subject_tenant_id();
         // Normalize the incoming alias for case-insensitive matching.
         let alias = normalize_alias(alias);
-        // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-2
-        // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-1
 
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-3
         // Single walk: collect all visible upstreams keyed by chain index.
         let mut found: Vec<(usize, Upstream)> = Vec::new();
         let mut disabled_alias: Option<String> = None;
 
-        // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-3
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2
         for (i, &tid) in tenant_chain.iter().enumerate() {
-            // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-1
-            // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4a
-            // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2a
             match self.upstreams.get_by_alias(tid, &alias).await {
-                // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2a
-                // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4a
-                // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-1
-                // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4
-                // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b
                 Ok(upstream) => {
-                    // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-2
-                    // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b
                     if tid != tenant_id && !is_visible_to_descendant(&upstream) {
                         continue;
                     }
-                    // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-2
-                    // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b1
-                    // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b1
                     if !upstream.enabled {
-                        // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b1
-                        // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b1a
-                        // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b2
                         if disabled_alias.is_none() {
-                            // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b2a
                             disabled_alias = Some(upstream.alias.clone());
-                            // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b2a
                         }
                         continue;
-                        // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b2
-                        // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b1a
                     }
-                    // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b1
-                    // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-2a
-                    // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b2
-                    // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b1a
                     found.push((i, upstream));
-                    // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b1a
-                    // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b2
-                    // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-2a
-                    // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2b
                 }
-                // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4b
-                // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-4
                 Err(_) => continue,
             }
         }
-        // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-2
-        // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-3
 
         // The winning upstream is the closest (lowest index) enabled match.
         let (_, selected_upstream) = match found.first() {
             Some(pair) => pair.clone(),
             None => {
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-5
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-4
                 if let Some(alias) = disabled_alias {
-                    // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-5a
-                    // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-4a
                     return Err(DomainError::upstream_disabled(alias));
-                    // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-4a
-                    // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-5a
                 }
-                // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-4
-                // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-5
-                // @cpt-begin:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-5
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-4
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-3
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-4a
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-3a
                 return Err(DomainError::not_found("upstream", Uuid::nil()));
-                // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-3a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-4a
-                // @cpt-end:cpt-cf-oagw-algo-tenant-alias-shadow:p2:inst-shadow-3
-                // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-4
-                // @cpt-end:cpt-cf-oagw-algo-alias-resolution:p1:inst-alias-5
             }
         };
 
@@ -955,9 +604,6 @@ impl ControlPlaneServiceImpl {
             None
         };
 
-        // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-3
-
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-6
         // Build effective config.
         if merge_chain.is_empty() {
             // Single upstream → apply route overrides directly if present.
@@ -966,9 +612,7 @@ impl ControlPlaneServiceImpl {
                     std::slice::from_ref(&selected_upstream),
                     Some(route),
                 )?;
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-7
                 return Ok((effective, Some(route.clone())));
-                // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-7
             }
             return Ok((selected_upstream, None));
         }
@@ -978,7 +622,6 @@ impl ControlPlaneServiceImpl {
         merge_vec.push(selected_upstream);
 
         let effective = compute_effective_config(&merge_vec, route.as_ref())?;
-        // @cpt-end:cpt-cf-oagw-flow-tenant-alias-resolve:p2:inst-resolve-6
         Ok((effective, route))
     }
 
@@ -1007,8 +650,6 @@ impl ControlPlaneServiceImpl {
 ///
 /// Rejects routes where both fields are `None` (matches nothing) or both
 /// are `Some` (ambiguous protocol).
-// @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3
-// @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3a
 fn validate_match_rules(rules: &MatchRules) -> Result<(), DomainError> {
     match (&rules.http, &rules.grpc) {
         (None, None) => Err(DomainError::validation(
@@ -1020,17 +661,6 @@ fn validate_match_rules(rules: &MatchRules) -> Result<(), DomainError> {
         _ => Ok(()),
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3a
-// @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3b
-// Priority is u32 in the domain model — non-negative by type constraint.
-// @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3b
-// @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3c
-// HTTP path_prefix normalization is handled at DTO deserialization level.
-// @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3c
-// @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3d
-// gRPC service/method validated at DTO deserialization level via GrpcMatch struct.
-// @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3d
-// @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-3
 
 /// Validate the endpoint list for a server configuration.
 ///
@@ -1039,17 +669,11 @@ fn validate_match_rules(rules: &MatchRules) -> Result<(), DomainError> {
 /// - All endpoints must use either IP addresses or hostnames — no mixing.
 /// - All endpoints must share the same scheme (upstream-level invariant).
 fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-2
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2c
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-2a
     if endpoints.is_empty() {
         return Err(DomainError::validation(
             "server must have at least one endpoint",
         ));
     }
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-2a
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2c
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-2
 
     // TODO(hardening): add configurable SSRF deny-list for private IPv4 ranges
     // (loopback, RFC 1918, link-local, 169.254.169.254 metadata). Should be
@@ -1057,14 +681,9 @@ fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
     // enforced at DNS resolution time in DnsDiscovery::resolve() to cover
     // hostnames that resolve to private IPs.
 
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3b
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3b1
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5
     // IPv6 endpoints are not yet supported — reject early with a clear message.
     // Enabling IPv6 requires SSRF protections (deny-lists for link-local, private
     // ranges, IPv4-mapped addresses).
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5b
     for (i, ep) in endpoints.iter().enumerate() {
         if ep.normalized_host().parse::<std::net::Ipv6Addr>().is_ok() {
             return Err(DomainError::validation(format!(
@@ -1088,31 +707,7 @@ fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
             validate_hostname(i, &ep.host)?;
         }
     }
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5b
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3b1
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3b
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3a
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3a1
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5a
-    // Scheme validated at domain model level via Scheme enum (Http, Https, Wss, Wt, Grpc).
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5a
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5c
-    // Port validated at domain model level via u16 type constraint (1–65535).
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5c
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3c
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3c1
-    // Port validated via u16 type constraint (1–65535).
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3c1
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3c
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3a1
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3a
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-5
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-3
 
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4a
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4a1
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2d
     // Enforce identical scheme and port across the pool.
     if endpoints.len() > 1 {
         let first_scheme = &endpoints[0].scheme;
@@ -1132,14 +727,8 @@ fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-2d
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4a1
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4a
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-validate-upstream:p1:inst-val-us-4
 
-    // @cpt-begin:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-6
     Ok(())
-    // @cpt-end:cpt-cf-oagw-algo-domain-entity-validation:p1:inst-val-6
 }
 
 /// Validate a hostname per RFC 1123: max 253 chars total, each label 1–63 chars,
@@ -1337,58 +926,37 @@ fn common_domain_suffix(hosts: &[String]) -> Option<String> {
 /// - Hostname-derivable endpoints: alias is auto-derived; user-provided alias
 ///   is rejected with `400 Validation`.
 /// - IP or non-derivable endpoints: explicit alias is required.
-// @cpt-algo:cpt-cf-oagw-algo-mgmt-enforce-alias:p1
-// @cpt-dod:cpt-cf-oagw-dod-mgmt-alias-enforcement:p1
 fn enforce_alias_create(
     user_alias: Option<&str>,
     endpoints: &[Endpoint],
 ) -> Result<String, DomainError> {
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-1
     match compute_derived_alias(endpoints) {
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-1
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2
         Some(derived) => {
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2a
             if let Some(user) = user_alias {
                 // Reject user-provided alias when derivation is possible.
                 let normalized_user = normalize_alias(user);
                 if normalized_user != derived {
-                    // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2a1
                     return Err(DomainError::validation(format!(
                         "alias is auto-derived for hostname-based endpoints; \
                          remove the 'alias' field (derived: '{derived}')"
                     )));
-                    // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2a1
                 }
                 // User provided the exact derived value — tolerate silently.
             }
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2a
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2b
             validate_alias(&derived)?;
             Ok(derived)
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2b
         }
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-2
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3
         None => {
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3a
             // Explicit alias required.
             let alias = user_alias.ok_or_else(|| {
-                // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3a1
                 DomainError::validation(
                     "explicit alias is required for IP-based or heterogeneous-host endpoints",
                 )
-                // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3a1
             })?;
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3a
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3b
             let normalized = normalize_alias(alias);
             validate_alias(&normalized)?;
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3b
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3c
             Ok(normalized)
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3c
-        } // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-3
+        }
     }
 }
 
@@ -1405,17 +973,13 @@ fn enforce_alias_update(
     existing_alias: &str,
     old_endpoints: &[Endpoint],
 ) -> Result<String, DomainError> {
-    // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-1
     let old_derivable = compute_derived_alias(old_endpoints).is_some();
     let new_derived = compute_derived_alias(new_endpoints);
-    // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-1
 
     match (old_derivable, &new_derived) {
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-2
         // New endpoints are hostname-derivable: recompute alias.
         // Covers hostname→hostname (recompute) and IP→hostname (old explicit alias replaced).
         (_, Some(derived)) => {
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-2a
             if let Some(user) = user_alias {
                 let normalized_user = normalize_alias(user);
                 if normalized_user != *derived {
@@ -1427,32 +991,20 @@ fn enforce_alias_update(
             }
             validate_alias(derived)?;
             Ok(derived.clone())
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-2a
         }
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-2
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3
         // derivable → non-derivable: must provide explicit alias.
         (true, None) => {
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3a
             let alias = user_alias.ok_or_else(|| {
-                // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3a1
                 DomainError::validation(
                     "explicit alias is required for IP-based or heterogeneous-host endpoints",
                 )
-                // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3a1
             })?;
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3a
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3b
             let normalized = normalize_alias(alias);
             validate_alias(&normalized)?;
             Ok(normalized)
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3b
         }
-        // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-3
-        // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-4
         // IP → IP: keep existing unless user provides a new one.
         (false, None) => {
-            // @cpt-begin:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-4a
             if let Some(user) = user_alias {
                 let normalized = normalize_alias(user);
                 validate_alias(&normalized)?;
@@ -1460,8 +1012,7 @@ fn enforce_alias_update(
             } else {
                 Ok(existing_alias.to_string())
             }
-            // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-4a
-        } // @cpt-end:cpt-cf-oagw-algo-mgmt-enforce-alias:p1:inst-alias-upd-4
+        }
     }
 }
 
@@ -1492,17 +1043,6 @@ struct BindOverrides<'a> {
 /// Also validates sharing modes:
 /// - `enforce` fields cannot be overridden (400 Validation)
 /// - `private` fields are not visible (400 Validation)
-// @cpt-algo:cpt-cf-oagw-algo-tenant-permission-check:p2
-// @cpt-dod:cpt-cf-oagw-dod-tenant-permission-control:p2
-// @cpt-flow:cpt-cf-oagw-flow-tenant-bind-inherited:p2
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-1
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-2
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-5
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-5a
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-6
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-6a
-// @cpt-begin:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-9
-// Plugin bind: permission check, sharing mode validation, secret_ref access, override constraints.
 async fn validate_bind_constraints(
     enforcer: &PolicyEnforcer,
     credstore: &dyn CredStoreClientV1,
@@ -1512,17 +1052,10 @@ async fn validate_bind_constraints(
 ) -> Result<(), DomainError> {
     use crate::domain::model::SharingMode;
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-1
     // 1. Check bind permission.
     let access_req = AccessRequest::new()
         .resource_property("owner_tenant_id", ancestor.tenant_id)
         .require_constraints(false);
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-1
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-4
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-5
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-5a
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-2
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-2a
     enforcer
         .access_scope_with(
             ctx,
@@ -1532,45 +1065,23 @@ async fn validate_bind_constraints(
             &access_req,
         )
         .await?;
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-2a
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-2
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-5a
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-5
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-4
 
     // 2. Check per-field override permissions and sharing mode constraints.
 
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-3
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c
     // Auth override
     if let Some(auth_override) = overrides.auth {
         match ancestor.auth.as_ref().map(|a| a.sharing) {
-            // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6a
-            // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-6
             Some(SharingMode::Enforce) => {
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6a1
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-6a
                 return Err(DomainError::validation(
                     "cannot override auth: ancestor upstream has sharing mode 'enforce'",
                 ));
-                // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-6a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6a1
             }
-            // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-6
-            // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6a
-            // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6b
             Some(SharingMode::Private) => {
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6b1
                 return Err(DomainError::validation(
                     "cannot override auth: ancestor upstream field is private",
                 ));
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6b1
             }
-            // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6b
             _ => {
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c1
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-3a
                 enforcer
                     .access_scope_with(
                         ctx,
@@ -1580,35 +1091,17 @@ async fn validate_bind_constraints(
                         &access_req,
                     )
                     .await?;
-                // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-3a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c1
 
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2a
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2b
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2b1
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-7
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-7a
                 // Validate secret_ref accessibility for the descendant tenant.
                 if let Some(ref config) = auth_override.config
                     && let Some(raw_ref) = config.get("secret_ref")
                 {
                     validate_secret_ref_accessible(credstore, ctx, raw_ref).await?;
                 }
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-7a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-7
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2b1
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2b
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c2
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6c
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-3
 
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6d
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-4
     // Rate limit override
     if overrides.rate_limit.is_some() {
         match ancestor.rate_limit.as_ref().map(|r| r.sharing) {
@@ -1623,8 +1116,6 @@ async fn validate_bind_constraints(
                 ));
             }
             _ => {
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6d1
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-4a
                 enforcer
                     .access_scope_with(
                         ctx,
@@ -1634,16 +1125,10 @@ async fn validate_bind_constraints(
                         &access_req,
                     )
                     .await?;
-                // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-4a
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6d1
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-4
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6d
 
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6e
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-5
     // Plugins override
     if overrides.plugins.is_some() {
         match ancestor.plugins.as_ref().map(|p| p.sharing) {
@@ -1658,8 +1143,6 @@ async fn validate_bind_constraints(
                 ));
             }
             _ => {
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-5a
-                // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6e1
                 enforcer
                     .access_scope_with(
                         ctx,
@@ -1669,20 +1152,9 @@ async fn validate_bind_constraints(
                         &access_req,
                     )
                     .await?;
-                // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6e1
-                // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-5a
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-5
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6e
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-6
-
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-8
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-8a
-    // Tags are handled as tenant-local additions in create_upstream
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-8a
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-8
 
     // CORS sharing mode constraints (no override permission required).
     if overrides.cors.is_some() {
@@ -1701,22 +1173,12 @@ async fn validate_bind_constraints(
         }
     }
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-7
     Ok(())
-    // @cpt-end:cpt-cf-oagw-algo-tenant-permission-check:p2:inst-perm-7
 }
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-9
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-6a
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-6
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-5a
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-5
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-2
-// @cpt-end:cpt-cf-oagw-flow-plugin-bind:p1:inst-bind-1
 
 /// Validate that a `secret_ref` is accessible to the requesting tenant via
 /// `cred_store`. Per `cpt-cf-oagw-principle-cred-isolation`, if the secret
 /// is not accessible, the request is rejected (fail-closed).
-// @cpt-dod:cpt-cf-oagw-dod-tenant-secret-access:p2
 async fn validate_secret_ref_accessible(
     credstore: &dyn CredStoreClientV1,
     ctx: &SecurityContext,
@@ -1792,9 +1254,6 @@ fn is_visible_to_descendant(upstream: &Upstream) -> bool {
 ///
 /// `ancestor_chain` is ordered root-first: `[root, parent, ..., selected]`.
 /// The last element is the selected (resolved) upstream.
-// @cpt-algo:cpt-cf-oagw-algo-tenant-config-merge:p2
-// @cpt-dod:cpt-cf-oagw-dod-tenant-config-merge:p2
-// @cpt-flow:cpt-cf-oagw-flow-tenant-enforce-constraints:p2
 pub(crate) fn compute_effective_config(
     ancestor_chain: &[Upstream],
     route: Option<&Route>,
@@ -1807,63 +1266,29 @@ pub(crate) fn compute_effective_config(
         });
     }
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-1
     // Start with the root upstream as the base.
     let mut effective = ancestor_chain[0].clone();
-    // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-1
 
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-1
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-2
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3
     // Walk root → descendant, merging each layer.
     for layer in &ancestor_chain[1..] {
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3b
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3b1
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a1
         // Auth merge
         merge_auth(&mut effective, layer);
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3b1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3b
 
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3a
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3a1
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a2
         // Rate limit merge
         merge_rate_limit(&mut effective, layer);
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a2
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3a1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3a
 
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3c
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3c1
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a3
         // Plugins merge
         merge_plugins(&mut effective, layer);
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a3
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3c1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3c
 
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3d
-        // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3d1
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a5
         // CORS merge
         merge_cors(&mut effective, layer)?;
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a5
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3d1
-        // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3d
 
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a4
         // Tags: union (add-only)
         for tag in &layer.tags {
             if !effective.tags.contains(tag) {
                 effective.tags.push(tag.clone());
             }
         }
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a4
-        // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3a
 
         // Server, protocol, enabled, alias: always use the selected upstream's values.
         effective.id = layer.id;
@@ -1874,12 +1299,7 @@ pub(crate) fn compute_effective_config(
         effective.enabled = layer.enabled;
         effective.headers = layer.headers.clone().or(effective.headers);
     }
-    // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-3
-    // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-3
-    // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-2
-    // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-1
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-2
     // Route-level overrides (route > upstream base per config layering).
     if let Some(route) = route {
         // Route plugins: concatenate upstream + route plugins.
@@ -1905,20 +1325,16 @@ pub(crate) fn compute_effective_config(
             }
         }
 
-        // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-3
         // Route rate limit: min(effective, route).
         if let Some(ref route_rl) = route.rate_limit {
             match route_rl.sharing {
                 SharingMode::Private => {}
                 _ => {
-                    // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-3a
                     effective.rate_limit =
                         Some(min_rate_limit(effective.rate_limit.as_ref(), route_rl));
-                    // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-3a
                 }
             }
         }
-        // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-3
 
         // Route CORS: follows same sharing semantics as upstream-level merge.
         // Per inst-merge-3a5: private → skip; inherit → union origins;
@@ -1956,15 +1372,8 @@ pub(crate) fn compute_effective_config(
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-2
 
-    // @cpt-begin:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-4
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-4
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-4
     Ok(effective)
-    // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-4
-    // @cpt-end:cpt-cf-oagw-algo-tenant-config-merge:p2:inst-merge-4
-    // @cpt-end:cpt-cf-oagw-flow-tenant-enforce-constraints:p2:inst-enforce-4
 }
 
 /// Merge auth config from a descendant layer onto the effective config.
@@ -2004,27 +1413,21 @@ fn merge_auth(effective: &mut Upstream, layer: &Upstream) {
 /// descendant `Private` cannot drop it — `min()` is applied instead.
 /// This is defense-in-depth; `validate_bind_constraints` also guards
 /// this at create/update time.
-// @cpt-algo:cpt-cf-oagw-algo-tenant-effective-rate:p2
 fn merge_rate_limit(effective: &mut Upstream, layer: &Upstream) {
     use crate::domain::model::SharingMode;
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-1
     let effective_is_enforced = effective
         .rate_limit
         .as_ref()
         .is_some_and(|r| r.sharing == SharingMode::Enforce);
-    // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-1
 
-    // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-2
     match &layer.rate_limit {
         None => {} // Absent = inherit from previous level (no-op).
         Some(descendant_rl) => match descendant_rl.sharing {
             SharingMode::Private if effective_is_enforced => {
-                // @cpt-begin:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-2a
                 // Ancestor enforced — descendant cannot escape; apply min.
                 effective.rate_limit =
                     Some(min_rate_limit(effective.rate_limit.as_ref(), descendant_rl));
-                // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-2a
             }
             SharingMode::Private => {
                 effective.rate_limit = Some(descendant_rl.clone());
@@ -2035,7 +1438,6 @@ fn merge_rate_limit(effective: &mut Upstream, layer: &Upstream) {
             }
         },
     }
-    // @cpt-end:cpt-cf-oagw-algo-tenant-effective-rate:p2:inst-rate-2
 }
 
 /// Merge CORS config from a descendant layer onto the effective config.

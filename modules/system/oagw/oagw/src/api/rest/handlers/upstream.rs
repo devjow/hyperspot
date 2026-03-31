@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use axum::Json;
 use axum::extract::{Extension, Path, Query};
 use axum::response::IntoResponse;
@@ -30,16 +29,11 @@ fn to_response(u: Upstream) -> UpstreamResponse {
     }
 }
 
-// @cpt-dod:cpt-cf-oagw-dod-mgmt-upstream-crud:p1
-// @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-1
-// @cpt-begin:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-2
 pub async fn create_upstream(
     Extension(state): Extension<AppState>,
     Extension(ctx): Extension<SecurityContext>,
     Json(req): Json<CreateUpstreamRequest>,
 ) -> Result<impl IntoResponse, Problem> {
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-2
-    // @cpt-end:cpt-cf-oagw-flow-tenant-bind-inherited:p2:inst-bind-1
     let upstream = state
         .cp
         .create_upstream(&ctx, req.into())

@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::collections::HashMap;
 
 use modkit_macros::domain_model;
@@ -8,7 +7,6 @@ use uuid::Uuid;
 // Shared enums
 // ---------------------------------------------------------------------------
 
-// @cpt-dod:cpt-cf-oagw-dod-tenant-sharing-modes:p2
 #[domain_model]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SharingMode {
@@ -22,7 +20,6 @@ pub enum SharingMode {
 // Endpoint / Server
 // ---------------------------------------------------------------------------
 
-// @cpt-dod:cpt-cf-oagw-dod-domain-entities:p1
 #[domain_model]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Scheme {

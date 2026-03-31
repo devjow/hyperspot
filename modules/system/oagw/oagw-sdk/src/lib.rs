@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 pub mod api;
 pub mod body;
 pub mod codec;
@@ -7,13 +6,8 @@ pub mod multipart;
 pub mod sse;
 pub mod ws;
 
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-2
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-4
 pub mod models;
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-4
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-2
 
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-5
 pub use models::{
     AuthConfig, BurstConfig, CorsConfig, CorsHttpMethod, CreateRouteRequest,
     CreateRouteRequestBuilder, CreateUpstreamRequest, CreateUpstreamRequestBuilder, Endpoint,
@@ -36,7 +30,3 @@ pub use ws::{
     FromWebSocketMessage, WebSocketCloseFrame, WebSocketMessage, WebSocketReceiver,
     WebSocketSender, WebSocketSink, WebSocketStream, WebSocketStreamReceiver,
 };
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-5
-// @cpt-begin:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-6
-// SDK crate provides: ServiceGatewayClientV1 trait, model types, error types, Body abstraction.
-// @cpt-end:cpt-cf-oagw-algo-domain-sdk-definition:p1:inst-sdk-6

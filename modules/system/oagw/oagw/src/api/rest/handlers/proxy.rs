@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use crate::domain::error::DomainError;
 use axum::body::Body;
 use axum::extract::{Extension, Request};
@@ -13,8 +12,6 @@ use crate::module::AppState;
 ///
 /// Parses the alias and path suffix from the URL, validates the request,
 /// builds an `http::Request<oagw_sdk::Body>`, and delegates to the Data Plane service.
-// @cpt-algo:cpt-cf-oagw-algo-body-validation:p1
-// @cpt-dod:cpt-cf-oagw-dod-body-validation:p1
 pub async fn proxy_handler(
     Extension(state): Extension<AppState>,
     Extension(ctx): Extension<SecurityContext>,
@@ -42,10 +39,8 @@ pub async fn proxy_handler(
         }));
     }
 
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-1
     // Validate Content-Length if present.
     if let Some(cl) = parts.headers.get(http::header::CONTENT_LENGTH) {
-        // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-1a
         let cl_str = cl.to_str().map_err(|_| {
             error_response(DomainError::Validation {
                 detail: "invalid Content-Length header".into(),
@@ -53,52 +48,31 @@ pub async fn proxy_handler(
             })
         })?;
         let cl_val: usize = cl_str.parse().map_err(|_| {
-            // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-1a1
             error_response(DomainError::Validation {
                 detail: format!("Content-Length is not a valid integer: '{cl_str}'"),
                 instance: path.to_string(),
             })
-            // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-1a1
         })?;
-        // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-1a
-        // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-1b
         if cl_val > max_body_size {
-            // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-1b1
             return Err(error_response(DomainError::PayloadTooLarge {
                 detail: format!(
                     "request body of {cl_val} bytes exceeds maximum of {max_body_size} bytes"
                 ),
                 instance: path.to_string(),
             }));
-            // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-1b1
         }
-        // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-1b
     }
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-1
 
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-2
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-2a
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-2a1
-    // Transfer-Encoding validation handled by axum/hyper framework layer.
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-2a1
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-2a
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-2
-
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-3
     // Read body bytes (limited to max_body_size).
     let body_bytes = axum::body::to_bytes(body, max_body_size)
         .await
         .map_err(|_| {
-            // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-3a
             error_response(DomainError::PayloadTooLarge {
                 detail: format!("request body exceeds maximum of {max_body_size} bytes"),
                 instance: path.to_string(),
             })
-            // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-3a
         })?;
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-3
 
-    // @cpt-begin:cpt-cf-oagw-algo-body-validation:p1:inst-body-4
     // Strip the proxy prefix from the URI so the DP receives /{alias}/{path}?query.
     let new_uri_str = if let Some(query) = parts.uri.query() {
         format!("/{remaining}?{query}")
@@ -152,7 +126,6 @@ pub async fn proxy_handler(
             instance: String::new(),
         })
     })
-    // @cpt-end:cpt-cf-oagw-algo-body-validation:p1:inst-body-4
 }
 
 #[cfg(test)]

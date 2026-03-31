@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::collections::HashMap;
 
 use crate::domain::model::{PassthroughMode, RequestHeaderRules, ResponseHeaderRules};
@@ -27,8 +26,6 @@ const STRIPPED_HEADERS: &[&str] = &[
 
 /// Apply passthrough filter: decide which inbound headers to forward.
 /// Content-Type is always forwarded when present (needed for POST/PUT bodies).
-// @cpt-algo:cpt-cf-oagw-algo-header-transformation:p1
-// @cpt-dod:cpt-cf-oagw-dod-header-transformation:p1
 pub fn apply_passthrough(
     inbound: &HeaderMap,
     mode: &PassthroughMode,
@@ -69,7 +66,6 @@ pub fn apply_passthrough(
 ///
 /// Per RFC 7230 Section 6.1, intermediaries MUST remove headers listed in the
 /// `Connection` header value in addition to the static hop-by-hop list.
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-1
 pub fn strip_hop_by_hop(headers: &mut HeaderMap) {
     // First, parse Connection header and remove any headers it names.
     if let Some(conn_value) = headers.get("connection").and_then(|v| v.to_str().ok()) {
@@ -90,10 +86,8 @@ pub fn strip_hop_by_hop(headers: &mut HeaderMap) {
         headers.remove(*name);
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-1
 
 /// Remove X-OAGW-* internal headers.
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-2
 pub fn strip_internal_headers(headers: &mut HeaderMap) {
     let to_remove: Vec<HeaderName> = headers
         .keys()
@@ -104,7 +98,6 @@ pub fn strip_internal_headers(headers: &mut HeaderMap) {
         headers.remove(&name);
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-2
 
 /// Extract `ErrorSource` from the `x-oagw-error-source` response header.
 ///
@@ -112,9 +105,6 @@ pub fn strip_internal_headers(headers: &mut HeaderMap) {
 /// `x-oagw-*` headers. Returns `ErrorSource::Upstream` when the header is
 /// absent or has an unrecognised value (upstream responses never carry the
 /// header, so absence ⇒ upstream).
-// @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2
-// @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2a
-// @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2b
 pub fn extract_error_source(headers: &HeaderMap) -> ErrorSource {
     match headers
         .get("x-oagw-error-source")
@@ -124,9 +114,6 @@ pub fn extract_error_source(headers: &HeaderMap) -> ErrorSource {
         _ => ErrorSource::Upstream,
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2b
-// @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2a
-// @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-2
 
 /// Sanitize upstream response headers before forwarding to the client.
 /// Strips hop-by-hop headers and `x-oagw-*` internal headers.
@@ -165,8 +152,6 @@ impl HeaderRules for ResponseHeaderRules {
     }
 }
 
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-4
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-5
 fn apply_rules(headers: &mut HeaderMap, rules: &impl HeaderRules) {
     // Remove first.
     for name in rules.remove() {
@@ -193,15 +178,6 @@ fn apply_rules(headers: &mut HeaderMap, rules: &impl HeaderRules) {
         }
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-5
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-4
-
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-6
-// Well-known header validation (Content-Length, Content-Type) handled in proxy handler body validation.
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-6
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-7
-// Transformed header set returned via the HeaderMap passed by mutable reference.
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-7
 
 /// Apply set/add/remove header rules from upstream config to outbound request headers.
 pub fn apply_request_header_rules(headers: &mut HeaderMap, rules: &RequestHeaderRules) {
@@ -248,7 +224,6 @@ pub fn is_valid_transfer_encoding(headers: &HeaderMap) -> bool {
 }
 
 /// Set the Host header to match the upstream endpoint.
-// @cpt-begin:cpt-cf-oagw-algo-header-transformation:p1:inst-header-3
 pub fn set_host_header(headers: &mut HeaderMap, host: &str, port: u16) {
     let host_value = if port == 443 || port == 80 {
         host.to_string()
@@ -259,7 +234,6 @@ pub fn set_host_header(headers: &mut HeaderMap, host: &str, port: u16) {
         headers.insert(http::header::HOST, v);
     }
 }
-// @cpt-end:cpt-cf-oagw-algo-header-transformation:p1:inst-header-3
 
 /// Convert an HTTP `HeaderMap` to a `HashMap<String, String>` for plugin contexts.
 ///

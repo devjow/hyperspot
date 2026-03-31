@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,61 +43,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 
 /// Data Plane service implementation: proxy orchestration and plugin execution.
-// @cpt-dod:cpt-cf-oagw-dod-proxy-execution:p1
-// @cpt-algo:cpt-cf-oagw-algo-plugin-chain-execution:p1
-//
-// Plugin chain instruction markers — spans proxy_request + helper functions.
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-1
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-2
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-3
-// Load upstream + route plugin bindings and compose ordered chain.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-3
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-2
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-1
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4a
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4b
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4b1
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4c
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4c1
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4d
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4d1
-// Resolve plugins by GTS ID via AuthPluginRegistry/GuardPluginRegistry/TransformPluginRegistry.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4d1
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4d
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4c1
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4c
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4b1
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4b
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4a
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-4
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-5
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-6
-// Resolve auth plugin from upstream, execute auth: resolve credentials from cred_store.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-6
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-5
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-7
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-7a
-// IF secret not found → RETURN 401 AuthenticationFailed or 500 SecretNotFound.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-7a
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-7
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8a
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8b
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8b1
-// FOR EACH guard plugin → execute guard_request; IF rejected → RETURN rejection error.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8b1
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8b
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8a
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-8
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-9
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-9a
-// FOR EACH transform plugin (on_request) → mutate request headers/body/query.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-9a
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-9
-// @cpt-begin:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-10
-// Plugin chain returns processed request ready for upstream forwarding.
-// @cpt-end:cpt-cf-oagw-algo-plugin-chain-execution:p1:inst-chain-10
 pub struct DataPlaneServiceImpl {
     cp: Arc<dyn ControlPlaneService>,
     backend_selector: Arc<dyn EndpointSelector>,
@@ -320,59 +264,6 @@ impl DataPlaneServiceImpl {
 
 #[async_trait]
 impl DataPlaneService for DataPlaneServiceImpl {
-    // @cpt-flow:cpt-cf-oagw-flow-proxy-request:p1
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-1
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-10
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-10a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-11
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-12
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-12a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-13
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-14
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-15
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-15a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-16
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-17
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-17a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-18
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-19
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-2
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-20
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-21
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-21a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-22
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-22a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-23
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-23a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-24
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-24a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-25
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-26
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27b
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-28
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-28a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-29
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-29a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-3
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-3a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-4
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-4a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-5
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-6
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-7
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-7a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-8
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-8a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-9
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-30
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31a
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31b
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-32
-    // @cpt-begin:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-33
-    // Proxy request: authz → alias resolve → CORS → endpoint select → plugins → Pingora → response.
     async fn proxy_request(
         &self,
         ctx: SecurityContext,
@@ -1034,57 +925,6 @@ impl DataPlaneService for DataPlaneServiceImpl {
             }
         }
     }
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-33
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-32
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31b
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-31
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-30
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-9
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-8a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-8
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-7a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-7
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-6
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-5
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-4a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-4
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-3a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-3
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-29a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-29
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-28a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-28
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27b
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-27
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-26
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-25
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-24a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-24
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-23a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-23
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-22a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-22
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-21a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-21
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-20
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-2
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-19
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-18
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-17a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-17
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-16
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-15a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-15
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-14
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-13
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-12a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-12
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-11
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-10a
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-10
-    // @cpt-end:cpt-cf-oagw-flow-proxy-request:p1:inst-proxy-1
 
     fn remove_rate_limit_key(&self, key: &str) {
         self.rate_limiter.remove_key(key);

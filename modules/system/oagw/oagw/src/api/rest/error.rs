@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use axum::response::{IntoResponse, Response};
 use http::{HeaderValue, StatusCode};
 use modkit::api::problem::Problem;
@@ -53,7 +52,6 @@ pub(crate) const ERR_FORBIDDEN: &str = "gts.x.core.errors.err.v1~x.oagw.authz.fo
 // DomainError → Problem helpers
 // ---------------------------------------------------------------------------
 
-// @cpt-dod:cpt-cf-oagw-dod-mgmt-error-responses:p1
 fn gts_type(err: &DomainError) -> &str {
     match err {
         DomainError::Validation { .. } => ERR_VALIDATION,
@@ -222,7 +220,6 @@ pub(crate) fn domain_error_to_problem(err: DomainError, instance: &str) -> Probl
 
 /// Convert a `DomainError` into an axum `Response` with the
 /// `x-oagw-error-source: gateway` header. Used by the proxy handler.
-// @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1
 pub fn error_response(err: DomainError) -> Response {
     let retry_after = match &err {
         DomainError::RateLimitExceeded {
@@ -232,33 +229,22 @@ pub fn error_response(err: DomainError) -> Response {
         _ => None,
     };
 
-    // @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1b
-    // @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1c
     let problem: Problem = err.into();
     let mut response = problem.into_response();
-    // @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1c
-    // @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1b
 
-    // @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1a
     response.headers_mut().insert(
         "x-oagw-error-source",
         HeaderValue::from_static(ErrorSource::Gateway.as_str()),
     );
-    // @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1a
 
-    // @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1d
     if let Some(secs) = retry_after
         && let Ok(v) = secs.to_string().parse()
     {
         response.headers_mut().insert("retry-after", v);
     }
-    // @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1d
 
-    // @cpt-begin:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-3
     response
-    // @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-3
 }
-// @cpt-end:cpt-cf-oagw-algo-error-source-classification:p1:inst-errsrc-1
 
 #[cfg(test)]
 mod tests {

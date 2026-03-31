@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -36,34 +35,6 @@ pub struct AppState {
 }
 
 /// Outbound API Gateway module: wires repos, services, and routes.
-// @cpt-flow:cpt-cf-oagw-flow-domain-module-bootstrap:p1
-// @cpt-dod:cpt-cf-oagw-dod-domain-layering:p1
-// @cpt-dod:cpt-cf-oagw-dod-domain-modkit-wiring:p1
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-1
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-2
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-3
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-4
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-5
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-5a
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-6
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-7
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-7a
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-8
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-9
-// @cpt-begin:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-10
-// Module bootstrap: config → repos → clients → CP/DP services → GTS registration → REST routes.
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-10
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-9
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-8
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-7a
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-7
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-6
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-5a
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-5
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-4
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-3
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-2
-// @cpt-end:cpt-cf-oagw-flow-domain-module-bootstrap:p1:inst-boot-1
 #[modkit::module(
     name = "oagw",
     deps = ["types-registry", "authz-resolver", "credstore", "tenant-resolver"],

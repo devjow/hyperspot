@@ -1,4 +1,3 @@
-// Updated:  2026-03-27 by Constructor Tech
 use crate::domain::model::{ListQuery, Route, Upstream};
 use async_trait::async_trait;
 use modkit_macros::domain_model;
@@ -71,22 +70,6 @@ pub trait RouteRepository: Send + Sync {
 
     /// Find the best matching route for a given method and path.
     /// Match criteria: enabled=true, method matches, longest path prefix, highest priority.
-    // @cpt-algo:cpt-cf-oagw-algo-route-matching:p1
-    // @cpt-dod:cpt-cf-oagw-dod-route-matching:p1
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-1
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-2
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a1
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a2
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a3
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a3a
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b1
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b2
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b2a
-    // @cpt-begin:cpt-cf-oagw-algo-route-matching:p1:inst-route-4
-    // Route matching: enabled=true, method match, longest path prefix, highest priority.
     async fn find_matching(
         &self,
         tenant_id: Uuid,
@@ -94,19 +77,6 @@ pub trait RouteRepository: Send + Sync {
         method: &str,
         path: &str,
     ) -> Result<Route, RepositoryError>;
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-4
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b2a
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b2
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b1
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3b
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a3a
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a3
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a2
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a1
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3a
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-3
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-2
-    // @cpt-end:cpt-cf-oagw-algo-route-matching:p1:inst-route-1
 
     /// Update an existing route.
     async fn update(&self, route: Route) -> Result<Route, RepositoryError>;
