@@ -965,6 +965,29 @@ impl<
                 self.spawn_delete_file(ctx.clone(), &provider_id, &provider_file_id);
                 return Err(DomainError::not_found("Attachment", attachment_id));
             }
+
+            // 4b. Post-upload aggregate storage check.
+            // Reuses `conn` from step 4 so `sum_size_bytes` sees the just-written
+            // row without an extra connection checkout.
+            // Runs for all attachment types (not just documents) to match the
+            // preflight check which is also type-agnostic.
+            let total_bytes = self
+                .attachment_repo
+                .sum_size_bytes(&conn, &scope, chat_id)
+                .await?;
+            let max_bytes = i64::from(self.rag_config.max_total_upload_mb_per_chat) * 1_048_576;
+            if total_bytes > max_bytes {
+                self.try_set_failed(&scope, attachment_id, "uploaded", "storage_limit_exceeded")
+                    .await;
+                self.spawn_delete_file(ctx.clone(), &provider_id, &provider_file_id);
+                self.metrics
+                    .record_attachment_upload(kind_metric, upload_result::STORAGE_LIMIT_EXCEEDED);
+                return Err(DomainError::StorageLimitExceeded {
+                    message: format!(
+                        "Upload causes total to exceed {max_bytes} byte limit (current total: {total_bytes})"
+                    ),
+                });
+            }
         }
 
         // 5. Execute purpose-specific paths (each fires independently).

@@ -311,7 +311,8 @@ impl crate::domain::repos::AttachmentRepository for AttachmentRepository {
             .filter(
                 Condition::all()
                     .add(Column::ChatId.eq(chat_id))
-                    .add(Column::DeletedAt.is_null()),
+                    .add(Column::DeletedAt.is_null())
+                    .add(Column::Status.ne(AttachmentStatus::Failed)),
             )
             .secure()
             .scope_with(scope)

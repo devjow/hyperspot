@@ -2,10 +2,14 @@ use std::io::Write as _;
 
 use anyhow::Context;
 use bytes::{Buf, Bytes, BytesMut};
+use std::time::Duration;
+
+use futures_util::StreamExt as _;
 use futures_util::stream::unfold;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use oagw_sdk::body::{BodyStream, BoxError};
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::sync::watch;
 use tracing::warn;
 
 /// Maximum size of response headers (64 KiB). Defense-in-depth cap on the
@@ -100,9 +104,104 @@ pub(crate) fn serialize_request_wire(
     buf
 }
 
+/// Serialize an HTTP/1.1 upgrade request (WebSocket handshake) to wire format.
+///
+/// Differs from [`serialize_request_wire`]:
+/// - Emits `Connection: Upgrade` (not `Connection: close`)
+/// - No `Content-Length` or `Transfer-Encoding` (upgrade requests have no body)
+/// - Preserves the `Upgrade` header from input
+pub(crate) fn serialize_upgrade_request_wire(
+    method: &Method,
+    url: &str,
+    headers: &HeaderMap,
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(512);
+    let pq_raw = url_path_and_query(url);
+    // Defense-in-depth: strip CR/LF to prevent header injection.
+    let pq_clean;
+    let pq = if pq_raw.contains('\r') || pq_raw.contains('\n') {
+        warn!("CRLF in request URI stripped (possible injection attempt)");
+        pq_clean = pq_raw.replace(['\r', '\n'], "");
+        pq_clean.as_str()
+    } else {
+        pq_raw
+    };
+    let _ = write!(buf, "{} {} HTTP/1.1\r\n", method, pq);
+    for (name, value) in headers {
+        // Skip framing headers — we emit our own Connection below.
+        if name == http::header::CONNECTION
+            || name == http::header::CONTENT_LENGTH
+            || name == http::header::TRANSFER_ENCODING
+        {
+            continue;
+        }
+        buf.extend_from_slice(name.as_str().as_bytes());
+        buf.extend_from_slice(b": ");
+        buf.extend_from_slice(value.as_bytes());
+        buf.extend_from_slice(b"\r\n");
+    }
+    buf.extend_from_slice(b"Connection: Upgrade\r\n");
+    buf.extend_from_slice(b"\r\n");
+    buf
+}
+
 // ---------------------------------------------------------------------------
 // Response parsing
 // ---------------------------------------------------------------------------
+
+/// Parse only the HTTP/1.1 response status line and headers from the IO,
+/// returning the parsed result and any leftover bytes read past the header
+/// boundary.
+///
+/// Unlike [`parse_response_stream`], this does **not** consume the IO into
+/// a body stream — the caller retains the IO for bidirectional WebSocket
+/// forwarding via `tokio::io::copy_bidirectional`.
+pub(crate) async fn parse_upgrade_response(
+    io: &mut (impl AsyncRead + Unpin + Send),
+) -> anyhow::Result<(StatusCode, HeaderMap, Bytes)> {
+    let mut buf = BytesMut::with_capacity(4096);
+    let (status, headers, body_offset) = loop {
+        let mut tmp = [0u8; 4096];
+        let n = io
+            .read(&mut tmp)
+            .await
+            .context("failed to read response from proxy")?;
+        if n == 0 {
+            anyhow::bail!("proxy closed connection before sending response headers");
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > MAX_HEADER_BYTES {
+            anyhow::bail!(
+                "response headers too large ({} bytes exceeds {} byte limit)",
+                buf.len(),
+                MAX_HEADER_BYTES
+            );
+        }
+
+        let mut parsed_headers = [httparse::EMPTY_HEADER; 128];
+        let mut resp = httparse::Response::new(&mut parsed_headers);
+        match resp.parse(&buf)? {
+            httparse::Status::Complete(offset) => {
+                let status = StatusCode::from_u16(resp.code.unwrap_or(502))?;
+                let mut headers = HeaderMap::new();
+                for h in resp.headers.iter() {
+                    if let (Ok(name), Ok(value)) = (
+                        HeaderName::from_bytes(h.name.as_bytes()),
+                        HeaderValue::from_bytes(h.value),
+                    ) {
+                        headers.append(name, value);
+                    }
+                }
+                break (status, headers, offset);
+            }
+            httparse::Status::Partial => continue,
+        }
+    };
+
+    let _ = buf.split_to(body_offset);
+    let remaining = buf.freeze();
+    Ok((status, headers, remaining))
+}
 
 /// Read an HTTP/1.1 response from the client side of a DuplexStream.
 ///
@@ -196,7 +295,10 @@ fn is_chunked_encoding(headers: &HeaderMap) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Read raw bytes until EOF (used for 101 Upgrade and connection-close).
-fn raw_body_stream<R: AsyncRead + Unpin + Send + 'static>(initial: Bytes, io: R) -> BodyStream {
+pub(crate) fn raw_body_stream<R: AsyncRead + Unpin + Send + 'static>(
+    initial: Bytes,
+    io: R,
+) -> BodyStream {
     struct State<R> {
         io: R,
         initial: Option<Bytes>,
@@ -385,6 +487,69 @@ async fn fill_buf<R: AsyncRead + Unpin>(
     }
     buf.extend_from_slice(&tmp[..n]);
     Ok(n)
+}
+
+// ---------------------------------------------------------------------------
+// Streaming body lifecycle wrapper
+// ---------------------------------------------------------------------------
+
+/// Wrap a [`BodyStream`] with idle timeout and graceful shutdown awareness.
+///
+/// Applied to SSE responses so that long-lived streams are terminated when:
+/// - No data is received from upstream within `idle_timeout`
+/// - The server is shutting down (via `shutdown_rx`)
+///
+/// Normal chunks are forwarded unchanged; the idle timer is reset on each
+/// chunk. Upstream EOF ends the stream cleanly.
+pub(crate) fn streaming_body_with_lifecycle(
+    inner: BodyStream,
+    idle_timeout: Duration,
+    shutdown_rx: watch::Receiver<bool>,
+) -> BodyStream {
+    struct State {
+        inner: BodyStream,
+        shutdown_rx: watch::Receiver<bool>,
+        deadline: std::pin::Pin<Box<tokio::time::Sleep>>,
+        idle_timeout: Duration,
+    }
+
+    Box::pin(unfold(
+        State {
+            inner,
+            shutdown_rx,
+            deadline: Box::pin(tokio::time::sleep(idle_timeout)),
+            idle_timeout,
+        },
+        |mut state| async move {
+            loop {
+                return tokio::select! {
+                    biased;
+                    result = state.shutdown_rx.changed() => {
+                        // Err => sender dropped (shutdown). Ok + true => explicit signal.
+                        // Both mean "stop streaming now".
+                        if result.is_err() || *state.shutdown_rx.borrow() {
+                            tracing::debug!("SSE stream terminated by shutdown");
+                            None
+                        } else {
+                            // Spurious wake (value changed but still false) — re-enter select.
+                            continue;
+                        }
+                    }
+                    _ = &mut state.deadline => {
+                        tracing::debug!("SSE stream idle timeout");
+                        None
+                    }
+                    item = state.inner.next() => {
+                        let chunk = item?;
+                        state.deadline.as_mut().reset(
+                            tokio::time::Instant::now() + state.idle_timeout
+                        );
+                        Some((chunk, state))
+                    }
+                };
+            }
+        },
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -787,5 +952,278 @@ mod tests {
         let chunks: Vec<Bytes> = body_stream.map(|r| r.unwrap()).collect().await;
         let all: Vec<u8> = chunks.iter().flat_map(|c| c.iter().copied()).collect();
         assert_eq!(all, body.as_slice());
+    }
+
+    // -- serialize_upgrade_request_wire tests --
+
+    #[test]
+    fn upgrade_wire_emits_connection_upgrade() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("example.com"));
+        headers.insert("upgrade", HeaderValue::from_static("websocket"));
+        headers.insert(
+            "sec-websocket-key",
+            HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+        headers.insert("sec-websocket-version", HeaderValue::from_static("13"));
+
+        let wire = serialize_upgrade_request_wire(&Method::GET, "wss://example.com/ws", &headers);
+        let text = String::from_utf8_lossy(&wire);
+
+        assert!(text.starts_with("GET /ws HTTP/1.1\r\n"));
+        assert!(text.contains("upgrade: websocket\r\n"));
+        assert!(text.contains("Connection: Upgrade\r\n"));
+        assert!(text.contains("sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n"));
+        assert!(!text.contains("Content-Length"));
+        assert!(!text.contains("Transfer-Encoding"));
+        assert!(text.ends_with("\r\n\r\n"));
+    }
+
+    #[test]
+    fn upgrade_wire_strips_inbound_connection_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", HeaderValue::from_static("websocket"));
+        headers.insert(
+            http::header::CONNECTION,
+            HeaderValue::from_static("keep-alive"),
+        );
+
+        let wire = serialize_upgrade_request_wire(&Method::GET, "wss://example.com/ws", &headers);
+        let text = String::from_utf8_lossy(&wire);
+
+        assert_eq!(
+            text.matches("Connection:").count(),
+            1,
+            "duplicate Connection"
+        );
+        assert!(text.contains("Connection: Upgrade\r\n"));
+    }
+
+    #[test]
+    fn upgrade_wire_no_body() {
+        let wire =
+            serialize_upgrade_request_wire(&Method::GET, "wss://example.com/ws", &HeaderMap::new());
+        let text = String::from_utf8_lossy(&wire);
+        assert!(text.ends_with("\r\n\r\n"));
+        let parts: Vec<&str> = text.splitn(2, "\r\n\r\n").collect();
+        assert_eq!(parts.len(), 2);
+        assert!(parts[1].is_empty());
+    }
+
+    #[test]
+    fn upgrade_wire_crlf_injection_defense() {
+        let wire = serialize_upgrade_request_wire(
+            &Method::GET,
+            "wss://victim.com/path\r\nEvil: pwned\r\n",
+            &HeaderMap::new(),
+        );
+        let text = String::from_utf8_lossy(&wire);
+        assert!(
+            !text.contains("Evil: pwned\r\n"),
+            "CRLF injection produced a separate header"
+        );
+    }
+
+    // -- parse_upgrade_response tests --
+
+    #[tokio::test]
+    async fn parse_upgrade_101() {
+        let (mut writer, mut reader) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            writer
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\n\
+                      Upgrade: websocket\r\n\
+                      Connection: Upgrade\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            // Don't close — simulates a live WebSocket connection
+        });
+
+        let (status, headers, leftover) = parse_upgrade_response(&mut reader).await.unwrap();
+        assert_eq!(status, StatusCode::SWITCHING_PROTOCOLS);
+        assert_eq!(headers.get("upgrade").unwrap(), "websocket");
+        assert!(leftover.is_empty());
+        // reader is still usable (not consumed)
+        drop(reader);
+    }
+
+    #[tokio::test]
+    async fn parse_upgrade_101_with_leftover() {
+        let (mut writer, mut reader) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            // Headers + some WebSocket frame data in the same write
+            writer
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\n\
+                      Upgrade: websocket\r\n\
+                      Connection: Upgrade\r\n\r\n\
+                      ws-frame-data",
+                )
+                .await
+                .unwrap();
+        });
+
+        let (status, _headers, leftover) = parse_upgrade_response(&mut reader).await.unwrap();
+        assert_eq!(status, StatusCode::SWITCHING_PROTOCOLS);
+        assert_eq!(leftover.as_ref(), b"ws-frame-data");
+    }
+
+    #[tokio::test]
+    async fn parse_upgrade_non_101() {
+        let (mut writer, mut reader) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            writer
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            shut(&mut writer).await;
+        });
+
+        let (status, _headers, leftover) = parse_upgrade_response(&mut reader).await.unwrap();
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(leftover.is_empty());
+    }
+
+    #[tokio::test]
+    async fn parse_upgrade_eof_before_headers() {
+        let (mut writer, mut reader) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            shut(&mut writer).await;
+        });
+
+        let result = parse_upgrade_response(&mut reader).await;
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // streaming_body_with_lifecycle tests
+    // -----------------------------------------------------------------------
+
+    fn bytes_stream(chunks: Vec<&'static str>) -> BodyStream {
+        Box::pin(futures_util::stream::iter(
+            chunks
+                .into_iter()
+                .map(|s| Ok(Bytes::from(s)) as Result<Bytes, BoxError>),
+        ))
+    }
+
+    #[tokio::test]
+    async fn sse_lifecycle_forwards_chunks() {
+        let (_tx, rx) = watch::channel(false);
+        let stream = streaming_body_with_lifecycle(
+            bytes_stream(vec!["data: hello\n\n", "data: world\n\n"]),
+            Duration::from_secs(60),
+            rx,
+        );
+        let chunks: Vec<_> = stream
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], "data: hello\n\n");
+        assert_eq!(chunks[1], "data: world\n\n");
+    }
+
+    #[tokio::test]
+    async fn sse_lifecycle_upstream_eof_ends_stream() {
+        let (_tx, rx) = watch::channel(false);
+        let stream =
+            streaming_body_with_lifecycle(bytes_stream(vec!["one"]), Duration::from_secs(60), rx);
+        let chunks: Vec<_> = stream.collect::<Vec<_>>().await;
+        assert_eq!(chunks.len(), 1);
+    }
+
+    /// Build a BodyStream from an mpsc channel for testing async streams
+    /// that need to be controlled from outside.
+    fn channel_stream(rx: tokio::sync::mpsc::Receiver<Result<Bytes, BoxError>>) -> BodyStream {
+        Box::pin(async_stream::stream! {
+            let mut rx = rx;
+            while let Some(item) = rx.recv().await {
+                yield item;
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn sse_lifecycle_idle_timeout_ends_stream() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = tokio::sync::mpsc::channel::<Result<Bytes, BoxError>>(1);
+
+        // Send one chunk, then go silent.
+        inner_tx
+            .send(Ok(Bytes::from("data: first\n\n")))
+            .await
+            .unwrap();
+
+        let stream = streaming_body_with_lifecycle(
+            channel_stream(inner_rx),
+            Duration::from_millis(50),
+            shutdown_rx,
+        );
+        let chunks: Vec<_> = stream
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+        // Should get the first chunk, then timeout ends the stream.
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], "data: first\n\n");
+    }
+
+    #[tokio::test]
+    async fn sse_lifecycle_shutdown_ends_stream() {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = tokio::sync::mpsc::channel::<Result<Bytes, BoxError>>(1);
+
+        inner_tx
+            .send(Ok(Bytes::from("data: first\n\n")))
+            .await
+            .unwrap();
+
+        let stream = streaming_body_with_lifecycle(
+            channel_stream(inner_rx),
+            Duration::from_secs(60),
+            shutdown_rx,
+        );
+        tokio::pin!(stream);
+
+        // Read first chunk.
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first, "data: first\n\n");
+
+        // Signal shutdown.
+        shutdown_tx.send(true).unwrap();
+
+        // Stream should end.
+        let next = stream.next().await;
+        assert!(next.is_none(), "stream should end after shutdown");
+    }
+
+    #[tokio::test]
+    async fn sse_lifecycle_sender_drop_ends_stream() {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_inner_tx, inner_rx) = tokio::sync::mpsc::channel::<Result<Bytes, BoxError>>(1);
+
+        let stream = streaming_body_with_lifecycle(
+            channel_stream(inner_rx),
+            Duration::from_secs(60),
+            shutdown_rx,
+        );
+        tokio::pin!(stream);
+
+        // Drop the sender — production shutdown path.
+        drop(shutdown_tx);
+
+        // Stream should terminate promptly (not block on inner or idle timeout).
+        let next = tokio::time::timeout(Duration::from_secs(1), stream.next()).await;
+        assert!(
+            matches!(next, Ok(None)),
+            "stream should end when shutdown sender is dropped"
+        );
     }
 }

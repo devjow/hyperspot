@@ -1,11 +1,13 @@
 extern crate modkit_canonical_errors;
 
 use modkit_canonical_errors::Problem;
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct TestUserResourceError;
 
 #[test]
 fn macro_not_found_has_correct_resource_type_and_resource_info() {
-    modkit_canonical_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = TestUserResourceError::not_found("User not found")
         .with_resource("user-123")
         .create();
@@ -24,8 +26,6 @@ fn macro_not_found_has_correct_resource_type_and_resource_info() {
 
 #[test]
 fn macro_permission_denied_has_correct_resource_type() {
-    modkit_canonical_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = TestUserResourceError::permission_denied()
         .with_reason("INSUFFICIENT_ROLE")
         .create();
@@ -38,8 +38,6 @@ fn macro_permission_denied_has_correct_resource_type() {
 
 #[test]
 fn problem_json_includes_resource_type_when_set() {
-    modkit_canonical_errors::resource_error!(TestUserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = TestUserResourceError::not_found("User not found")
         .with_resource("user-123")
         .create();

@@ -168,14 +168,15 @@ fn vector_store_add_file_response() -> serde_json::Value {
 /// Test helper: wraps the new streaming `upload_file` with the old simple interface.
 ///
 /// Calls `get_upload_context`, validates MIME, converts bytes to stream, and
-/// calls `upload_file` with the full parameter set.
-async fn test_upload_file(
+/// calls `upload_file` with the given `size_hint`.
+async fn test_upload_file_inner(
     svc: &TestAttachmentService,
     ctx: &modkit_security::SecurityContext,
     chat_id: Uuid,
     filename: &str,
     content_type: &str,
     data: Bytes,
+    size_hint: Option<u64>,
 ) -> Result<crate::infra::db::entity::attachment::Model, crate::domain::error::DomainError> {
     use crate::domain::mime_validation::{
         infer_mime_from_extension, normalize_mime, remap_csv_to_plain, validate_mime,
@@ -196,7 +197,6 @@ async fn test_upload_file(
     };
     let validated = validate_mime(effective_ct)?;
 
-    let size = data.len() as u64;
     let stream = bytes_to_stream(data);
 
     svc.upload_file(
@@ -207,9 +207,34 @@ async fn test_upload_file(
         validated.mime,
         validated.kind,
         stream,
-        Some(size),
+        size_hint,
     )
     .await
+}
+
+/// Upload with known `Content-Length`.
+async fn test_upload_file(
+    svc: &TestAttachmentService,
+    ctx: &modkit_security::SecurityContext,
+    chat_id: Uuid,
+    filename: &str,
+    content_type: &str,
+    data: Bytes,
+) -> Result<crate::infra::db::entity::attachment::Model, crate::domain::error::DomainError> {
+    let size = data.len() as u64;
+    test_upload_file_inner(svc, ctx, chat_id, filename, content_type, data, Some(size)).await
+}
+
+/// Upload without `Content-Length` (simulates chunked transfer encoding).
+async fn test_upload_file_chunked(
+    svc: &TestAttachmentService,
+    ctx: &modkit_security::SecurityContext,
+    chat_id: Uuid,
+    filename: &str,
+    content_type: &str,
+    data: Bytes,
+) -> Result<crate::infra::db::entity::attachment::Model, crate::domain::error::DomainError> {
+    test_upload_file_inner(svc, ctx, chat_id, filename, content_type, data, None).await
 }
 
 // ── P5-B1: Upload document full lifecycle ──
@@ -590,6 +615,62 @@ async fn test_upload_storage_limit_exceeded() {
             crate::domain::error::DomainError::StorageLimitExceeded { .. }
         ),
         "expected StorageLimitExceeded, got: {err:?}"
+    );
+}
+
+// ── P5-C5: Post-upload storage limit for chunked uploads (no Content-Length) ──
+
+#[tokio::test]
+async fn test_upload_storage_limit_exceeded_chunked() {
+    let db = inmem_db().await;
+    let tenant_id = Uuid::new_v4();
+    let chat_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let db_prov = mock_db_provider(db.clone());
+    insert_chat_for_user(&db_prov, tenant_id, chat_id, user_id).await;
+
+    let config = RagConfig {
+        max_documents_per_chat: 50,
+        max_total_upload_mb_per_chat: 1, // 1 MB limit
+        ..RagConfig::default()
+    };
+
+    // Insert a large existing attachment (close to limit)
+    let mut params =
+        crate::domain::service::test_helpers::InsertTestAttachmentParams::ready_document(
+            tenant_id, chat_id,
+        );
+    params.uploaded_by_user_id = user_id;
+    params.size_bytes = 900_000; // ~0.86 MB
+    crate::domain::service::test_helpers::insert_test_attachment(&db_prov, params).await;
+
+    let ctx = crate::domain::service::test_helpers::test_security_ctx_with_id(tenant_id, user_id);
+
+    // OAGW returns file upload success (the provider accepts the file)
+    let oagw = MockOagwGateway::with_responses(vec![Ok(file_upload_response("file-chunked-001"))]);
+    let outbox = Arc::new(NoopOutboxEnqueuer);
+    let svc = build_service(db, Arc::clone(&oagw) as _, outbox, config);
+
+    // Upload 200KB via chunked encoding (no Content-Length → size_hint = None).
+    // The preflight check is skipped, but the post-upload check should reject.
+    let result = test_upload_file_chunked(
+        &svc,
+        &ctx,
+        chat_id,
+        "big.pdf",
+        "application/pdf",
+        Bytes::from(vec![0u8; 200_000]),
+    )
+    .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::domain::error::DomainError::StorageLimitExceeded { .. }
+        ),
+        "expected StorageLimitExceeded for chunked upload, got: {err:?}"
     );
 }
 

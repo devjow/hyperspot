@@ -5,7 +5,7 @@ mod parse;
 mod response;
 mod stream;
 
-pub(crate) use detect::is_server_events_response;
+pub use detect::is_server_events_response;
 pub use event::ServerEvent;
 pub(crate) use parse::parse_server_events_stream;
 #[cfg(feature = "axum")]

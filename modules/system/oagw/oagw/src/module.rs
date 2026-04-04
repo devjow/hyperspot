@@ -60,6 +60,8 @@ impl Default for OutboundApiGatewayModule {
 impl Module for OutboundApiGatewayModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         let cfg: OagwConfig = ctx.config()?;
+        cfg.validate()
+            .map_err(|e| anyhow::anyhow!("invalid OAGW config: {e}"))?;
         info!("OAGW config: proxy_timeout_secs={}", cfg.proxy_timeout_secs);
 
         // -- Control Plane init --
@@ -88,8 +90,12 @@ impl Module for OutboundApiGatewayModule {
         });
         let connect_timeout = Duration::from_secs(10);
         let read_timeout = Duration::from_secs(cfg.proxy_timeout_secs);
-        let pingora_proxy =
-            crate::infra::proxy::pingora_proxy::PingoraProxy::new(connect_timeout, read_timeout);
+        let protocol_cache_ttl = Duration::from_secs(cfg.protocol_cache_ttl_secs);
+        let pingora_proxy = crate::infra::proxy::pingora_proxy::PingoraProxy::new(
+            connect_timeout,
+            read_timeout,
+            protocol_cache_ttl,
+        );
         let proxy = Arc::new(crate::infra::proxy::pingora_proxy::new_http_proxy(
             &server_conf,
             pingora_proxy,
@@ -120,7 +126,11 @@ impl Module for OutboundApiGatewayModule {
             )
             .with_request_timeout(Duration::from_secs(cfg.proxy_timeout_secs))
             .with_max_body_size(cfg.max_body_size_bytes)
-            .with_allow_http_upstream(cfg.allow_http_upstream),
+            .with_allow_http_upstream(cfg.allow_http_upstream)
+            .with_websocket_idle_timeout(Duration::from_secs(cfg.websocket_idle_timeout_secs))
+            .with_websocket_close_timeout(Duration::from_secs(cfg.websocket_close_timeout_secs))
+            .with_websocket_max_frame_size(cfg.websocket_max_frame_size_bytes)
+            .with_streaming_idle_timeout(Duration::from_secs(cfg.streaming_idle_timeout_secs)),
         );
 
         // -- Facade (for external SDK consumers) --

@@ -21,7 +21,10 @@
 ## Constructor Example
 
 ```rust
-cf_modkit_errors::resource_error!(UpstreamResourceError, "gts.cf.oagw.upstreams.upstream.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
+struct UpstreamResourceError;
 
 let err = UpstreamResourceError::aborted("Operation aborted due to concurrency conflict")
     .with_reason("OPTIMISTIC_LOCK_FAILURE")

@@ -4,16 +4,7 @@ use crate::domain::model::{PassthroughMode, RequestHeaderRules, ResponseHeaderRu
 use http::{HeaderMap, HeaderName, HeaderValue};
 use oagw_sdk::api::ErrorSource;
 
-const HOP_BY_HOP_HEADERS: &[&str] = &[
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-];
+use super::HOP_BY_HOP_HEADERS;
 
 /// Sensitive headers that must never be forwarded to upstream services,
 /// even when `PassthroughMode::All` is used.
@@ -119,6 +110,65 @@ pub fn extract_error_source(headers: &HeaderMap) -> ErrorSource {
 /// Strips hop-by-hop headers and `x-oagw-*` internal headers.
 pub fn sanitize_response_headers(headers: &mut HeaderMap) {
     strip_hop_by_hop(headers);
+    strip_internal_headers(headers);
+}
+
+/// Returns `true` if the request headers indicate a WebSocket upgrade.
+///
+/// Per RFC 6455 §4.1, requires both `Upgrade: websocket` and
+/// `Connection: Upgrade` tokens (case-insensitive, handles multiple
+/// header instances via `get_all()` per RFC 7230).
+pub fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    let has_upgrade_websocket = headers
+        .get_all(http::header::UPGRADE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| {
+            v.split(',')
+                .any(|t| t.trim().eq_ignore_ascii_case("websocket"))
+        });
+
+    let has_connection_upgrade = headers
+        .get_all(http::header::CONNECTION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| {
+            v.split(',')
+                .any(|t| t.trim().eq_ignore_ascii_case("upgrade"))
+        });
+
+    has_upgrade_websocket && has_connection_upgrade
+}
+
+/// Like [`strip_hop_by_hop`] but preserves `Upgrade` and `Connection` headers,
+/// which are required for WebSocket upgrade negotiation (RFC 6455 §4.1).
+pub fn strip_hop_by_hop_for_upgrade(headers: &mut HeaderMap) {
+    // Parse Connection-nominated headers but skip "upgrade" itself.
+    if let Some(conn_value) = headers.get("connection").and_then(|v| v.to_str().ok()) {
+        let named: Vec<String> = conn_value
+            .split(',')
+            .map(|token| token.trim().to_lowercase())
+            .filter(|token| !token.is_empty() && token != "upgrade")
+            .collect();
+        for name in &named {
+            if let Ok(header_name) = HeaderName::from_bytes(name.as_bytes()) {
+                headers.remove(header_name);
+            }
+        }
+    }
+
+    // Remove static hop-by-hop headers EXCEPT "connection" and "upgrade".
+    for name in HOP_BY_HOP_HEADERS {
+        if *name != "connection" && *name != "upgrade" {
+            headers.remove(*name);
+        }
+    }
+}
+
+/// Like [`sanitize_response_headers`] but preserves `Upgrade` and `Connection`
+/// headers needed for 101 Switching Protocols responses.
+pub fn sanitize_response_headers_for_upgrade(headers: &mut HeaderMap) {
+    strip_hop_by_hop_for_upgrade(headers);
     strip_internal_headers(headers);
 }
 
@@ -628,6 +678,125 @@ mod tests {
 
         assert!(headers.get("x-oagw-debug").is_none());
         assert!(headers.get("x-oagw-trace-id").is_none());
+        assert_eq!(headers.get("x-custom").unwrap(), "keep");
+    }
+
+    // -- is_websocket_upgrade tests --
+
+    #[test]
+    fn websocket_upgrade_detected() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("connection", "Upgrade".parse().unwrap());
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_case_insensitive() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "WebSocket".parse().unwrap());
+        headers.insert("connection", "upgrade".parse().unwrap());
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_multi_value() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "h2c, websocket".parse().unwrap());
+        headers.insert("connection", "keep-alive, Upgrade".parse().unwrap());
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_absent() {
+        let headers = HeaderMap::new();
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_non_websocket() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "h2c".parse().unwrap());
+        headers.insert("connection", "Upgrade".parse().unwrap());
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_missing_connection() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_connection_without_upgrade_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("connection", "keep-alive".parse().unwrap());
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_multiple_header_instances() {
+        let mut headers = HeaderMap::new();
+        headers.append("upgrade", "h2c".parse().unwrap());
+        headers.append("upgrade", "websocket".parse().unwrap());
+        headers.append("connection", "keep-alive".parse().unwrap());
+        headers.append("connection", "Upgrade".parse().unwrap());
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    // -- strip_hop_by_hop_for_upgrade tests --
+
+    #[test]
+    fn upgrade_strip_preserves_upgrade_and_connection() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("connection", "Upgrade".parse().unwrap());
+        headers.insert("transfer-encoding", "chunked".parse().unwrap());
+        headers.insert("keep-alive", "timeout=5".parse().unwrap());
+        headers.insert("x-custom", "keep".parse().unwrap());
+
+        strip_hop_by_hop_for_upgrade(&mut headers);
+
+        assert_eq!(headers.get("upgrade").unwrap(), "websocket");
+        assert_eq!(headers.get("connection").unwrap(), "Upgrade");
+        assert!(headers.get("transfer-encoding").is_none());
+        assert!(headers.get("keep-alive").is_none());
+        assert_eq!(headers.get("x-custom").unwrap(), "keep");
+    }
+
+    #[test]
+    fn upgrade_strip_removes_connection_nominated_except_upgrade() {
+        let mut headers = HeaderMap::new();
+        headers.insert("connection", "Upgrade, X-Custom-Hop".parse().unwrap());
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("x-custom-hop", "secret".parse().unwrap());
+        headers.insert("x-safe", "keep".parse().unwrap());
+
+        strip_hop_by_hop_for_upgrade(&mut headers);
+
+        assert!(headers.get("x-custom-hop").is_none());
+        assert_eq!(headers.get("upgrade").unwrap(), "websocket");
+        assert!(headers.get("connection").is_some());
+        assert_eq!(headers.get("x-safe").unwrap(), "keep");
+    }
+
+    // -- sanitize_response_headers_for_upgrade tests --
+
+    #[test]
+    fn sanitize_upgrade_response_preserves_upgrade_strips_internal() {
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("connection", "Upgrade".parse().unwrap());
+        headers.insert("x-oagw-debug", "true".parse().unwrap());
+        headers.insert("x-custom", "keep".parse().unwrap());
+
+        sanitize_response_headers_for_upgrade(&mut headers);
+
+        assert_eq!(headers.get("upgrade").unwrap(), "websocket");
+        assert_eq!(headers.get("connection").unwrap(), "Upgrade");
+        assert!(headers.get("x-oagw-debug").is_none());
         assert_eq!(headers.get("x-custom").unwrap(), "keep");
     }
 

@@ -1,10 +1,23 @@
 use authz_resolver_sdk::pep::ResourceType;
 
+/// Hop-by-hop headers that must not be forwarded by proxies (RFC 7230 §6.1).
+pub(crate) const HOP_BY_HOP_HEADERS: &[&str] = &[
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
+
 pub(crate) mod headers;
 pub(crate) mod pingora_proxy;
 pub(crate) mod request_builder;
 pub(crate) mod service;
 pub(crate) mod session_bridge;
+pub(crate) mod websocket;
 
 pub(crate) use service::DataPlaneServiceImpl;
 

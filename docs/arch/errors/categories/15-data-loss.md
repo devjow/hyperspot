@@ -20,7 +20,10 @@
 ## Constructor Example
 
 ```rust
-cf_modkit_errors::resource_error!(FileResourceError, "gts.cf.core.files.file.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.files.file.v1~")]
+struct FileResourceError;
 
 let err = FileResourceError::data_loss("Data loss detected")
     .with_resource("01JFILE-ABC")

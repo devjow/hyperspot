@@ -1,10 +1,13 @@
 extern crate modkit_canonical_errors;
 
+use modkit_canonical_errors::resource_error;
 use modkit_canonical_errors::{CanonicalError, Problem};
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct R;
 
 #[test]
 fn not_found_gts_type() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -16,7 +19,6 @@ fn not_found_gts_type() {
 
 #[test]
 fn not_found_status_code() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -25,7 +27,6 @@ fn not_found_status_code() {
 
 #[test]
 fn not_found_title() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("Resource not found")
         .with_resource("user-123")
         .create();
@@ -34,7 +35,6 @@ fn not_found_title() {
 
 #[test]
 fn display_includes_category_and_detail() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("User not found")
         .with_resource("user-123")
         .create();
@@ -43,7 +43,6 @@ fn display_includes_category_and_detail() {
 
 #[test]
 fn with_detail_overrides_default() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
     let err = R::not_found("custom detail")
         .with_resource("user-123")
         .create();
@@ -52,8 +51,6 @@ fn with_detail_overrides_default() {
 
 #[test]
 fn all_16_categories_convert_to_problem() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
-
     let errors: Vec<CanonicalError> = vec![
         R::cancelled().create(),
         R::unknown("unknown error").create(),
@@ -162,8 +159,6 @@ fn question_mark_propagation_serde_json() {
 
 #[test]
 fn validate_all_gts_ids() {
-    modkit_canonical_errors::resource_error!(R, "gts.cf.core.users.user.v1~");
-
     let errors = vec![
         R::cancelled().create(),
         R::unknown("e").create(),

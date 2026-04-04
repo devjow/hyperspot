@@ -31,7 +31,10 @@ async fn process_data() -> Result<Data, CanonicalError> {
 }
 
 // 3. Resource-scoped error construction
-cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
 
 async fn get_user(id: &str) -> Result<User, CanonicalError> {
     db.find_user(id)
@@ -48,10 +51,13 @@ let validation_err = UserResourceError::invalid_argument()
     .create();
 ```
 
-**Resource-scoped errors** are a convenience layer for module-owned resources. The `resource_error!` macro declares a resource type and generates constructors that auto-tag every error with the resource's GTS identity:
+**Resource-scoped errors** are a convenience layer for module-owned resources. The `#[resource_error]` attribute macro declares a resource type and generates constructors that auto-tag every error with the resource's GTS identity:
 
 ```rust
-cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
 
 // Generated constructors return builders — call .create() to produce CanonicalError:
 UserResourceError::not_found("User not found")     // → builder (resource required)
@@ -101,10 +107,10 @@ See [§ 4. Category Reference](#4-category-reference) for full definitions inclu
 | `cpt-cf-errors-fr-structured-context` | Each variant carries a typed context struct |
 | `cpt-cf-errors-fr-mandatory-trace-id` | `Problem.trace_id` field populated by middleware |
 | `cpt-cf-errors-fr-public-private-isolation` | Internal details never included in production responses; `trace_id` used for correlation |
-| `cpt-cf-errors-fr-compile-time-safety` | Typed enum + `resource_error!` macro |
+| `cpt-cf-errors-fr-compile-time-safety` | Typed enum + `#[resource_error]` macro |
 | `cpt-cf-errors-fr-gts-identification` | `GtsSchema` trait with `SCHEMA_ID` const per context type |
 | `cpt-cf-errors-fr-single-line-construction` | One builder per category; `CanonicalError::category(detail).create()` or `ResourceError::category(detail).with_resource(id).create()` |
-| `cpt-cf-errors-fr-resource-scoped-construction` | `resource_error!` macro generates constructors with auto-tagged `resource_type` |
+| `cpt-cf-errors-fr-resource-scoped-construction` | `#[resource_error]` macro generates constructors with auto-tagged `resource_type` |
 | `cpt-cf-errors-fr-builder-only-construction` | `#[non_exhaustive]` on enum + variants; `pub(crate)` internal constructors and mutation methods |
 | `cpt-cf-errors-fr-library-error-propagation` | Blanket `From` impls for common library errors (`io::Error`, `serde_json::Error`, `DbErr`) |
 | `cpt-cf-errors-fr-schema-drift-prevention` | Showcase snapshot tests + `cargo-semver-checks` + schema file diffing in CI |
@@ -248,10 +254,13 @@ Every error response consists of **contract parts** (fixed per category) and **v
 
 - [ ] `p1` - **ID**: `cpt-cf-errors-constraint-macro-gts-construction`
 
-Resource types are declared via the `resource_error!` macro that associates a GTS identifier with a named type. The macro generates error constructors for 13 canonical categories (all except `internal`, `service_unavailable`, and `unauthenticated`, which are not resource-scoped), and tags every generated constructor with `resource_type` automatically.
+Resource types are declared via the `#[resource_error]` attribute macro that associates a GTS identifier with a named type. The macro generates error constructors for 13 canonical categories (all except `internal`, `service_unavailable`, and `unauthenticated`, which are not resource-scoped), and tags every generated constructor with `resource_type` automatically.
 
 ```rust
-cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
 
 // Usage in a handler:
 async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> {
@@ -298,10 +307,10 @@ async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> 
 │  │ → Problem       │  for Problem               │
 │  └─────────────────┘                            │
 ├─────────────────────────────────────────────────┤
-│  libs/modkit-errors-macro                       │
-│  ┌─────────────────┐                            │
-│  │resource_error! │ macro                      │
-│  └─────────────────┘                            │
+│  libs/modkit-canonical-errors-macro              │
+│  ┌──────────────────────┐                       │
+│  │ #[resource_error]    │ macro                 │
+│  └──────────────────────┘                       │
 ├─────────────────────────────────────────────────┤
 │  dylint_lints/                                  │
 │  ┌─────────────────┐                            │
@@ -386,7 +395,7 @@ Does not construct domain errors. Does not decide which category to use — that
 
 **Responsibility scope**:
 
-The `resource_error!(UserResourceError, "gts.cf.core.users.user.v1~")` macro on a unit struct generates 13 associated functions (all categories except `internal`, `service_unavailable`, and `unauthenticated`). Each generated function returns a `ResourceErrorBuilder` that:
+The `#[resource_error("gts.cf.core.users.user.v1~")] struct UserResourceError;` attribute macro on a unit struct generates 13 associated functions (all categories except `internal`, `service_unavailable`, and `unauthenticated`). Each generated function returns a `ResourceErrorBuilder` that:
 1. Pre-sets `resource_type` to the GTS identifier (e.g., `"gts.cf.core.users.user.v1~"`)
 2. Accepts a `detail` string describing the error occurrence
 3. For `not_found`, `already_exists`, and `data_loss`: requires `.with_resource(name)` before `.create()` to set the `resource_name`
@@ -548,7 +557,8 @@ Two entry points converge into the same `CanonicalError` type. These are the **o
 ```text
 Resource-scoped construction              Non-resource construction
 ─────────────────────────────             ─────────────────────────
-resource_error!(R, "gts...");             CanonicalError::internal(detail).create()
+#[resource_error("gts...")]               CanonicalError::internal(detail).create()
+struct R;
 UserResourceError::not_found(detail)      CanonicalError::service_unavailable().create()
   .with_resource(id).create()             CanonicalError::unauthenticated()
 UserResourceError::permission_denied(d)     .with_reason(r).create()
@@ -572,7 +582,10 @@ UserResourceError::permission_denied(d)     .with_reason(r).create()
 **Direct canonical error instantiation**:
 
 ```rust
-cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
 
 let err = UserResourceError::invalid_argument()
     .with_field_violation("email", "must be a valid email address", "INVALID_FORMAT")
@@ -582,7 +595,10 @@ let err = UserResourceError::invalid_argument()
 **Resource-scoped error instantiation**:
 
 ```rust
-cf_modkit_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
 
 let err = UserResourceError::not_found("User not found")
     .with_resource("user-123")
@@ -638,7 +654,7 @@ Handler                CanonicalError          Problem              Client
   │                        │                      ├──────────────────>│
 ```
 
-1. Handler constructs `CanonicalError` via builder + `.create()` or `resource_error!` macro builder + `.create()`
+1. Handler constructs `CanonicalError` via builder + `.create()` or `#[resource_error]` macro builder + `.create()`
 2. Handler returns `Err(canonical_error)` from the handler function
 3. Error middleware catches the error, calls `Problem::from_error()`
 4. Middleware sets `trace_id` from span context, `instance` from request URI
@@ -724,7 +740,7 @@ Not applicable. Errors are transient in-memory values. No persistent storage.
 
 | Tier | When | Mechanism | What It Catches |
 |------|------|-----------|-----------------|
-| 1. Compile-time | `cargo build` | Typed enum variants, exhaustive `match`, `resource_error!` macro, `GtsSchema` const, Dylint lint rules (`dylint_lints/`), `#[non_exhaustive]` on enum + variants, `pub(crate)` internal constructors | Wrong context type, missing match arm, GTS typos, direct `Problem` construction, legacy error patterns, direct variant construction, bypassing builder API |
+| 1. Compile-time | `cargo build` | Typed enum variants, exhaustive `match`, `#[resource_error]` macro, `GtsSchema` const, Dylint lint rules (`dylint_lints/`), `#[non_exhaustive]` on enum + variants, `pub(crate)` internal constructors | Wrong context type, missing match arm, GTS typos, direct `Problem` construction, legacy error patterns, direct variant construction, bypassing builder API |
 | 2. Test-time | `cargo test` | Showcase tests with `assert_eq!` on full Problem JSON per category; JSON Schema equality assertions per context type | Field renames, default message changes, status code changes, schema drift |
 | 3. CI-time | PR merge gate | `cargo-semver-checks` on `cf-modkit-errors`; schema file diffing; snapshot CI gate | Removed types, changed signatures, schema evolution |
 | 4. Design-time | Architecture | Single `Problem` conversion point; dedicated context constructors; `GtsSchema` generates schemas from types | Ad-hoc JSON construction, missing required fields, schema/code divergence |

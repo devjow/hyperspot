@@ -79,6 +79,7 @@ pub mod upload_result {
     #[allow(dead_code)] // declared ahead of call site (deferred metrics)
     pub const UNSUPPORTED_TYPE: &str = "unsupported_type";
     pub const PROVIDER_ERROR: &str = "provider_error";
+    pub const STORAGE_LIMIT_EXCEEDED: &str = "storage_limit_exceeded";
 }
 
 /// Cleanup resource type labels (`resource_type` label).

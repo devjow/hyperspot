@@ -432,6 +432,9 @@ pub struct TestDpBuilder {
     skip_upstream_tls_verify: bool,
     token_http_config: Option<modkit_http::HttpClientConfig>,
     token_cache_config: TokenCacheConfig,
+    websocket_idle_timeout: Option<Duration>,
+    websocket_close_timeout: Option<Duration>,
+    websocket_max_frame_size: Option<usize>,
 }
 
 impl TestDpBuilder {
@@ -445,6 +448,9 @@ impl TestDpBuilder {
             skip_upstream_tls_verify: false,
             token_http_config: None,
             token_cache_config: TokenCacheConfig::default(),
+            websocket_idle_timeout: None,
+            websocket_close_timeout: None,
+            websocket_max_frame_size: None,
         }
     }
 
@@ -499,6 +505,27 @@ impl TestDpBuilder {
         self
     }
 
+    /// Override the WebSocket idle timeout (useful for idle-timeout tests).
+    #[must_use]
+    pub fn with_websocket_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_idle_timeout = Some(timeout);
+        self
+    }
+
+    /// Override the WebSocket Close frame handshake timeout.
+    #[must_use]
+    pub fn with_websocket_close_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_close_timeout = Some(timeout);
+        self
+    }
+
+    /// Override the maximum WebSocket frame payload size.
+    #[must_use]
+    pub fn with_websocket_max_frame_size(mut self, size: Option<usize>) -> Self {
+        self.websocket_max_frame_size = size;
+        self
+    }
+
     /// Fetch `CredStoreClientV1` from the hub, create a DP service with
     /// the given CP, and return the trait object.
     pub(crate) fn build_and_register(
@@ -519,6 +546,7 @@ impl TestDpBuilder {
         let pingora_proxy = crate::infra::proxy::pingora_proxy::PingoraProxy::new(
             Duration::from_secs(10),
             Duration::from_secs(30),
+            Duration::from_secs(3600),
         )
         .with_skip_upstream_tls_verify(self.skip_upstream_tls_verify);
         let proxy = Arc::new(crate::infra::proxy::pingora_proxy::new_http_proxy(
@@ -546,6 +574,15 @@ impl TestDpBuilder {
         }
         if let Some(size) = self.max_body_size {
             svc = svc.with_max_body_size(size);
+        }
+        if let Some(timeout) = self.websocket_idle_timeout {
+            svc = svc.with_websocket_idle_timeout(timeout);
+        }
+        if let Some(timeout) = self.websocket_close_timeout {
+            svc = svc.with_websocket_close_timeout(timeout);
+        }
+        if let Some(size) = self.websocket_max_frame_size {
+            svc = svc.with_websocket_max_frame_size(Some(size));
         }
 
         Arc::new(svc)
@@ -591,6 +628,10 @@ pub fn build_test_app_state(
             backend_selector,
             config: crate::config::RuntimeConfig {
                 max_body_size_bytes: 100 * 1024 * 1024, // 100 MB default for tests
+                websocket_idle_timeout_secs: 300,
+                websocket_close_timeout_secs: 5,
+                websocket_max_frame_size_bytes: None,
+                streaming_idle_timeout_secs: 300,
             },
         },
         facade,

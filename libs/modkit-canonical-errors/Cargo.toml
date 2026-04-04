@@ -25,6 +25,7 @@ workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 sea-orm = { workspace = true, optional = true }
+modkit-canonical-errors-macro = { workspace = true }
 
 [dev-dependencies]
 gts-id = { workspace = true }

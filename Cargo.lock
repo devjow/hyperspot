@@ -1451,11 +1451,22 @@ dependencies = [
 name = "cf-modkit-canonical-errors"
 version = "0.6.1"
 dependencies = [
+ "cf-modkit-canonical-errors-macro",
  "gts-id",
  "sea-orm",
  "serde",
  "serde_json",
  "trybuild",
+]
+
+[[package]]
+name = "cf-modkit-canonical-errors-macro"
+version = "0.6.1"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -1792,6 +1803,7 @@ dependencies = [
  "hyper-util",
  "inventory",
  "mime",
+ "parking_lot",
  "pingora-core",
  "pingora-http",
  "pingora-load-balancing",
@@ -8658,10 +8670,9 @@ dependencies = [
  "cf-api-gateway",
  "cf-authz-resolver-sdk",
  "cf-modkit",
+ "cf-modkit-canonical-errors",
  "cf-modkit-db",
  "cf-modkit-db-macros",
- "cf-modkit-errors",
- "cf-modkit-errors-macro",
  "cf-modkit-http",
  "cf-modkit-macros",
  "cf-modkit-odata",
@@ -8709,6 +8720,28 @@ dependencies = [
  "time",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "users-info-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cf-api-gateway",
+ "cf-authn-resolver",
+ "cf-authz-resolver",
+ "cf-grpc-hub",
+ "cf-modkit",
+ "cf-single-tenant-tr-plugin",
+ "cf-static-authn-plugin",
+ "cf-static-authz-plugin",
+ "cf-tenant-resolver",
+ "cf-types-registry",
+ "clap",
+ "tokio",
+ "tracing",
+ "types",
+ "users-info",
 ]
 
 [[package]]

@@ -31,7 +31,10 @@ Precondition violation:
 ## Constructor Example
 
 ```rust
-cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
+use modkit_canonical_errors::resource_error;
+
+#[resource_error("gts.cf.core.tenants.tenant.v1~")]
+struct TenantResourceError;
 
 let err = TenantResourceError::failed_precondition()
     .with_precondition_violation(

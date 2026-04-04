@@ -84,33 +84,33 @@ Design constraints enforced: `cpt-cf-oagw-constraint-https-only`.
 - Auth/guard/body validation failures before streaming begins (same as base proxy flow)
 
 **Steps**:
-1. [ ] - `p1` - Actor sends `{METHOD} /api/oagw/v1/proxy/{alias}[/{path}][?{query}]` with `Accept: text/event-stream` header - `inst-sse-1`
-2. [ ] - `p1` - Execute base proxy flow steps (auth, alias resolution, route matching, plugin chain) via `cpt-cf-oagw-flow-proxy-request` - `inst-sse-2`
-3. [ ] - `p1` - Negotiate HTTP version with upstream via `cpt-cf-oagw-algo-protocol-version-negotiation` - `inst-sse-3`
-4. [ ] - `p1` - Open connection to upstream endpoint (HTTPS-only per `cpt-cf-oagw-constraint-https-only`) - `inst-sse-4`
-5. [ ] - `p1` - Forward request to upstream with original headers (after plugin chain transformation) - `inst-sse-5`
-6. [ ] - `p1` - **IF** upstream responds with `Content-Type: text/event-stream` and status 200 - `inst-sse-6`
-   1. [ ] - `p1` - Set response `Content-Type: text/event-stream` and begin streaming to caller - `inst-sse-6a`
-   2. [ ] - `p1` - Set response header `X-OAGW-Error-Source: upstream` (data originates from upstream) - `inst-sse-6b`
-7. [ ] - `p1` - **ELSE** (non-SSE response) - `inst-sse-7`
-   1. [ ] - `p1` - **IF** upstream returns non-2xx status - `inst-sse-7a`
-      1. [ ] - `p1` - **RETURN** upstream error response as-is with `X-OAGW-Error-Source: upstream` - `inst-sse-7a1`
+1. [x] - `p1` - Actor sends `{METHOD} /api/oagw/v1/proxy/{alias}[/{path}][?{query}]` with `Accept: text/event-stream` header - `inst-sse-1`
+2. [x] - `p1` - Execute base proxy flow steps (auth, alias resolution, route matching, plugin chain) via `cpt-cf-oagw-flow-proxy-request` - `inst-sse-2`
+3. [x] - `p1` - Negotiate HTTP version with upstream via `cpt-cf-oagw-algo-protocol-version-negotiation` - `inst-sse-3`
+4. [x] - `p1` - Open connection to upstream endpoint (HTTPS-only per `cpt-cf-oagw-constraint-https-only`) - `inst-sse-4`
+5. [x] - `p1` - Forward request to upstream with original headers (after plugin chain transformation) - `inst-sse-5`
+6. [x] - `p1` - **IF** upstream responds with `Content-Type: text/event-stream` and status 200 - `inst-sse-6`
+   1. [x] - `p1` - Set response `Content-Type: text/event-stream` and begin streaming to caller - `inst-sse-6a`
+   2. [x] - `p1` - Set response header `X-OAGW-Error-Source: upstream` (data originates from upstream) - `inst-sse-6b`
+7. [x] - `p1` - **ELSE** (non-SSE response) - `inst-sse-7`
+   1. [x] - `p1` - **IF** upstream returns non-2xx status - `inst-sse-7a`
+      1. [x] - `p1` - **RETURN** upstream error response as-is with `X-OAGW-Error-Source: upstream` - `inst-sse-7a1`
    2. [ ] - `p1` - **ELSE** (2xx but not `text/event-stream`) - `inst-sse-7b`
       1. [ ] - `p1` - **RETURN** 502 ProtocolError with `X-OAGW-Error-Source: gateway` — expected SSE but received different content type - `inst-sse-7b1`
-8. [ ] - `p1` - **FOR EACH** SSE event received from upstream - `inst-sse-8`
-   1. [ ] - `p1` - Forward event data to caller as-is (preserve `data:`, `event:`, `id:`, `retry:` fields) - `inst-sse-8a`
-9. [ ] - `p1` - **IF** upstream closes connection (EOF) - `inst-sse-9`
-   1. [ ] - `p1` - Close caller connection gracefully - `inst-sse-9a`
-10. [ ] - `p1` - **IF** caller disconnects before upstream completes - `inst-sse-10`
-    1. [ ] - `p1` - Abort upstream connection and release resources - `inst-sse-10a`
-11. [ ] - `p1` - **IF** upstream connection drops unexpectedly (TCP reset, TLS error) - `inst-sse-11`
-    1. [ ] - `p1` - **RETURN** 502 StreamAborted with `X-OAGW-Error-Source: gateway` - `inst-sse-11a`
-12. [ ] - `p1` - **IF** idle timeout exceeded (no events received within configured timeout) - `inst-sse-12`
-    1. [ ] - `p1` - **RETURN** 504 IdleTimeout with `X-OAGW-Error-Source: gateway` - `inst-sse-12a`
+8. [x] - `p1` - **FOR EACH** SSE event received from upstream - `inst-sse-8`
+   1. [x] - `p1` - Forward event data to caller as-is (preserve `data:`, `event:`, `id:`, `retry:` fields) - `inst-sse-8a`
+9. [x] - `p1` - **IF** upstream closes connection (EOF) - `inst-sse-9`
+   1. [x] - `p1` - Close caller connection gracefully - `inst-sse-9a`
+10. [x] - `p1` - **IF** caller disconnects before upstream completes - `inst-sse-10`
+    1. [x] - `p1` - Abort upstream connection and release resources - `inst-sse-10a`
+11. [x] - `p1` - **IF** upstream connection drops unexpectedly (TCP reset, TLS error) - `inst-sse-11`
+    1. [x] - `p1` - **RETURN** 502 StreamAborted with `X-OAGW-Error-Source: gateway` - `inst-sse-11a`
+12. [x] - `p1` - **IF** idle timeout exceeded (no events received within configured timeout) - `inst-sse-12`
+    1. [x] - `p1` - **RETURN** 504 IdleTimeout with `X-OAGW-Error-Source: gateway` - `inst-sse-12a`
 
 ### WebSocket Proxy Flow
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-flow-streaming-websocket`
+- [x] `p1` - **ID**: `cpt-cf-oagw-flow-streaming-websocket`
 
 **Actor**: `cpt-cf-oagw-actor-app-developer`
 
@@ -126,34 +126,34 @@ Design constraints enforced: `cpt-cf-oagw-constraint-https-only`.
 - Auth/guard failures before upgrade (same as base proxy flow)
 
 **Steps**:
-1. [ ] - `p1` - Actor sends `GET /api/oagw/v1/proxy/{alias}[/{path}]` with `Upgrade: websocket` and `Connection: Upgrade` headers - `inst-ws-1`
-2. [ ] - `p1` - Execute base proxy flow steps (auth, alias resolution, route matching, guard plugins) via `cpt-cf-oagw-flow-proxy-request` — transform plugins are NOT executed on WebSocket frames - `inst-ws-2`
-3. [ ] - `p1` - Initiate WebSocket upgrade handshake with upstream endpoint (HTTPS/WSS-only) - `inst-ws-3`
-4. [ ] - `p1` - **IF** upstream accepts upgrade (101 Switching Protocols) - `inst-ws-4`
-   1. [ ] - `p1` - Complete upgrade with caller (101 Switching Protocols) - `inst-ws-4a`
-5. [ ] - `p1` - **ELSE** (upstream rejects upgrade) - `inst-ws-5`
-   1. [ ] - `p1` - **RETURN** 502 ProtocolError with `X-OAGW-Error-Source: gateway` — upstream rejected WebSocket upgrade - `inst-ws-5a`
-6. [ ] - `p1` - **FOR EACH** message from caller - `inst-ws-6`
-   1. [ ] - `p1` - **IF** message exceeds configured max frame size (default: no limit; pass-through) - `inst-ws-6a`
-      1. [ ] - `p1` - Send Close frame (1009 Message Too Big) to caller and abort upstream - `inst-ws-6a1`
-   2. [ ] - `p1` - Forward message to upstream (text or binary frame, preserve opcode) - `inst-ws-6b`
-7. [ ] - `p1` - **FOR EACH** message from upstream - `inst-ws-7`
-   1. [ ] - `p1` - **IF** message exceeds configured max frame size (default: no limit; pass-through) - `inst-ws-7a`
-      1. [ ] - `p1` - Send Close frame (1009 Message Too Big) to upstream and close caller - `inst-ws-7a1`
-   2. [ ] - `p1` - Forward message to caller (text or binary frame, preserve opcode) - `inst-ws-7b`
-8. [ ] - `p1` - **IF** either side sends Close frame - `inst-ws-8`
-   1. [ ] - `p1` - Forward Close frame to the other side with status code and reason - `inst-ws-8a`
-   2. [ ] - `p1` - Wait for Close frame response (up to close timeout) - `inst-ws-8b`
-   3. [ ] - `p1` - Release connection resources - `inst-ws-8c`
-9. [ ] - `p1` - **IF** upstream connection drops unexpectedly - `inst-ws-9`
-   1. [ ] - `p1` - Send Close frame (1006 Abnormal Closure) to caller - `inst-ws-9a`
-   2. [ ] - `p1` - Release connection resources - `inst-ws-9b`
-10. [ ] - `p1` - **IF** caller disconnects unexpectedly - `inst-ws-10`
-    1. [ ] - `p1` - Send Close frame to upstream - `inst-ws-10a`
-    2. [ ] - `p1` - Release connection resources - `inst-ws-10b`
-11. [ ] - `p1` - **IF** idle timeout exceeded (no messages in either direction within configured timeout) - `inst-ws-11`
-    1. [ ] - `p1` - Send Close frame (1001 Going Away) to both sides - `inst-ws-11a`
-    2. [ ] - `p1` - Release connection resources - `inst-ws-11b`
+1. [x] - `p1` - Actor sends `GET /api/oagw/v1/proxy/{alias}[/{path}]` with `Upgrade: websocket` and `Connection: Upgrade` headers - `inst-ws-1`
+2. [x] - `p1` - Execute base proxy flow steps (auth, alias resolution, route matching, guard plugins) via `cpt-cf-oagw-flow-proxy-request` — transform plugins are NOT executed on WebSocket frames - `inst-ws-2`
+3. [x] - `p1` - Initiate WebSocket upgrade handshake with upstream endpoint (HTTPS/WSS-only) - `inst-ws-3`
+4. [x] - `p1` - **IF** upstream accepts upgrade (101 Switching Protocols) - `inst-ws-4`
+   1. [x] - `p1` - Complete upgrade with caller (101 Switching Protocols) - `inst-ws-4a`
+5. [x] - `p1` - **ELSE** (upstream rejects upgrade) - `inst-ws-5`
+   1. [x] - `p1` - **RETURN** 502 ProtocolError with `X-OAGW-Error-Source: gateway` — upstream rejected WebSocket upgrade - `inst-ws-5a`
+6. [x] - `p1` - **FOR EACH** message from caller - `inst-ws-6`
+   1. [x] - `p1` - **IF** message exceeds configured max frame size (default: no limit; pass-through) - `inst-ws-6a`
+      1. [x] - `p1` - Send Close frame (1009 Message Too Big) to caller and abort upstream - `inst-ws-6a1`
+   2. [x] - `p1` - Forward message to upstream (text or binary frame, preserve opcode) - `inst-ws-6b`
+7. [x] - `p1` - **FOR EACH** message from upstream - `inst-ws-7`
+   1. [x] - `p1` - **IF** message exceeds configured max frame size (default: no limit; pass-through) - `inst-ws-7a`
+      1. [x] - `p1` - Send Close frame (1009 Message Too Big) to upstream and close caller - `inst-ws-7a1`
+   2. [x] - `p1` - Forward message to caller (text or binary frame, preserve opcode) - `inst-ws-7b`
+8. [x] - `p1` - **IF** either side sends Close frame - `inst-ws-8`
+   1. [x] - `p1` - Forward Close frame to the other side with status code and reason - `inst-ws-8a`
+   2. [x] - `p1` - Wait for Close frame response (up to close timeout) - `inst-ws-8b`
+   3. [x] - `p1` - Release connection resources - `inst-ws-8c`
+9. [x] - `p1` - **IF** upstream connection drops unexpectedly - `inst-ws-9`
+   1. [x] - `p1` - Send Close frame (1006 Abnormal Closure) to caller - `inst-ws-9a`
+   2. [x] - `p1` - Release connection resources - `inst-ws-9b`
+10. [x] - `p1` - **IF** caller disconnects unexpectedly - `inst-ws-10`
+    1. [x] - `p1` - Send Close frame to upstream - `inst-ws-10a`
+    2. [x] - `p1` - Release connection resources - `inst-ws-10b`
+11. [x] - `p1` - **IF** idle timeout exceeded (no messages in either direction within configured timeout) - `inst-ws-11`
+    1. [x] - `p1` - Send Close frame (1001 Going Away) to both sides - `inst-ws-11a`
+    2. [x] - `p1` - Release connection resources - `inst-ws-11b`
 
 ### WebTransport Proxy Flow
 
@@ -197,59 +197,59 @@ Design constraints enforced: `cpt-cf-oagw-constraint-https-only`.
 
 ### HTTP Version Negotiation
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-algo-protocol-version-negotiation`
+- [x] `p1` - **ID**: `cpt-cf-oagw-algo-protocol-version-negotiation`
 
 **Input**: Upstream endpoint host/IP, requested protocol (SSE/WebSocket/WebTransport)
 
 **Output**: Negotiated HTTP version (HTTP/1.1 or HTTP/2) or error
 
 **Steps**:
-1. [ ] - `p1` - Compute cache key: `{scheme}://{host}:{port}` - `inst-proto-1`
-2. [ ] - `p1` - **IF** protocol version cache contains entry for this key AND entry is not expired (TTL: 1 hour) - `inst-proto-2`
-   1. [ ] - `p1` - **RETURN** cached HTTP version - `inst-proto-2a`
-3. [ ] - `p1` - Attempt TLS handshake with ALPN extension offering `h2` (HTTP/2) and `http/1.1` - `inst-proto-3`
-4. [ ] - `p1` - **IF** ALPN negotiation selects `h2` - `inst-proto-4`
-   1. [ ] - `p1` - Cache entry: `{key} → HTTP/2, expires_at = now + 1h` - `inst-proto-4a`
-   2. [ ] - `p1` - **RETURN** HTTP/2 - `inst-proto-4b`
-5. [ ] - `p1` - **ELSE** (ALPN selects `http/1.1` or ALPN not supported) - `inst-proto-5`
-   1. [ ] - `p1` - Cache entry: `{key} → HTTP/1.1, expires_at = now + 1h` - `inst-proto-5a`
-   2. [ ] - `p1` - **RETURN** HTTP/1.1 - `inst-proto-5b`
-6. [ ] - `p1` - **IF** TLS handshake fails entirely - `inst-proto-6`
-   1. [ ] - `p1` - **RETURN** error: connection failed (502 DownstreamError) - `inst-proto-6a`
-7. [ ] - `p1` - **IF** cached version fails at runtime (e.g., HTTP/2 connection error on a host cached as HTTP/2) - `inst-proto-7`
-   1. [ ] - `p1` - Evict cache entry for this key - `inst-proto-7a`
-   2. [ ] - `p1` - Re-negotiate from step 3 on next request (not current request — no retry per `cpt-cf-oagw-principle-no-retry`) - `inst-proto-7b`
+1. [x] - `p1` - Compute cache key: `{scheme}://{host}:{port}` - `inst-proto-1`
+2. [x] - `p1` - **IF** protocol version cache contains entry for this key AND entry is not expired (TTL: 1 hour) - `inst-proto-2`
+   1. [x] - `p1` - **RETURN** cached HTTP version - `inst-proto-2a`
+3. [x] - `p1` - Attempt TLS handshake with ALPN extension offering `h2` (HTTP/2) and `http/1.1` - `inst-proto-3`
+4. [x] - `p1` - **IF** ALPN negotiation selects `h2` - `inst-proto-4`
+   1. [x] - `p1` - Cache entry: `{key} → HTTP/2, expires_at = now + 1h` - `inst-proto-4a`
+   2. [x] - `p1` - **RETURN** HTTP/2 - `inst-proto-4b`
+5. [x] - `p1` - **ELSE** (ALPN selects `http/1.1` or ALPN not supported) - `inst-proto-5`
+   1. [x] - `p1` - Cache entry: `{key} → HTTP/1.1, expires_at = now + 1h` - `inst-proto-5a`
+   2. [x] - `p1` - **RETURN** HTTP/1.1 - `inst-proto-5b`
+6. [x] - `p1` - **IF** TLS handshake fails entirely - `inst-proto-6`
+   1. [x] - `p1` - **RETURN** error: connection failed (502 DownstreamError) - `inst-proto-6a`
+7. [x] - `p1` - **IF** cached version fails at runtime (e.g., HTTP/2 connection error on a host cached as HTTP/2) - `inst-proto-7`
+   1. [x] - `p1` - Evict cache entry for this key - `inst-proto-7a`
+   2. [x] - `p1` - Re-negotiate from step 3 on next request (not current request — no retry per `cpt-cf-oagw-principle-no-retry`) - `inst-proto-7b`
 
 ### Streaming Connection Lifecycle
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-algo-streaming-connection-lifecycle`
+- [x] `p1` - **ID**: `cpt-cf-oagw-algo-streaming-connection-lifecycle`
 
 **Input**: Established streaming connection (SSE, WebSocket, or WebTransport), idle timeout configuration
 
 **Output**: Connection managed through open/active/closing/closed phases with proper resource cleanup
 
 **Steps**:
-1. [ ] - `p1` - Initialize connection state: `OPEN` - `inst-lifecycle-1`
-2. [ ] - `p1` - Start idle timer with configured timeout (from upstream/route `timeout` guard plugin config or system default) - `inst-lifecycle-2`
-3. [ ] - `p1` - **FOR EACH** data event (SSE event, WebSocket message, WebTransport stream data) - `inst-lifecycle-3`
-   1. [ ] - `p1` - Reset idle timer - `inst-lifecycle-3a`
-   2. [ ] - `p1` - **IF** destination is not ready to receive (backpressure) - `inst-lifecycle-3b`
-      1. [ ] - `p1` - Apply async backpressure: pause reading from source until destination is ready (TCP flow control) - `inst-lifecycle-3b1`
-   3. [ ] - `p1` - Forward data to the appropriate destination - `inst-lifecycle-3c`
-4. [ ] - `p1` - **IF** idle timer expires (no data in either direction) - `inst-lifecycle-4`
-   1. [ ] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-4a`
-   2. [ ] - `p1` - Initiate protocol-appropriate close (SSE: close response stream; WebSocket: send Close frame 1001; WebTransport: close session) - `inst-lifecycle-4b`
-5. [ ] - `p1` - **IF** upstream signals close (EOF, Close frame, session close) - `inst-lifecycle-5`
-   1. [ ] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-5a`
-   2. [ ] - `p1` - Propagate close to caller - `inst-lifecycle-5b`
-6. [ ] - `p1` - **IF** caller disconnects - `inst-lifecycle-6`
-   1. [ ] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-6a`
-   2. [ ] - `p1` - Abort upstream connection - `inst-lifecycle-6b`
-7. [ ] - `p1` - **IF** connection error (TCP reset, TLS error, protocol violation) - `inst-lifecycle-7`
-   1. [ ] - `p1` - Transition to `CLOSED` state immediately - `inst-lifecycle-7a`
-   2. [ ] - `p1` - Notify the non-errored side (if still connected) - `inst-lifecycle-7b`
-8. [ ] - `p1` - Release all connection resources (sockets, buffers, timers) - `inst-lifecycle-8`
-9. [ ] - `p1` - **RETURN** final connection state - `inst-lifecycle-9`
+1. [x] - `p1` - Initialize connection state: `OPEN` - `inst-lifecycle-1`
+2. [x] - `p1` - Start idle timer with configured timeout (from upstream/route `timeout` guard plugin config or system default) - `inst-lifecycle-2`
+3. [x] - `p1` - **FOR EACH** data event (SSE event, WebSocket message, WebTransport stream data) - `inst-lifecycle-3`
+   1. [x] - `p1` - Reset idle timer - `inst-lifecycle-3a`
+   2. [x] - `p1` - **IF** destination is not ready to receive (backpressure) - `inst-lifecycle-3b`
+      1. [x] - `p1` - Apply async backpressure: pause reading from source until destination is ready (TCP flow control) - `inst-lifecycle-3b1`
+   3. [x] - `p1` - Forward data to the appropriate destination - `inst-lifecycle-3c`
+4. [x] - `p1` - **IF** idle timer expires (no data in either direction) - `inst-lifecycle-4`
+   1. [x] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-4a`
+   2. [x] - `p1` - Initiate protocol-appropriate close (SSE: close response stream; WebSocket: send Close frame 1001; WebTransport: close session) - `inst-lifecycle-4b`
+5. [x] - `p1` - **IF** upstream signals close (EOF, Close frame, session close) - `inst-lifecycle-5`
+   1. [x] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-5a`
+   2. [x] - `p1` - Propagate close to caller - `inst-lifecycle-5b`
+6. [x] - `p1` - **IF** caller disconnects - `inst-lifecycle-6`
+   1. [x] - `p1` - Transition to `CLOSING` state - `inst-lifecycle-6a`
+   2. [x] - `p1` - Abort upstream connection - `inst-lifecycle-6b`
+7. [x] - `p1` - **IF** connection error (TCP reset, TLS error, protocol violation) - `inst-lifecycle-7`
+   1. [x] - `p1` - Transition to `CLOSED` state immediately - `inst-lifecycle-7a`
+   2. [x] - `p1` - Notify the non-errored side (if still connected) - `inst-lifecycle-7b`
+8. [x] - `p1` - Release all connection resources (sockets, buffers, timers) - `inst-lifecycle-8`
+9. [x] - `p1` - **RETURN** final connection state - `inst-lifecycle-9`
 
 ## 4. States (CDSL)
 
@@ -259,7 +259,7 @@ Not applicable. Streaming connections are transient request-scoped sessions — 
 
 ### Implement SSE Streaming Proxy
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-sse-streaming`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-sse-streaming`
 
 The system **MUST** detect SSE responses (`Content-Type: text/event-stream`) from upstream and forward events to the caller in real time without buffering the full response. SSE fields (`data:`, `event:`, `id:`, `retry:`) **MUST** be preserved as-is. Individual SSE events are forwarded without size validation (pass-through; upstream controls event granularity). The system **MUST** handle connection lifecycle: upstream close (clean EOF), caller disconnect (abort upstream), unexpected drop (502 StreamAborted), and idle timeout (504 IdleTimeout). Non-SSE responses from an upstream expected to return SSE **MUST** return 502 ProtocolError with `X-OAGW-Error-Source: gateway`. Error source distinction per `cpt-cf-oagw-principle-error-source` applies to all streaming error scenarios.
 
@@ -272,7 +272,7 @@ The system **MUST** detect SSE responses (`Content-Type: text/event-stream`) fro
 
 ### Implement WebSocket Streaming Proxy
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-websocket-streaming`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-websocket-streaming`
 
 The system **MUST** handle HTTP Upgrade (`Upgrade: websocket`) by negotiating the WebSocket handshake with both the caller and upstream. Messages (text and binary frames) **MUST** be forwarded bidirectionally with opcode preservation. **IF** a configurable max frame size is set, messages exceeding the limit **MUST** trigger Close frame 1009 (Message Too Big); by default, no per-message size limit is enforced (pass-through). Close frames **MUST** be propagated with status code and reason; Close frame reason strings **MUST NOT** include internal gateway details (use standard WebSocket status codes only). The system **MUST** handle unexpected disconnects: upstream drop (send 1006 Abnormal Closure to caller), caller drop (send Close to upstream), idle timeout (send 1001 Going Away to both sides). Auth and guard plugins **MUST** execute before the upgrade handshake. Transform plugins are NOT executed on individual WebSocket frames. Upstream rejection of the upgrade **MUST** return 502 ProtocolError with `X-OAGW-Error-Source: gateway`.
 
@@ -298,7 +298,7 @@ The system **MUST** handle WebTransport session establishment via extended CONNE
 
 ### Implement HTTP Version Negotiation and Protocol Cache
 
-- [ ] `p1` - **ID**: `cpt-cf-oagw-dod-protocol-version-cache`
+- [x] `p1` - **ID**: `cpt-cf-oagw-dod-protocol-version-cache`
 
 The system **MUST** implement adaptive per-host HTTP version detection using ALPN during TLS handshake. On first connection to an upstream host, the system **MUST** offer both `h2` and `http/1.1` via ALPN. The negotiated version **MUST** be cached per `{scheme}://{host}:{port}` with a 1-hour TTL. Subsequent requests to the same host **MUST** use the cached version. On TLS handshake failure, the system **MUST** return 502 DownstreamError. Cache eviction **MUST** occur after TTL expiry. Additionally, if a request fails due to a protocol-level error on a cached version (e.g., HTTP/2 connection error on a host cached as HTTP/2-capable), the cache entry **MUST** be evicted so the next request re-negotiates via ALPN (current request is not retried per `cpt-cf-oagw-principle-no-retry`).
 
@@ -310,36 +310,36 @@ The system **MUST** implement adaptive per-host HTTP version detection using ALP
 
 ## 6. Acceptance Criteria
 
-- [ ] SSE responses (`Content-Type: text/event-stream`) are forwarded event-by-event to the caller without full-response buffering
-- [ ] SSE fields (`data:`, `event:`, `id:`, `retry:`) are preserved as-is during forwarding
-- [ ] Upstream close (EOF) during SSE streaming results in clean caller connection closure
-- [ ] Caller disconnect during SSE streaming aborts the upstream connection and releases resources
-- [ ] Unexpected upstream drop during SSE streaming returns 502 StreamAborted with `X-OAGW-Error-Source: gateway`
-- [ ] Idle timeout during SSE streaming (no events within configured timeout) returns 504 IdleTimeout with `X-OAGW-Error-Source: gateway`
+- [x] SSE responses (`Content-Type: text/event-stream`) are forwarded event-by-event to the caller without full-response buffering
+- [x] SSE fields (`data:`, `event:`, `id:`, `retry:`) are preserved as-is during forwarding
+- [x] Upstream close (EOF) during SSE streaming results in clean caller connection closure
+- [x] Caller disconnect during SSE streaming aborts the upstream connection and releases resources
+- [x] Unexpected upstream drop during SSE streaming returns 502 StreamAborted with `X-OAGW-Error-Source: gateway`
+- [x] Idle timeout during SSE streaming (no events within configured timeout) returns 504 IdleTimeout with `X-OAGW-Error-Source: gateway`
 - [ ] Non-SSE upstream response when SSE was expected returns 502 ProtocolError with `X-OAGW-Error-Source: gateway`
-- [ ] WebSocket upgrade requests (`Upgrade: websocket`) are negotiated with both caller and upstream
-- [ ] WebSocket text and binary messages are forwarded bidirectionally with opcode preservation
-- [ ] WebSocket Close frames are propagated with status code and reason to the other side
-- [ ] Upstream WebSocket drop sends 1006 Abnormal Closure to caller
-- [ ] Caller WebSocket disconnect sends Close frame to upstream
-- [ ] Idle timeout on WebSocket session sends 1001 Going Away to both sides
-- [ ] Upstream rejection of WebSocket upgrade returns 502 ProtocolError with `X-OAGW-Error-Source: gateway`
-- [ ] Transform plugins are NOT executed on individual WebSocket frames
-- [ ] Auth and guard plugins execute before any streaming upgrade/session establishment
+- [x] WebSocket upgrade requests (`Upgrade: websocket`) are negotiated with both caller and upstream
+- [x] WebSocket text and binary messages are forwarded bidirectionally with opcode preservation
+- [x] WebSocket Close frames are propagated with status code and reason to the other side
+- [x] Upstream WebSocket drop sends 1006 Abnormal Closure to caller
+- [x] Caller WebSocket disconnect sends Close frame to upstream
+- [x] Idle timeout on WebSocket session sends 1001 Going Away to both sides
+- [x] Upstream rejection of WebSocket upgrade returns 502 ProtocolError with `X-OAGW-Error-Source: gateway`
+- [x] Transform plugins are NOT executed on individual WebSocket frames
+- [x] Auth and guard plugins execute before any streaming upgrade/session establishment
 - [ ] WebTransport session establishment requires HTTP/2 (verified via ALPN); failure returns 502 ProtocolError
 - [ ] WebTransport multiplexed streams (unidirectional and bidirectional) are forwarded between caller and upstream
 - [ ] WebTransport session close propagates error codes and closes all open streams
-- [ ] HTTP version negotiation uses ALPN during TLS handshake, offering `h2` and `http/1.1`
-- [ ] Negotiated HTTP version is cached per `{scheme}://{host}:{port}` with 1-hour TTL
-- [ ] Cached HTTP version is used for subsequent requests to the same host
-- [ ] TLS handshake failure during version negotiation returns 502 DownstreamError
-- [ ] All upstream connections use HTTPS-only per `cpt-cf-oagw-constraint-https-only`
-- [ ] `X-OAGW-Error-Source` header is set correctly for all streaming error scenarios (gateway vs upstream)
-- [ ] No credentials appear in logs or error messages during streaming sessions
-- [ ] WebSocket Close frame reason strings do not leak internal gateway details
-- [ ] When a configurable max WebSocket frame size is set, oversized messages trigger Close frame 1009 (Message Too Big)
-- [ ] Backpressure is applied via TCP flow control when one side of a streaming connection is slower than the other
-- [ ] Protocol version cache entries are evicted on protocol-level errors (re-negotiation on next request)
+- [x] HTTP version negotiation uses ALPN during TLS handshake, offering `h2` and `http/1.1`
+- [x] Negotiated HTTP version is cached per `{scheme}://{host}:{port}` with 1-hour TTL
+- [x] Cached HTTP version is used for subsequent requests to the same host
+- [x] TLS handshake failure during version negotiation returns 502 DownstreamError
+- [x] All upstream connections use HTTPS-only per `cpt-cf-oagw-constraint-https-only`
+- [x] `X-OAGW-Error-Source` header is set correctly for all streaming error scenarios (gateway vs upstream)
+- [x] No credentials appear in logs or error messages during streaming sessions
+- [x] WebSocket Close frame reason strings do not leak internal gateway details
+- [x] When a configurable max WebSocket frame size is set, oversized messages trigger Close frame 1009 (Message Too Big)
+- [x] Backpressure is applied via TCP flow control when one side of a streaming connection is slower than the other
+- [x] Protocol version cache entries are evicted on protocol-level errors (re-negotiation on next request)
 
 ## 7. Additional Context
 

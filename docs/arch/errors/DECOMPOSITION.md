@@ -14,7 +14,7 @@ This decomposition organizes the canonical error migration into sequential imple
 
 - [ ] `p1` - **ID**: `cpt-cf-errors-feature-foundation`
 
-Build the `CanonicalError` enum, context types, `Problem` mapping, and `resource_error!` macro in `libs/modkit-errors`.
+Build the `CanonicalError` enum, context types, `Problem` mapping, and `#[resource_error]` macro in `libs/modkit-canonical-errors`.
 
 > Traces to: `cpt-cf-errors-component-canonical-error`, `cpt-cf-errors-component-context-types`, `cpt-cf-errors-component-rest-mapping`, `cpt-cf-errors-component-resource-error-macro`
 
@@ -41,7 +41,7 @@ Build the `CanonicalError` enum, context types, `Problem` mapping, and `resource
 
 > Traces to: `cpt-cf-errors-component-resource-error-macro`, `cpt-cf-errors-constraint-macro-gts-construction`
 
-- [ ] 1.3.1 Implement `resource_error!` macro in `libs/modkit-canonical-errors/`
+- [ ] 1.3.1 Implement `#[resource_error]` attribute macro in `libs/modkit-canonical-errors-macro/`
 - [ ] 1.3.2 Generate 15 associated functions per annotated struct (all categories except `service_unavailable`). For `not_found`, `already_exists`, and `data_loss`: take a single `impl Into<String>` (resource name) and construct the context type internally; other categories take the category-specific context type
 - [ ] 1.3.3 Validate GTS identifier at compile time — must be a valid GTS type ID registered in the Types Registry and must end with `~`
 
@@ -99,7 +99,7 @@ Migrate each module from legacy error types to `CanonicalError`. Can proceed in 
 
 For each module:
 
-- [ ] 3.x.1 Define `resource_error!(ResourceError, "gts.cf.{module}.{resource}.v1~")` for each resource type in the module
+- [ ] 3.x.1 Define `#[resource_error("gts.cf.{module}.{resource}.v1~")] struct ResourceError;` for each resource type in the module
 - [ ] 3.x.2 Replace `Problem::new()` / `ErrDef` / `ErrorCode` calls with `CanonicalError` / `ResourceError` constructors
 - [ ] 3.x.3 Replace `Result<T, Problem>` handler return types with `Result<T, CanonicalError>`
 - [ ] 3.x.4 Remove module-specific error enums that are now covered by canonical categories
@@ -179,7 +179,7 @@ Update all documentation to reflect the canonical error architecture. Can run in
 
 #### 6.1 ModKit Unified System docs
 
-- [ ] 6.1.1 Rewrite `docs/modkit_unified_system/05_errors_rfc9457.md` — replace legacy patterns with `CanonicalError` categories, `resource_error!` macro, typed context structs, and `Result<T, CanonicalError>` handler return types
+- [ ] 6.1.1 Rewrite `docs/modkit_unified_system/05_errors_rfc9457.md` — replace legacy patterns with `CanonicalError` categories, `#[resource_error]` macro, typed context structs, and `Result<T, CanonicalError>` handler return types
 - [ ] 6.1.2 Update `docs/modkit_unified_system/01_overview.md` — update error handling summary
 - [ ] 6.1.3 Update `docs/modkit_unified_system/03_clienthub_and_plugins.md` — update error handling in SDK error boundaries
 - [ ] 6.1.4 Update `docs/modkit_unified_system/04_rest_operation_builder.md` — update error registration examples

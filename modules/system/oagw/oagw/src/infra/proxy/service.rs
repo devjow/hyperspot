@@ -61,6 +61,14 @@ pub struct DataPlaneServiceImpl {
     allow_http_upstream: bool,
     /// Maximum request body size in bytes (applies to both buffered and streaming bodies).
     max_body_size: usize,
+    /// Idle timeout for WebSocket connections (no data in either direction).
+    websocket_idle_timeout: Duration,
+    /// Timeout for the WebSocket Close frame handshake.
+    websocket_close_timeout: Duration,
+    /// Optional max WebSocket frame payload size (Close 1009 on exceed).
+    websocket_max_frame_size: Option<usize>,
+    /// Idle timeout for SSE streaming connections (no data from upstream).
+    streaming_idle_timeout: Duration,
 }
 
 impl DataPlaneServiceImpl {
@@ -94,6 +102,10 @@ impl DataPlaneServiceImpl {
             policy_enforcer,
             allow_http_upstream: false,
             max_body_size: MAX_BODY_SIZE,
+            websocket_idle_timeout: Duration::from_secs(300),
+            websocket_close_timeout: Duration::from_secs(5),
+            websocket_max_frame_size: None,
+            streaming_idle_timeout: Duration::from_secs(300),
         }
     }
 
@@ -115,6 +127,34 @@ impl DataPlaneServiceImpl {
     #[must_use]
     pub fn with_allow_http_upstream(mut self, allow: bool) -> Self {
         self.allow_http_upstream = allow;
+        self
+    }
+
+    /// Override the WebSocket idle timeout.
+    #[must_use]
+    pub fn with_websocket_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_idle_timeout = timeout;
+        self
+    }
+
+    /// Override the WebSocket Close frame handshake timeout.
+    #[must_use]
+    pub fn with_websocket_close_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_close_timeout = timeout;
+        self
+    }
+
+    /// Override the maximum WebSocket frame payload size.
+    #[must_use]
+    pub fn with_websocket_max_frame_size(mut self, size: Option<usize>) -> Self {
+        self.websocket_max_frame_size = size;
+        self
+    }
+
+    /// Override the SSE streaming idle timeout.
+    #[must_use]
+    pub fn with_streaming_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.streaming_idle_timeout = timeout;
         self
     }
 
@@ -173,6 +213,18 @@ impl DataPlaneServiceImpl {
         if let Some(rules) = pipeline.response_header_rules {
             headers::apply_response_header_rules(&mut resp_headers, rules);
         }
+
+        // Apply streaming lifecycle management for SSE responses:
+        // idle timeout and graceful shutdown awareness.
+        let resp_body_stream = if oagw_sdk::sse::is_server_events_response(&resp_headers) {
+            session_bridge::streaming_body_with_lifecycle(
+                resp_body_stream,
+                self.streaming_idle_timeout,
+                self.shutdown_rx.clone(),
+            )
+        } else {
+            resp_body_stream
+        };
 
         build_proxy_response(status, resp_headers, resp_body_stream, instance_uri)
     }
@@ -312,21 +364,7 @@ impl DataPlaneService for DataPlaneServiceImpl {
         let method = parts.method;
         let req_headers = parts.headers;
 
-        // Reject WebSocket upgrade requests — the current bridge is unidirectional
-        // and cannot support the bidirectional tunnel that WebSocket requires.
-        if req_headers
-            .get(http::header::UPGRADE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| {
-                v.split(',')
-                    .any(|t| t.trim().eq_ignore_ascii_case("websocket"))
-            })
-        {
-            return Err(DomainError::ProtocolError {
-                detail: "WebSocket upgrade is not supported by the proxy".into(),
-                instance: instance_uri,
-            });
-        }
+        let is_upgrade = headers::is_websocket_upgrade(&req_headers);
 
         // Validate Content-Type format if present.
         if !headers::is_valid_content_type(&req_headers) {
@@ -480,8 +518,32 @@ impl DataPlaneService for DataPlaneServiceImpl {
             .and_then(|h| h.request.as_ref())
             .map_or_else(Vec::new, |r| r.passthrough_allowlist.clone());
         let mut outbound_headers = headers::apply_passthrough(&req_headers, &mode, &allowlist);
-        headers::strip_hop_by_hop(&mut outbound_headers);
+        if is_upgrade {
+            headers::strip_hop_by_hop_for_upgrade(&mut outbound_headers);
+        } else {
+            headers::strip_hop_by_hop(&mut outbound_headers);
+        }
         headers::strip_internal_headers(&mut outbound_headers);
+
+        // For WebSocket, ensure Upgrade and Sec-WebSocket-* headers are forwarded
+        // even when passthrough mode is None/Allowlist.
+        if is_upgrade {
+            for name in &[
+                "upgrade",
+                "sec-websocket-key",
+                "sec-websocket-version",
+                "sec-websocket-protocol",
+                "sec-websocket-extensions",
+            ] {
+                if let Ok(n) = http::header::HeaderName::from_bytes(name.as_bytes())
+                    && !outbound_headers.contains_key(&n)
+                {
+                    for v in req_headers.get_all(&n) {
+                        outbound_headers.append(n.clone(), v.clone());
+                    }
+                }
+            }
+        }
 
         // 4. Execute auth plugin.
         if let Some(ref auth) = upstream.auth {
@@ -724,6 +786,91 @@ impl DataPlaneService for DataPlaneServiceImpl {
             origin: request_origin,
             response_header_rules,
         };
+
+        // 8. WebSocket upgrade path: bypass the normal request/response bridge
+        // and set up a bidirectional raw-byte tunnel through Pingora.
+        if is_upgrade {
+            let (mut client_io, server_io) = tokio::io::duplex(65_536);
+            let session =
+                pingora_core::protocols::http::ServerSession::new_http1(Box::new(server_io));
+            let proxy = self.proxy.clone();
+            let shutdown = self.shutdown_rx.clone();
+            tokio::spawn(async move {
+                proxy.process_new_http(session, &shutdown).await;
+            });
+
+            // Write the upgrade request (Connection: Upgrade, no body).
+            let wire =
+                session_bridge::serialize_upgrade_request_wire(&method, &url, &outbound_headers);
+            client_io
+                .write_all(&wire)
+                .await
+                .map_err(|e| DomainError::DownstreamError {
+                    detail: format!("failed to write upgrade request to proxy bridge: {e}"),
+                    instance: instance_uri.clone(),
+                })?;
+
+            // Parse only the response headers (IO stays intact for bidirectional copy).
+            let upgrade_timeout = self.request_timeout;
+            let (status, resp_headers, leftover) = tokio::time::timeout(
+                upgrade_timeout,
+                session_bridge::parse_upgrade_response(&mut client_io),
+            )
+            .await
+            .map_err(|_| DomainError::RequestTimeout {
+                detail: format!("WebSocket upgrade to {url} timed out after {upgrade_timeout:?}"),
+                instance: instance_uri.clone(),
+            })?
+            .map_err(|e| DomainError::DownstreamError {
+                detail: format!("proxy bridge error during WebSocket upgrade: {e}"),
+                instance: instance_uri.clone(),
+            })?;
+
+            if status != http::StatusCode::SWITCHING_PROTOCOLS {
+                return Err(DomainError::ProtocolError {
+                    detail: format!("upstream rejected WebSocket upgrade with status {status}"),
+                    instance: instance_uri,
+                });
+            }
+
+            // Execute response guards on the 101.
+            execute_guard_responses(
+                &self.guard_registry,
+                &pipeline.guard_bindings,
+                status,
+                &resp_headers,
+                pipeline.method,
+                pipeline.path_suffix,
+                &instance_uri,
+                pipeline.ctx,
+            )
+            .await?;
+
+            // Sanitize response headers, preserving Upgrade/Connection.
+            let mut resp_headers = resp_headers;
+            headers::sanitize_response_headers_for_upgrade(&mut resp_headers);
+
+            // Build the 101 response with the DuplexStream stashed in extensions.
+            let mut resp = http::Response::builder()
+                .status(http::StatusCode::SWITCHING_PROTOCOLS)
+                .body(Body::Empty)
+                .map_err(|e| DomainError::Internal {
+                    message: format!("failed to build WebSocket upgrade response: {e}"),
+                })?;
+            *resp.headers_mut() = resp_headers;
+            resp.extensions_mut()
+                .insert(super::websocket::WebSocketBridgeHandle::new(
+                    super::websocket::WebSocketBridgeIo {
+                        io: client_io,
+                        leftover,
+                        idle_timeout: self.websocket_idle_timeout,
+                        close_timeout: self.websocket_close_timeout,
+                        max_frame_size: self.websocket_max_frame_size,
+                        shutdown_rx: self.shutdown_rx.clone(),
+                    },
+                ));
+            return Ok(resp);
+        }
 
         // 8. Bridge request into Pingora via in-memory DuplexStream.
         let (client_io, server_io) = tokio::io::duplex(65_536);
@@ -1460,6 +1607,7 @@ mod tests {
         let pingora = crate::infra::proxy::pingora_proxy::PingoraProxy::new(
             Duration::from_secs(10),
             Duration::from_secs(30),
+            Duration::from_secs(3600),
         );
         let proxy = Arc::new(crate::infra::proxy::pingora_proxy::new_http_proxy(
             &server_conf,

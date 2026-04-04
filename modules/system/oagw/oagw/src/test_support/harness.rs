@@ -44,7 +44,7 @@ impl AppHarness {
         &self.ctx
     }
 
-    pub(crate) fn router(&self) -> &axum::Router {
+    pub fn router(&self) -> &axum::Router {
         &self.router
     }
 }
@@ -57,6 +57,9 @@ pub struct AppHarnessBuilder {
     authz_client: Option<Arc<dyn AuthZResolverClient>>,
     max_body_size: Option<usize>,
     skip_upstream_tls_verify: bool,
+    websocket_idle_timeout: Option<Duration>,
+    websocket_close_timeout: Option<Duration>,
+    websocket_max_frame_size: Option<usize>,
 }
 
 impl AppHarnessBuilder {
@@ -88,6 +91,24 @@ impl AppHarnessBuilder {
         self
     }
 
+    /// Override the WebSocket idle timeout (useful for idle-timeout tests).
+    pub fn with_websocket_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_idle_timeout = Some(timeout);
+        self
+    }
+
+    /// Override the WebSocket Close frame handshake timeout.
+    pub fn with_websocket_close_timeout(mut self, timeout: Duration) -> Self {
+        self.websocket_close_timeout = Some(timeout);
+        self
+    }
+
+    /// Override the maximum WebSocket frame payload size.
+    pub fn with_websocket_max_frame_size(mut self, size: usize) -> Self {
+        self.websocket_max_frame_size = Some(size);
+        self
+    }
+
     pub async fn build(self) -> AppHarness {
         let hub = ClientHub::new();
 
@@ -107,6 +128,15 @@ impl AppHarnessBuilder {
             dp_builder = dp_builder.with_max_body_size(size);
         }
         dp_builder = dp_builder.with_skip_upstream_tls_verify(self.skip_upstream_tls_verify);
+        if let Some(timeout) = self.websocket_idle_timeout {
+            dp_builder = dp_builder.with_websocket_idle_timeout(timeout);
+        }
+        if let Some(timeout) = self.websocket_close_timeout {
+            dp_builder = dp_builder.with_websocket_close_timeout(timeout);
+        }
+        if let Some(size) = self.websocket_max_frame_size {
+            dp_builder = dp_builder.with_websocket_max_frame_size(Some(size));
+        }
         dp_builder =
             dp_builder.with_token_http_config(modkit_http::HttpClientConfig::for_testing());
 

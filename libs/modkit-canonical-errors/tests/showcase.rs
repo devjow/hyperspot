@@ -1,6 +1,19 @@
 extern crate modkit_canonical_errors;
 
+use modkit_canonical_errors::resource_error;
 use modkit_canonical_errors::{CanonicalError, Problem};
+
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
+
+#[resource_error("gts.cf.core.files.file.v1~")]
+struct FileResourceError;
+
+#[resource_error("gts.cf.core.tenants.tenant.v1~")]
+struct TenantResourceError;
+
+#[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
+struct UpstreamResourceError;
 
 // =========================================================================
 // Showcase tests — resource-scoped categories (macro-generated)
@@ -8,8 +21,6 @@ use modkit_canonical_errors::{CanonicalError, Problem};
 
 #[test]
 fn showcase_not_found() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::not_found("User not found")
         .with_resource("user-123")
         .create();
@@ -33,8 +44,6 @@ fn showcase_not_found() {
 
 #[test]
 fn showcase_already_exists() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::already_exists("User already exists")
         .with_resource("alice@example.com")
         .create();
@@ -58,8 +67,6 @@ fn showcase_already_exists() {
 
 #[test]
 fn showcase_data_loss() {
-    modkit_canonical_errors::resource_error!(FileResourceError, "gts.cf.core.files.file.v1~");
-
     let err = FileResourceError::data_loss("Data loss detected")
         .with_resource("01JFILE-ABC")
         .create();
@@ -83,8 +90,6 @@ fn showcase_data_loss() {
 
 #[test]
 fn showcase_invalid_argument() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::invalid_argument()
         .with_field_violation("email", "must be a valid email address", "INVALID_FORMAT")
         .with_field_violation("age", "must be at least 18", "OUT_OF_RANGE")
@@ -121,8 +126,6 @@ fn showcase_invalid_argument() {
 
 #[test]
 fn showcase_invalid_argument_format() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::invalid_argument()
         .with_format("Request body is not valid JSON")
         .create();
@@ -147,8 +150,6 @@ fn showcase_invalid_argument_format() {
 
 #[test]
 fn showcase_invalid_argument_constraint() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::invalid_argument()
         .with_constraint("at most 10 tags allowed per resource")
         .create();
@@ -173,8 +174,6 @@ fn showcase_invalid_argument_constraint() {
 
 #[test]
 fn showcase_invalid_argument_format_with_resource() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::invalid_argument()
         .with_resource("user-123")
         .with_format("Request body is not valid JSON")
@@ -201,8 +200,6 @@ fn showcase_invalid_argument_format_with_resource() {
 
 #[test]
 fn showcase_out_of_range() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::out_of_range("Page out of range")
         .with_field_violation(
             "page",
@@ -236,8 +233,6 @@ fn showcase_out_of_range() {
 
 #[test]
 fn showcase_permission_denied() {
-    modkit_canonical_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
-
     let err = TenantResourceError::permission_denied()
         .with_reason("CROSS_TENANT_ACCESS")
         .create();
@@ -261,11 +256,6 @@ fn showcase_permission_denied() {
 
 #[test]
 fn showcase_aborted() {
-    modkit_canonical_errors::resource_error!(
-        UpstreamResourceError,
-        "gts.cf.oagw.upstreams.upstream.v1~"
-    );
-
     let err = UpstreamResourceError::aborted("Operation aborted due to concurrency conflict")
         .with_reason("OPTIMISTIC_LOCK_FAILURE")
         .create();
@@ -289,8 +279,6 @@ fn showcase_aborted() {
 
 #[test]
 fn showcase_unimplemented() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::unimplemented("This operation is not implemented").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
@@ -311,8 +299,6 @@ fn showcase_unimplemented() {
 
 #[test]
 fn showcase_failed_precondition() {
-    modkit_canonical_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
-
     let err = TenantResourceError::failed_precondition()
         .with_precondition_violation(
             "tenant.users",
@@ -365,8 +351,6 @@ fn showcase_internal() {
 
 #[test]
 fn showcase_deadline_exceeded() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::deadline_exceeded("Request timed out").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
@@ -387,8 +371,6 @@ fn showcase_deadline_exceeded() {
 
 #[test]
 fn showcase_cancelled() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::cancelled().create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
@@ -435,8 +417,6 @@ fn showcase_unauthenticated() {
 
 #[test]
 fn showcase_resource_exhausted() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::resource_exhausted("Quota exceeded")
         .with_quota_violation(
             "requests_per_minute",
@@ -491,8 +471,6 @@ fn showcase_unavailable() {
 
 #[test]
 fn showcase_unknown() {
-    modkit_canonical_errors::resource_error!(UserResourceError, "gts.cf.core.users.user.v1~");
-
     let err = UserResourceError::unknown("Unexpected response from payment provider").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();

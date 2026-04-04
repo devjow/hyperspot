@@ -31,6 +31,7 @@ members = [
     "libs/modkit-db-macros",
     "libs/modkit-auth",
     "libs/modkit-canonical-errors",
+    "libs/modkit-canonical-errors-macro",
     "libs/modkit-http",
     "libs/modkit-sdk",
     "libs/modkit-odata-macros",
@@ -54,6 +55,7 @@ members = [
     "modules/system/module-orchestrator",
     "examples/modkit/users-info/users-info-sdk",
     "examples/modkit/users-info/users-info",
+    "examples/modkit/users-info/users-info-server",
     "examples/oop-modules/calculator-gateway/calculator-gateway-sdk",
     "examples/oop-modules/calculator-gateway/calculator-gateway",
     "examples/oop-modules/calculator/calculator-sdk",
@@ -215,6 +217,7 @@ modkit = { package = "cf-modkit", version = "0.6.2", path = "libs/modkit" }
 modkit-http = { package = "cf-modkit-http", version = "0.6.2", path = "libs/modkit-http" }
 modkit-auth = { package = "cf-modkit-auth", version = "0.6.1", path = "libs/modkit-auth" }
 modkit-canonical-errors = { package = "cf-modkit-canonical-errors", version = "0.6.1", path = "libs/modkit-canonical-errors" }
+modkit-canonical-errors-macro = { package = "cf-modkit-canonical-errors-macro", version = "0.6.1", path = "libs/modkit-canonical-errors-macro" }
 modkit-db = { package = "cf-modkit-db", version = "0.7.0", path = "libs/modkit-db" }
 modkit-db-macros = { package = "cf-modkit-db-macros", version = "0.6.2", path = "libs/modkit-db-macros" }
 modkit-errors = { package = "cf-modkit-errors", version = "0.6.2", path = "libs/modkit-errors" }
@@ -475,6 +478,7 @@ syn = { version = "2.0", features = [
     "extra-traits",
 ] }
 heck = "0.5"
+proc-macro-crate = "3"
 proc-macro-error2 = "2.0"
 
 # Testing utilities

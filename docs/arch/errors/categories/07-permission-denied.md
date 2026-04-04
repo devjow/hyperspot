@@ -14,6 +14,7 @@
 | Field | Type | Description |
 |-------|------|-------------|
 | `resource_type` | `String` | Transport-injected resource GTS type identifier when provided by the canonical error wrapper |
+| `reason` | `String` | Machine-readable reason code (e.g., `CROSS_TENANT_ACCESS`) |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 > Note: In Rust, `resource_type` is carried on `CanonicalError::PermissionDenied` as an envelope field, not inside `ErrorInfo`. It is injected into the wire `context` object during mapping to `Problem` via `Problem::from_error`. It is not part of the `ErrorInfo` GTS type (`gts.cf.core.errors.error_info.v1~`).
@@ -21,9 +22,14 @@
 ## Constructor Example
 
 ```rust
-cf_modkit_errors::resource_error!(TenantResourceError, "gts.cf.core.tenants.tenant.v1~");
+use modkit_canonical_errors::resource_error;
 
-let err = TenantResourceError::permission_denied().create();
+#[resource_error("gts.cf.core.tenants.tenant.v1~")]
+struct TenantResourceError;
+
+let err = TenantResourceError::permission_denied()
+    .with_reason("CROSS_TENANT_ACCESS")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -44,11 +50,15 @@ let err = TenantResourceError::permission_denied().create();
         "status": { "const": 403 },
         "context": {
           "type": "object",
-          "required": ["resource_type"],
+          "required": ["resource_type", "reason"],
           "properties": {
             "resource_type": {
               "type": "string",
               "description": "GTS type identifier of the resource"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Machine-readable reason code (e.g., CROSS_TENANT_ACCESS)"
             },
             "extra": {
               "type": ["object", "null"],
@@ -72,6 +82,8 @@ let err = TenantResourceError::permission_denied().create();
   "status": 403,
   "detail": "You do not have permission to perform this operation",
   "context": {
+    "resource_type": "gts.cf.core.tenants.tenant.v1~",
+    "reason": "CROSS_TENANT_ACCESS"
   }
 }
 ```

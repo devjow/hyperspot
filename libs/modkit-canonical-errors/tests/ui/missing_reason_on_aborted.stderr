@@ -1,13 +1,13 @@
 error[E0599]: the method `create` exists for struct `ResourceErrorBuilder<ResourceOptional, NeedsReason>`, but its trait bounds were not satisfied
- --> tests/ui/missing_reason_on_aborted.rs:7:92
-  |
-7 |     let _err = UserResourceError::aborted("Operation aborted due to concurrency conflict").create();
-  |                                                                                            ^^^^^^ method cannot be called due to unsatisfied trait bounds
-  |
- ::: src/builder.rs
-  |
-  | pub struct NeedsReason;
-  | ---------------------- doesn't satisfy `NeedsReason: ContextResolved`
-  |
-  = note: the following trait bounds were not satisfied:
-          `NeedsReason: ContextResolved`
+  --> tests/ui/missing_reason_on_aborted.rs:10:92
+   |
+10 |     let _err = UserResourceError::aborted("Operation aborted due to concurrency conflict").create();
+   |                                                                                            ^^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+  ::: src/builder.rs
+   |
+   | pub struct NeedsReason;
+   | ---------------------- doesn't satisfy `NeedsReason: ContextResolved`
+   |
+   = note: the following trait bounds were not satisfied:
+           `NeedsReason: ContextResolved`

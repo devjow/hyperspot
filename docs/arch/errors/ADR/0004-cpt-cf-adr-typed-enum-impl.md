@@ -38,7 +38,7 @@ Chosen option: **Option A — Typed enum with category-typed constructors**, bec
 * The `Problem` wire format conversion must be a single exhaustive `match` in one location — all 16 categories are handled centrally, not per-module
 * Adding a new category in the future adds a new enum variant, which is a breaking change — `#[non_exhaustive]` or major version bump must be decided
 * Modules that need error customisation beyond the 16 categories must do so through context payload specialisation, not through new enum variants
-* The `resource_error!` macro must generate typed constructor functions that delegate to the enum constructors — the macro is a convenience layer, not a separate error type
+* The `#[resource_error]` attribute macro must generate typed constructor functions that delegate to the enum constructors — the macro is a convenience layer, not a separate error type
 
 ### Confirmation
 
@@ -105,4 +105,4 @@ This decision directly addresses the following requirements:
 * `cpt-cf-errors-fr-single-line-construction` — Ergonomic constructors (one per category) enable single-expression error creation
 * `cpt-cf-errors-fr-library-error-propagation` — Blanket `From` impls enable `?` propagation
 * `cpt-cf-errors-fr-transport-agnostic` — Enum carries no transport details; mapping is in `From<CanonicalError> for Problem`
-* `cpt-cf-errors-fr-resource-scoped-construction` — `resource_error!` macro generates typed constructors that auto-tag `resource_type`
+* `cpt-cf-errors-fr-resource-scoped-construction` — `#[resource_error]` macro generates typed constructors that auto-tag `resource_type`

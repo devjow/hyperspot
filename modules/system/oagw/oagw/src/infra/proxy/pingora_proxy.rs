@@ -13,6 +13,7 @@ use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::health_check::TcpHealthCheck;
 use pingora_load_balancing::selection::RoundRobin;
 use pingora_load_balancing::{Backend, Backends, LoadBalancer};
+use pingora_memory_cache::MemoryCache;
 use pingora_proxy::{HttpProxy, ProxyHttp, Session, http_proxy};
 use tokio::sync::watch;
 use tracing::{info, warn};
@@ -36,17 +37,90 @@ pub(crate) const H_ENDPOINT_SCHEME: &str = "x-oagw-internal-endpoint-scheme";
 pub(crate) const H_INSTANCE_URI: &str = "x-oagw-internal-instance-uri";
 pub(crate) const H_RESOLVED_ADDR: &str = "x-oagw-internal-resolved-addr";
 
-/// Hop-by-hop headers that must not be forwarded in responses (mirrors headers.rs).
-const HOP_BY_HOP: &[&str] = &[
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-];
+use super::HOP_BY_HOP_HEADERS;
+
+// ---------------------------------------------------------------------------
+// Per-host protocol version cache (spec: cpt-cf-oagw-algo-protocol-version-negotiation)
+// ---------------------------------------------------------------------------
+
+/// Cached ALPN negotiation result for an upstream host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CachedProtocol {
+    /// Host supports only HTTP/1.1 (H2 negotiation fell back).
+    Http1Only,
+    /// Host confirmed HTTP/2 support via ALPN.
+    Http2,
+}
+
+/// Capacity for the protocol version cache. The key space is bounded by
+/// the number of distinct upstream endpoints (typically < 100).
+const PROTOCOL_CACHE_CAPACITY: usize = 1024;
+
+/// Per-host cache of ALPN-negotiated HTTP protocol versions.
+///
+/// Backed by [`MemoryCache`] (TinyUfo LFU with per-entry TTL), consistent
+/// with the OAuth2 token cache. Cache key: `"{scheme}://{host}:{port}"`
+/// (spec `inst-proto-1`). When TTL is zero the cache is disabled: [`get`]
+/// always returns `None`, [`insert`] and [`evict`] are no-ops.
+struct ProtocolVersionCache {
+    inner: MemoryCache<String, CachedProtocol>,
+    ttl: Duration,
+}
+
+impl ProtocolVersionCache {
+    fn new(ttl: Duration) -> Self {
+        Self {
+            inner: MemoryCache::new(PROTOCOL_CACHE_CAPACITY),
+            ttl,
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.ttl > Duration::ZERO
+    }
+
+    /// Build the cache key from an endpoint: `"{scheme}://{host}:{port}"`.
+    fn cache_key(ep: &Endpoint) -> String {
+        let scheme = match ep.scheme {
+            Scheme::Http => "http",
+            Scheme::Https => "https",
+            Scheme::Wss => "wss",
+            Scheme::Wt => "wt",
+            Scheme::Grpc => "grpc",
+        };
+        format!("{}://{}:{}", scheme, ep.normalized_host(), ep.port)
+    }
+
+    /// Look up the cached protocol for a host. Returns `None` if not cached,
+    /// expired, or the cache is disabled.
+    fn get(&self, ep: &Endpoint) -> Option<CachedProtocol> {
+        if !self.is_enabled() {
+            return None;
+        }
+        let key = Self::cache_key(ep);
+        let (cached, _status) = self.inner.get(&key);
+        cached
+    }
+
+    /// Record the negotiated protocol for a host. No-op when disabled.
+    fn insert(&self, ep: &Endpoint, protocol: CachedProtocol) {
+        if !self.is_enabled() {
+            return;
+        }
+        let key = Self::cache_key(ep);
+        self.inner.put(&key, protocol, Some(self.ttl));
+    }
+
+    /// Evict a cache entry so the next request re-negotiates via ALPN.
+    /// No-op when disabled.
+    fn evict(&self, ep: &Endpoint) {
+        if !self.is_enabled() {
+            return;
+        }
+        let key = Self::cache_key(ep);
+        self.inner.remove(&key);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // PingoraProxy — ProxyHttp implementation (D3)
@@ -58,14 +132,21 @@ pub struct PingoraProxy {
     /// When true, skip TLS certificate verification for upstream connections.
     /// **Test use only** — allows self-signed certs in integration tests.
     skip_upstream_tls_verify: bool,
+    /// Per-host cache of ALPN-negotiated protocol versions.
+    protocol_cache: ProtocolVersionCache,
 }
 
 impl PingoraProxy {
-    pub fn new(connect_timeout: Duration, read_timeout: Duration) -> Self {
+    pub fn new(
+        connect_timeout: Duration,
+        read_timeout: Duration,
+        protocol_cache_ttl: Duration,
+    ) -> Self {
         Self {
             connect_timeout,
             read_timeout,
             skip_upstream_tls_verify: false,
+            protocol_cache: ProtocolVersionCache::new(protocol_cache_ttl),
         }
     }
 
@@ -75,6 +156,21 @@ impl PingoraProxy {
     pub fn with_skip_upstream_tls_verify(mut self, allow: bool) -> Self {
         self.skip_upstream_tls_verify = allow;
         self
+    }
+
+    /// Determine the ALPN setting for an endpoint, consulting the protocol
+    /// cache for HTTPS/WT endpoints.
+    fn select_alpn(&self, ep: &Endpoint) -> pingora_core::protocols::tls::ALPN {
+        let tls = matches!(ep.scheme, Scheme::Https | Scheme::Wss | Scheme::Wt);
+        if tls && !matches!(ep.scheme, Scheme::Wss) {
+            match self.protocol_cache.get(ep) {
+                Some(CachedProtocol::Http2) => pingora_core::protocols::tls::ALPN::H2,
+                Some(CachedProtocol::Http1Only) => pingora_core::protocols::tls::ALPN::H1,
+                None => pingora_core::protocols::tls::ALPN::H2H1,
+            }
+        } else {
+            pingora_core::protocols::tls::ALPN::H1
+        }
     }
 }
 
@@ -430,12 +526,8 @@ impl ProxyHttp for PingoraProxy {
         peer.options.read_timeout = Some(self.read_timeout);
         peer.options.idle_timeout = Some(Duration::from_secs(90));
 
-        // ALPN: H2H1 for HTTPS, H1 for WebSocket and cleartext.
-        peer.options.alpn = if tls && !matches!(ep.scheme, Scheme::Wss) {
-            pingora_core::protocols::tls::ALPN::H2H1
-        } else {
-            pingora_core::protocols::tls::ALPN::H1
-        };
+        // ALPN selection: consult protocol cache for HTTPS/WT, H1 for WSS/cleartext.
+        peer.options.alpn = self.select_alpn(ep);
 
         if self.skip_upstream_tls_verify {
             peer.options.verify_cert = false;
@@ -456,12 +548,26 @@ impl ProxyHttp for PingoraProxy {
     }
 
     /// Sanitize response headers: strip hop-by-hop and x-oagw-* headers. (D3)
+    ///
+    /// Also caches the negotiated HTTP version for HTTPS/WT endpoints
+    /// (spec `inst-proto-4`/`inst-proto-5`). The response version is still
+    /// the original upstream version here; Pingora downgrades it later.
     async fn upstream_response_filter(
         &self,
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> pingora_core::Result<()> {
+        // Cache the negotiated HTTP version for this host (spec inst-proto-4/5).
+        if matches!(ctx.endpoint.scheme, Scheme::Https | Scheme::Wt) {
+            let protocol = if upstream_response.version == http::Version::HTTP_2 {
+                CachedProtocol::Http2
+            } else {
+                CachedProtocol::Http1Only
+            };
+            self.protocol_cache.insert(&ctx.endpoint, protocol);
+        }
+
         let status = upstream_response.status;
         let content_type = upstream_response
             .headers
@@ -473,6 +579,13 @@ impl ProxyHttp for PingoraProxy {
             content_type,
             "upstream response received"
         );
+
+        // For 101 Switching Protocols, preserve Upgrade and Connection headers
+        // but strip Connection-nominated hop-by-hop headers and x-oagw-* internals.
+        if status == http::StatusCode::SWITCHING_PROTOCOLS {
+            super::headers::sanitize_response_headers_for_upgrade(&mut upstream_response.headers);
+            return Ok(());
+        }
 
         // Strip Connection-nominated headers.
         if let Some(conn_value) = upstream_response
@@ -490,7 +603,7 @@ impl ProxyHttp for PingoraProxy {
         }
 
         // Strip static hop-by-hop headers.
-        for name in HOP_BY_HOP {
+        for name in HOP_BY_HOP_HEADERS {
             upstream_response.remove_header(*name);
         }
 
@@ -570,6 +683,10 @@ impl ProxyHttp for PingoraProxy {
                 }
             }
             pingora_core::ErrorType::H2Error | pingora_core::ErrorType::H2Downgrade => {
+                // Evict cached protocol so the next request re-negotiates
+                // via ALPN (spec inst-proto-7a). Current request is not
+                // retried per cpt-cf-oagw-principle-no-retry.
+                self.protocol_cache.evict(&ctx.endpoint);
                 DomainError::ProtocolError {
                     detail: "upstream HTTP/2 error".into(),
                     instance,
@@ -1010,15 +1127,19 @@ mod tests {
     /// Build an HttpPeer using the same logic as `upstream_peer`.
     /// Uses a dummy IP (production resolves via `lookup_host`); the `host`
     /// string is passed as the SNI, matching `upstream_peer` behaviour.
+    /// Build an `HttpPeer` using `select_alpn` for ALPN selection, matching
+    /// the production code path. Uses a default (enabled) protocol cache.
     fn build_peer(scheme: Scheme, host: &str, port: u16) -> HttpPeer {
-        let tls = matches!(scheme, Scheme::Https | Scheme::Wss | Scheme::Wt);
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+        );
+        let ep = ep(host, port, scheme);
+        let tls = matches!(ep.scheme, Scheme::Https | Scheme::Wss | Scheme::Wt);
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
         let mut peer = HttpPeer::new(addr, tls, host.to_string());
-        peer.options.alpn = if tls && !matches!(scheme, Scheme::Wss) {
-            pingora_core::protocols::tls::ALPN::H2H1
-        } else {
-            pingora_core::protocols::tls::ALPN::H1
-        };
+        peer.options.alpn = proxy.select_alpn(&ep);
         peer
     }
 
@@ -1068,7 +1189,11 @@ mod tests {
 
     #[test]
     fn peer_timeouts_propagate() {
-        let proxy = PingoraProxy::new(Duration::from_secs(7), Duration::from_secs(15));
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(7),
+            Duration::from_secs(15),
+            Duration::from_secs(3600),
+        );
         // Verify timeouts are stored correctly on the proxy.
         assert_eq!(proxy.connect_timeout, Duration::from_secs(7));
         assert_eq!(proxy.read_timeout, Duration::from_secs(15));
@@ -1135,5 +1260,183 @@ mod tests {
             "resolved_addr should be populated for IP endpoint"
         );
         assert_eq!(selected.resolved_addr.unwrap().port(), 30001);
+    }
+
+    // -----------------------------------------------------------------------
+    // ProtocolVersionCache tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn protocol_cache_miss_returns_none() {
+        let cache = ProtocolVersionCache::new(Duration::from_secs(3600));
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        assert_eq!(cache.get(&endpoint), None);
+    }
+
+    #[test]
+    fn protocol_cache_insert_h2_then_get() {
+        let cache = ProtocolVersionCache::new(Duration::from_secs(3600));
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        cache.insert(&endpoint, CachedProtocol::Http2);
+        assert_eq!(cache.get(&endpoint), Some(CachedProtocol::Http2));
+    }
+
+    #[test]
+    fn protocol_cache_insert_h1_then_get() {
+        let cache = ProtocolVersionCache::new(Duration::from_secs(3600));
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        cache.insert(&endpoint, CachedProtocol::Http1Only);
+        assert_eq!(cache.get(&endpoint), Some(CachedProtocol::Http1Only));
+    }
+
+    #[test]
+    fn protocol_cache_ttl_expiry() {
+        let cache = ProtocolVersionCache::new(Duration::from_millis(1));
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        cache.insert(&endpoint, CachedProtocol::Http2);
+        // Let the entry expire.
+        std::thread::sleep(Duration::from_millis(5));
+        assert_eq!(
+            cache.get(&endpoint),
+            None,
+            "expired entry should return None"
+        );
+    }
+
+    #[test]
+    fn protocol_cache_evict() {
+        let cache = ProtocolVersionCache::new(Duration::from_secs(3600));
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        cache.insert(&endpoint, CachedProtocol::Http2);
+        cache.evict(&endpoint);
+        assert_eq!(cache.get(&endpoint), None);
+    }
+
+    #[test]
+    fn protocol_cache_key_format() {
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        assert_eq!(
+            ProtocolVersionCache::cache_key(&endpoint),
+            "https://example.com:443"
+        );
+
+        let endpoint_wt = ep("api.test.io", 8443, Scheme::Wt);
+        assert_eq!(
+            ProtocolVersionCache::cache_key(&endpoint_wt),
+            "wt://api.test.io:8443"
+        );
+    }
+
+    #[test]
+    fn protocol_cache_different_ports_distinct() {
+        let cache = ProtocolVersionCache::new(Duration::from_secs(3600));
+        let ep_a = ep("example.com", 443, Scheme::Https);
+        let ep_b = ep("example.com", 8443, Scheme::Https);
+        cache.insert(&ep_a, CachedProtocol::Http2);
+        cache.insert(&ep_b, CachedProtocol::Http1Only);
+        assert_eq!(cache.get(&ep_a), Some(CachedProtocol::Http2));
+        assert_eq!(cache.get(&ep_b), Some(CachedProtocol::Http1Only));
+    }
+
+    #[test]
+    fn protocol_cache_disabled_when_ttl_zero() {
+        let cache = ProtocolVersionCache::new(Duration::ZERO);
+        assert!(!cache.is_enabled());
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        cache.insert(&endpoint, CachedProtocol::Http2);
+        assert_eq!(
+            cache.get(&endpoint),
+            None,
+            "disabled cache should always miss"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // select_alpn tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn select_alpn_uses_h2_for_cached_h2_host() {
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+        );
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        proxy
+            .protocol_cache
+            .insert(&endpoint, CachedProtocol::Http2);
+        assert_eq!(
+            proxy.select_alpn(&endpoint),
+            pingora_core::protocols::tls::ALPN::H2
+        );
+    }
+
+    #[test]
+    fn select_alpn_uses_h1_for_cached_h1_host() {
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+        );
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        proxy
+            .protocol_cache
+            .insert(&endpoint, CachedProtocol::Http1Only);
+        assert_eq!(
+            proxy.select_alpn(&endpoint),
+            pingora_core::protocols::tls::ALPN::H1
+        );
+    }
+
+    #[test]
+    fn select_alpn_default_h2h1_for_uncached() {
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+        );
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        assert_eq!(
+            proxy.select_alpn(&endpoint),
+            pingora_core::protocols::tls::ALPN::H2H1
+        );
+    }
+
+    #[test]
+    fn select_alpn_wss_always_h1() {
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+        );
+        let endpoint = ep("example.com", 443, Scheme::Wss);
+        // Even if someone were to insert an entry for this host, WSS must use H1.
+        proxy
+            .protocol_cache
+            .insert(&endpoint, CachedProtocol::Http2);
+        assert_eq!(
+            proxy.select_alpn(&endpoint),
+            pingora_core::protocols::tls::ALPN::H1
+        );
+    }
+
+    #[test]
+    fn select_alpn_h2h1_when_cache_disabled() {
+        let proxy = PingoraProxy::new(
+            Duration::from_secs(10),
+            Duration::from_secs(30),
+            Duration::ZERO, // disabled
+        );
+        let endpoint = ep("example.com", 443, Scheme::Https);
+        // Insert would be a no-op, but call it anyway to verify.
+        proxy
+            .protocol_cache
+            .insert(&endpoint, CachedProtocol::Http2);
+        assert_eq!(
+            proxy.select_alpn(&endpoint),
+            pingora_core::protocols::tls::ALPN::H2H1,
+            "disabled cache should fall through to H2H1"
+        );
     }
 }
