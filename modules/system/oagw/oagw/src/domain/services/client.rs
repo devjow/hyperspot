@@ -269,11 +269,6 @@ fn domain_err_to_sdk(err: DomainError) -> ServiceGatewayError {
         } => ServiceGatewayError::Forbidden {
             detail: format!("CORS method not allowed: {method} (instance: {instance})"),
         },
-        DomainError::CorsHeaderNotAllowed {
-            header, instance, ..
-        } => ServiceGatewayError::Forbidden {
-            detail: format!("CORS header not allowed: {header} (instance: {instance})"),
-        },
         DomainError::StreamAborted { detail, instance } => {
             ServiceGatewayError::StreamAborted { detail, instance }
         }
@@ -507,9 +502,7 @@ fn cors_config_to_domain(v: oagw_sdk::CorsConfig) -> model::CorsConfig {
             .into_iter()
             .map(cors_http_method_to_domain)
             .collect(),
-        allowed_headers: v.allowed_headers,
         expose_headers: v.expose_headers,
-        max_age: v.max_age,
         allow_credentials: v.allow_credentials,
     }
 }
@@ -702,9 +695,7 @@ fn cors_config_to_sdk(v: model::CorsConfig) -> oagw_sdk::CorsConfig {
             .into_iter()
             .map(cors_http_method_to_sdk)
             .collect(),
-        allowed_headers: v.allowed_headers,
         expose_headers: v.expose_headers,
-        max_age: v.max_age,
         allow_credentials: v.allow_credentials,
     }
 }

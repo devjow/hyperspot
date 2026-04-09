@@ -75,11 +75,11 @@ peg::parser! {
             / "in" _ "(" _ r:filter_list() _ ")" { Ok(AfterValueExpr::In(r?)) }
             / { Ok(AfterValueExpr::End) }
 
-        /// Parses a value expression, which can be a function call, a value, or an identifier.
+        /// Parses a value expression, which can be a function call, a value, or a property path.
         rule value_expr() -> Result<Expr, ParseError>
             = function_call()
             / v:value() { Ok(Expr::Value(v?)) }
-            / i:identifier() { Ok(Expr::Identifier(i)) }
+            / p:property_path() { Ok(Expr::Identifier(p)) }
 
         /// Parses a comparison operator.
         rule comparison_op() -> CompareOperator
@@ -94,7 +94,18 @@ peg::parser! {
         rule function_call() -> Result<Expr, ParseError>
             = f:identifier() _ "(" _ l:filter_list() _ ")" { Ok(Expr::Function(f, l?)) }
 
-        /// Parses an identifier.
+        /// Parses an OData property path (e.g., `hierarchy/depth`, `address/city`).
+        /// OData 4.01 ABNF §5.1.1.15 — property paths use `/` as segment separator:
+        ///   firstMemberExpr = memberExpr / inscopeVariableExpr [ "/" memberExpr ]
+        /// Spec: https://docs.oasis-open.org/odata/odata/v4.01/os/abnf/odata-abnf-construction-rules.txt
+        rule property_path() -> String
+            = s:$(identifier() ("/" identifier())*) { s.to_owned() }
+
+        /// Parses an OData identifier (no `/`).
+        /// OData 4.01 ABNF §9:
+        ///   odataIdentifier = identifierLeadingCharacter *127identifierCharacter
+        ///   identifierCharacter = ALPHA / "_" / DIGIT
+        /// Spec: https://docs.oasis-open.org/odata/odata/v4.01/os/abnf/odata-abnf-construction-rules.txt
         rule identifier() -> String
             = s:$(['a'..='z'|'A'..='Z'|'_']['a'..='z'|'A'..='Z'|'_'|'0'..='9']*) { s.to_owned() }
 

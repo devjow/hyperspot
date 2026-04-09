@@ -34,7 +34,7 @@ impl Default for StaticMiniChatModelPolicyPlugin {
 #[async_trait]
 impl Module for StaticMiniChatModelPolicyPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: StaticMiniChatPolicyPluginConfig = ctx.config()?;
+        let cfg: StaticMiniChatPolicyPluginConfig = ctx.config_or_default()?;
         info!(
             vendor = %cfg.vendor,
             priority = cfg.priority,

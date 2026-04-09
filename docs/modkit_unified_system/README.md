@@ -1,3 +1,5 @@
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # ModKit Architecture & Developer Guide
 
 This folder contains the ModKit developer documentation, split by topic for focused reading and LLM retrieval.
@@ -23,6 +25,8 @@ This folder contains the ModKit developer documentation, split by topic for focu
 | Out-of-Process / gRPC / SDK pattern | `09_oop_grpc_sdk_pattern.md` | |
 | Domain model macro, DDD enforcement | `02_module_layout_and_sdk_pattern.md` (§ Domain types) | `dylint_lints/de03_domain_layer/de0309_must_have_domain_model/README.md` |
 | Quick checklists, templates | `10_checklists_and_templates.md` | |
+| Unit & integration testing (philosophy, patterns, infrastructure) | `12_unit_testing.md` | |
+| E2E testing (philosophy, patterns, infrastructure) | `13_e2e_testing.md` | |
 | HTTP client (TLS, retries, timeouts, concurrency, OTel tracing, auth hook) | | `docs/adrs/modkit/0001-modkit-hyper-tower-http-client.md` |
 | AuthN/AuthZ, PolicyEnforcer, PEP enforcement | `06_authn_authz_secure_orm.md` | `docs/arch/authorization/DESIGN.md` |
 | Authentication (inbound JWT/OIDC policies, outbound OAuth2 client-credentials) | | `docs/adrs/modkit/0002-modkit-auth-client-with-aliri.md` |
@@ -33,6 +37,7 @@ This folder contains the ModKit developer documentation, split by topic for focu
 - **Secure-by-default DB access**: Use `SecureConn` + `AccessScope`. Modules cannot access raw database connections.
 - **RFC-9457 errors everywhere**: Use `Problem` (implements `IntoResponse`). Do not use `ProblemResponse`.
 - **Type-safe REST**: Use `OperationBuilder` with `.authenticated()` and `.standard_errors()`.
+- **Config loading is explicit**: `ctx.config()` / `ctx.config_expanded()` require `modules.<name>.config`; use `ctx.config_or_default()` / `ctx.config_expanded_or_default()` only when missing config should fall back to `Default`.
 - **OData macros are in `modkit-odata-macros`**: Use `modkit_odata_macros::ODataFilterable`.
 - **ClientHub registration**: `ctx.client_hub().register::<dyn MyModuleApi>(api)`; `ctx.client_hub().get::<dyn MyModuleApi>()?`.
 - **Cancellation**: Pass `CancellationToken` to background tasks for cooperative shutdown.
@@ -53,6 +58,8 @@ This folder contains the ModKit developer documentation, split by topic for focu
 - `09_oop_grpc_sdk_pattern.md` – Out-of-Process modules, gRPC, SDK pattern for OoP, client utilities.
 - `10_checklists_and_templates.md` – Quick checklists per task, minimal code templates.
 - `11_database_patterns.md` – DBRunner/SecureTx executors, transactions, repository pattern, database migrations.
+- `12_unit_testing.md` – Philosophy, reliability principles, infrastructure, assert patterns, naming, priority matrix for unit/integration tests.
+- `13_e2e_testing.md` – Philosophy, integration seams concept, pytest infrastructure, test patterns, anti-patterns for E2E tests.
 
 ### Related ADRs
 

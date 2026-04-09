@@ -70,3 +70,7 @@ ALWAYS open `docs/modkit_unified_system/08_lifecycle_stateful_tasks.md` WHEN usi
 ALWAYS open `docs/modkit_unified_system/09_oop_grpc_sdk_pattern.md` WHEN creating out-of-process module, implementing gRPC service, setting up OoP binary, or wiring gRPC clients via DirectoryApi
 
 ALWAYS open `docs/modkit_unified_system/10_checklists_and_templates.md` WHEN writing module tests, creating SecurityContext for tests, implementing integration tests, or looking for quick checklists and code templates
+
+ALWAYS open `docs/modkit_unified_system/12_unit_testing.md` WHEN writing unit tests, setting up test infrastructure, creating test fixtures, implementing mock-based tests, or defining test file organization (`*_tests.rs` pattern)
+
+ALWAYS open `docs/modkit_unified_system/13_e2e_testing.md` WHEN writing end-to-end tests, setting up E2E test infrastructure, implementing cross-module integration tests, or working with the `testing/e2e/` directory

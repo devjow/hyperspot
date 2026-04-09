@@ -79,4 +79,4 @@ None
 
 **References**:
 * PRD: `cpt-cf-llm-gateway-nfr-scalability-v1`
-* DESIGN: `cpt-cf-llm-gateway-principle-pass-through`
+* DESIGN: `cpt-cf-llm-gateway-adr-pass-through`

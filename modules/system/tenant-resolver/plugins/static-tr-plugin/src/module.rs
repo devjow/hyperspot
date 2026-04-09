@@ -42,7 +42,7 @@ impl Default for StaticTrPlugin {
 impl Module for StaticTrPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         // Load configuration
-        let cfg: StaticTrPluginConfig = ctx.config()?;
+        let cfg: StaticTrPluginConfig = ctx.config_or_default()?;
         info!(
             vendor = %cfg.vendor,
             priority = cfg.priority,

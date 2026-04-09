@@ -62,7 +62,7 @@ impl Default for UsersInfo {
 impl Module for UsersInfo {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         // Load module configuration using new API
-        let cfg: UsersInfoConfig = ctx.config()?;
+        let cfg: UsersInfoConfig = ctx.config_or_default()?;
         debug!(
             "Loaded users_info config: default_page_size={}, max_page_size={}",
             cfg.default_page_size, cfg.max_page_size

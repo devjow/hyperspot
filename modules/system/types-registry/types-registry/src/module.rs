@@ -47,7 +47,7 @@ impl Default for TypesRegistryModule {
 #[async_trait]
 impl Module for TypesRegistryModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: TypesRegistryConfig = ctx.config()?;
+        let cfg: TypesRegistryConfig = ctx.config_or_default()?;
         debug!(
             "Loaded types_registry config: entity_id_fields={:?}, schema_id_fields={:?}",
             cfg.entity_id_fields, cfg.schema_id_fields

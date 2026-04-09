@@ -43,10 +43,39 @@ pub trait FilterField: Copy + Eq + std::hash::Hash + fmt::Debug + 'static {
     fn kind(&self) -> FieldKind;
 
     fn from_name(name: &str) -> Option<Self> {
-        Self::FIELDS
+        // Try exact match first (handles both simple names and slash-delimited property paths
+        // like "hierarchy/depth" if the enum defines them).
+        let exact = Self::FIELDS
             .iter()
             .copied()
-            .find(|f| f.name().eq_ignore_ascii_case(name))
+            .find(|f| f.name().eq_ignore_ascii_case(name));
+        if exact.is_some() {
+            return exact;
+        }
+        // Fallback: resolve by the last segment of a property path (e.g. "depth" from
+        // "hierarchy/depth") so field enums that only define simple names still work.
+        //
+        // Note: if multiple fields share the same terminal segment this returns the
+        // first match. Callers that define ambiguous field names should override
+        // `from_name` with explicit slash-delimited entries.
+        if let Some(last) = name.rsplit('/').next()
+            && last != name
+        {
+            let mut iter = Self::FIELDS
+                .iter()
+                .copied()
+                .filter(|f| f.name().eq_ignore_ascii_case(last));
+            if let Some(first) = iter.next() {
+                // Ambiguous: more than one field shares the same terminal segment.
+                // Return None so the caller reports UnknownField instead of silently
+                // picking the wrong field.
+                if iter.next().is_some() {
+                    return None;
+                }
+                return Some(first);
+            }
+        }
+        None
     }
 }
 
@@ -58,6 +87,7 @@ pub enum FilterOp {
     Ge,
     Lt,
     Le,
+    In,
     Contains,
     StartsWith,
     EndsWith,
@@ -74,6 +104,7 @@ impl fmt::Display for FilterOp {
             FilterOp::Ge => write!(f, "ge"),
             FilterOp::Lt => write!(f, "lt"),
             FilterOp::Le => write!(f, "le"),
+            FilterOp::In => write!(f, "in"),
             FilterOp::Contains => write!(f, "contains"),
             FilterOp::StartsWith => write!(f, "startswith"),
             FilterOp::EndsWith => write!(f, "endswith"),
@@ -89,6 +120,10 @@ pub enum FilterNode<F: FilterField> {
         field: F,
         op: FilterOp,
         value: ODataValue,
+    },
+    InList {
+        field: F,
+        values: Vec<ODataValue>,
     },
     Composite {
         op: FilterOp,
@@ -306,9 +341,42 @@ pub fn convert_expr_to_filter_node<F: FilterField>(
             }
         }
 
-        E::In(_left, _list) => Err(FilterError::UnsupportedOperation(
-            "IN operator not yet supported in typed filters".to_owned(),
-        )),
+        E::In(left, list) => {
+            let field_name = match &**left {
+                E::Identifier(name) => name.as_str(),
+                _ => {
+                    return Err(FilterError::InvalidExpression(
+                        "IN operator requires a field identifier on the left side".to_owned(),
+                    ));
+                }
+            };
+
+            let field = F::from_name(field_name)
+                .ok_or_else(|| FilterError::UnknownField(field_name.to_owned()))?;
+
+            let mut values = Vec::with_capacity(list.len());
+            for item in list {
+                match item {
+                    E::Value(val) => {
+                        validate_value_type(field, val)?;
+                        values.push(val.clone());
+                    }
+                    _ => {
+                        return Err(FilterError::InvalidExpression(
+                            "IN operator values must be literals".to_owned(),
+                        ));
+                    }
+                }
+            }
+
+            if values.is_empty() {
+                return Err(FilterError::InvalidExpression(
+                    "IN operator requires at least one value".to_owned(),
+                ));
+            }
+
+            Ok(FilterNode::InList { field, values })
+        }
 
         E::Identifier(name) => Err(FilterError::BareIdentifier(name.clone())),
         E::Value(_) => Err(FilterError::BareLiteral),

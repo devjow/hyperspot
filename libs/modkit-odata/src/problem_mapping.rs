@@ -27,15 +27,27 @@ impl From<Error> for Problem {
                 .as_problem(format!("Unsupported $orderby field: {field}")),
 
             // All cursor-related errors → 422
-            InvalidCursor
-            | CursorInvalidBase64
-            | CursorInvalidJson
-            | CursorInvalidVersion
-            | CursorInvalidKeys
-            | CursorInvalidFields
-            | CursorInvalidDirection => {
-                ErrorCode::odata_errors_invalid_cursor_v1().as_problem(err.to_string())
+            InvalidCursor => {
+                ErrorCode::odata_errors_invalid_cursor_v1().as_problem("invalid cursor")
             }
+
+            CursorInvalidBase64 => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: invalid base64url encoding"),
+
+            CursorInvalidJson => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: malformed JSON"),
+
+            CursorInvalidVersion => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: unsupported version"),
+
+            CursorInvalidKeys => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: empty or invalid keys"),
+
+            CursorInvalidFields => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: empty or invalid fields"),
+
+            CursorInvalidDirection => ErrorCode::odata_errors_invalid_cursor_v1()
+                .as_problem("invalid cursor: invalid sort direction"),
 
             // Pagination validation errors → 422
             OrderMismatch => ErrorCode::odata_errors_invalid_orderby_v1()

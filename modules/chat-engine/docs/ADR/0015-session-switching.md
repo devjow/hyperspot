@@ -1,5 +1,6 @@
-Created:  2026-02-04 by Constructor Tech
-Updated:  2026-03-06 by Constructor Tech
+<!-- Created: 2026-02-04 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # ADR-0015: Session Type Switching with Capability Updates
 
 
@@ -12,7 +13,7 @@ Updated:  2026-03-06 by Constructor Tech
   - [Consequences](#consequences)
   - [Confirmation](#confirmation)
 - [Pros and Cons of the Options](#pros-and-cons-of-the-options)
-  - [Option 1: Update session_type_id, route next message to new plugin (chosen)](#option-1-update-sessiontypeid-route-next-message-to-new-plugin-chosen)
+  - [Option 1: Update session_type_id, route next message to new plugin (chosen)](#option-1-update-session_type_id-route-next-message-to-new-plugin-chosen)
   - [Option 2: Create new session, copy history](#option-2-create-new-session-copy-history)
   - [Option 3: Message-level backend tracking](#option-3-message-level-backend-tracking)
 - [Related Design Elements](#related-design-elements)

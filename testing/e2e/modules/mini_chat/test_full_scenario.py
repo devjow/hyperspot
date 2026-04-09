@@ -8,6 +8,8 @@ direct SQLite queries only for fields not exposed via API (reserve_tokens,
 max_output_tokens_applied, reserved_credits_micro).
 """
 
+from __future__ import annotations
+
 import os
 import sqlite3
 import time

@@ -18,6 +18,89 @@ define check_rustup_component
 	@rustup component list --installed | grep -q '^$(1)' || (echo "ERROR: $(1) component not installed. Run 'rustup component add $(1)' or 'make setup'." && exit 1)
 endef
 
+# Generic server start/stop with cleanup (cross-platform: Linux, Mac, Windows)
+# Usage: $(call start_server_and_wait,<command>,<health_url>,<max_wait_seconds>)
+# Args:
+#   1. command - Full command to start the server (e.g., cargo run --bin server)
+#   2. health_url - URL to poll for server readiness (e.g., http://localhost:8080/health)
+#   3. max_wait_seconds - Maximum time to wait for server to be ready (e.g., 300)
+# Returns: Sets $$SERVER_PID variable for use in the recipe
+# Cleanup: Automatically kills server on EXIT/INT/TERM (normal or error)
+# Features:
+#   - Cross-platform: Works on Linux, Mac, and Windows (Git Bash/WSL/MSYS2)
+#   - Logs server output to temp directory for debugging
+#   - Exponential backoff polling (1s, 2s, 4s, 8s intervals)
+#   - Detects if server dies unexpectedly during startup
+#   - Graceful shutdown with SIGTERM, then SIGKILL if needed (or taskkill on Windows)
+# Example:
+#   @$(call start_server_and_wait,cargo run --bin my-server,http://localhost:8080/health,60); \
+#   curl http://localhost:8080/api/data -o output.json
+define start_server_and_wait
+	TEMP_DIR=$$(if [ -n "$$TEMP" ]; then echo "$$TEMP"; elif [ -n "$$TMP" ]; then echo "$$TMP"; else echo "/tmp"; fi); \
+	LOG_FILE="$$TEMP_DIR/server-$$$$.log"; \
+	$(1) > "$$LOG_FILE" 2>&1 & \
+	SERVER_PID=$$!; \
+	echo "Server started with PID: $$SERVER_PID (log: $$LOG_FILE)"; \
+	is_process_running() { \
+		if command -v kill >/dev/null 2>&1; then \
+			kill -0 $$1 2>/dev/null; \
+		elif command -v tasklist >/dev/null 2>&1; then \
+			tasklist /FI "PID eq $$1" 2>NUL | grep -q "$$1"; \
+		else \
+			ps -p $$1 >/dev/null 2>&1; \
+		fi; \
+	}; \
+	kill_process() { \
+		PID_TO_KILL=$$1; \
+		FORCE=$$2; \
+		if command -v kill >/dev/null 2>&1; then \
+			if [ "$$FORCE" = "force" ]; then \
+				kill -9 $$PID_TO_KILL 2>/dev/null || true; \
+			else \
+				kill $$PID_TO_KILL 2>/dev/null || true; \
+			fi; \
+		elif command -v taskkill >/dev/null 2>&1; then \
+			if [ "$$FORCE" = "force" ]; then \
+				taskkill /PID $$PID_TO_KILL /F /T 2>NUL || true; \
+			else \
+				taskkill /PID $$PID_TO_KILL /T 2>NUL || true; \
+			fi; \
+		fi; \
+	}; \
+	cleanup_server() { \
+		if is_process_running $$SERVER_PID; then \
+			echo "Stopping server (PID $$SERVER_PID)..."; \
+			kill_process $$SERVER_PID; \
+			sleep 1; \
+			if is_process_running $$SERVER_PID; then \
+				echo "Server still running, forcing shutdown..."; \
+				kill_process $$SERVER_PID force; \
+				sleep 1; \
+			fi; \
+			wait $$SERVER_PID 2>/dev/null || true; \
+			echo "Server stopped."; \
+		fi; \
+	}; \
+	trap cleanup_server EXIT INT TERM; \
+	echo "Waiting for $(2) to become ready..."; \
+	ELAPSED=0; MAX_WAIT=$(3); SLEEP=1; \
+	while ! curl -fsS "$(2)" -o /dev/null 2>/dev/null; do \
+		if ! is_process_running $$SERVER_PID; then \
+			echo "ERROR: Server process died unexpectedly. Check $$LOG_FILE"; \
+			exit 1; \
+		fi; \
+		if [ $$ELAPSED -ge $$MAX_WAIT ]; then \
+			echo "ERROR: Server did not become ready in time. Check $$LOG_FILE"; \
+			exit 1; \
+		fi; \
+		echo "Waiting for server... ($$ELAPSED s)"; \
+		sleep $$SLEEP; \
+		ELAPSED=$$((ELAPSED + SLEEP)); \
+		SLEEP=$$((SLEEP < 8 ? SLEEP*2 : 8)); \
+	done; \
+	echo "Server is ready!"
+endef
+
 # -------- Defaults --------
 
 # Show the help message with list of commands (default target)
@@ -242,29 +325,13 @@ security: deny
 openapi:
 	@command -v curl >/dev/null || (echo "curl is required to generate OpenAPI spec" && exit 1)
 	@echo "Starting hyperspot-server to generate OpenAPI spec..."
-	# Run server in background
-	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml &
-	@SERVER_PID=$$!; \
-	trap 'kill $$SERVER_PID >/dev/null 2>&1 || true' EXIT; \
-	echo "hyperspot-server PID: $$SERVER_PID"; \
-	echo "Waiting for $(OPENAPI_URL) to become ready..."; \
-	ELAPSED=0; MAX_WAIT=300; SLEEP=1; \
-	while ! curl -fsS "$(OPENAPI_URL)" -o /dev/null >/dev/null 2>&1; do \
-		if [ $$ELAPSED -ge $$MAX_WAIT ]; then \
-			echo "ERROR: hyperspot-server did not become ready in time"; exit 1; \
-		fi; \
-		echo "Waiting for hyperspot-server... ($$ELAPSED s)"; \
-		sleep $$SLEEP; \
-		ELAPSED=$$((ELAPSED + SLEEP)); \
-		SLEEP=$$((SLEEP < 8 ? SLEEP*2 : 8)); \
-	done; \
-	echo "Server is ready, fetching OpenAPI spec..."; \
-	mkdir -p $$(dirname "$(OPENAPI_OUT)"); \
-	curl -fsS "$(OPENAPI_URL)" -o "$(OPENAPI_OUT)"; \
-	echo "OpenAPI spec saved to $(OPENAPI_OUT)"; \
-	echo "Stopping hyperspot-server..."; \
-	kill $$SERVER_PID >/dev/null 2>&1 || true; \
-	wait $$SERVER_PID 2>/dev/null || true
+	@$(call start_server_and_wait,cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml,$(OPENAPI_URL),300) && \
+	echo "Fetching OpenAPI spec..." && \
+	mkdir -p $$(dirname "$(OPENAPI_OUT)") && \
+	curl -fsS "$(OPENAPI_URL)" -o "$(OPENAPI_OUT)" && \
+	echo "Sorting OpenAPI JSON for deterministic ordering..." && \
+	python3 scripts/sort_openapi_json.py "$(OPENAPI_OUT)" && \
+	echo "OpenAPI spec saved to $(OPENAPI_OUT)"
 
 # -------- Development and auto fix --------
 
@@ -497,12 +564,33 @@ fips:
 mini-chat:
 	cargo run --bin hyperspot-server --features mini-chat,static-authn,static-authz,single-tenant,static-credstore,otel -- --config config/mini-chat.yaml run
 
-## Build mini-chat Docker image for K8s
+## Build mini-chat Docker image for K8s (dev build by default, RELEASE=1 for optimized)
+## On linux: builds on host (reuses local target/), then packages the binary.
+## On other OS: full multi-stage Docker build with BuildKit caching.
+MINI_CHAT_PROFILE = $(if $(RELEASE),release,dev)
+MINI_CHAT_CARGO_RELEASE_FLAG = $(if $(RELEASE),--release,)
+MINI_CHAT_TARGET_DIR = $(or $(CARGO_TARGET_DIR),target)/$(if $(RELEASE),release,debug)
+
 mini-chat-docker:
-	docker build \
+ifeq ($(shell uname -s),Linux)
+	@echo "==> Linux host: building on host, packaging into image"
+	cargo build $(MINI_CHAT_CARGO_RELEASE_FLAG) --bin hyperspot-server --package=hyperspot-server \
+		--features "$(MINI_CHAT_K8S_FEATURES)"
+	@mkdir -p .docker-stage
+	@cp $(MINI_CHAT_TARGET_DIR)/hyperspot-server .docker-stage/hyperspot-server
+	DOCKER_BUILDKIT=1 docker build \
+		-f modules/mini-chat/deploy/docker/mini-chat-prebuilt.Dockerfile \
+		--build-arg BINARY_PATH=".docker-stage/hyperspot-server" \
+		-t $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) .
+	@rm -rf .docker-stage
+else
+	@echo "==> Non-linux host: full Docker build"
+	DOCKER_BUILDKIT=1 docker build \
 		-f modules/mini-chat/deploy/docker/mini-chat.Dockerfile \
 		--build-arg CARGO_FEATURES="$(MINI_CHAT_K8S_FEATURES)" \
+		--build-arg BUILD_PROFILE="$(MINI_CHAT_PROFILE)" \
 		-t $(MINI_CHAT_IMAGE):$(MINI_CHAT_TAG) .
+endif
 
 ## Deploy mini-chat Helm chart to local K8s cluster (build + load + install)
 mini-chat-helm: mini-chat-docker
@@ -609,4 +697,13 @@ build:
 
 # Run all necessary quality checks and tests and then build the release binary
 all: build check test-sqlite e2e-local openapi
-	@echo "consider to run 'make test-db' as well"
+	@echo ""
+	@echo "============================================================="
+	@echo "  CONGRATULATIONS! All 'make all' tasks have been completed!"
+	@echo ""
+	@echo "  Next suggestions:"
+	@echo "    - make test-db        # run full DB integration tests"
+	@echo "    - make mini-chat-up   # deploy and try the mini-chat demo"
+	@echo ""
+	@echo "  Tip: run 'git status' to inspect changes."
+	@echo "============================================================="

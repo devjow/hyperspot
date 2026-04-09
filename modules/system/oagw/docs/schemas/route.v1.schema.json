@@ -195,7 +195,13 @@
         },
         "allowed_origins": {
           "type": "array",
-          "items": { "type": "string", "format": "uri" },
+          "items": {
+            "type": "string",
+            "oneOf": [
+              { "const": "*" },
+              { "format": "uri" }
+            ]
+          },
           "description": "Allowed origins. Use ['*'] for any origin (not recommended with credentials)."
         },
         "allowed_methods": {
@@ -204,24 +210,11 @@
           "default": [ "GET", "POST" ],
           "description": "Allowed HTTP methods."
         },
-        "allowed_headers": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [ "Content-Type", "Authorization" ],
-          "description": "Allowed request headers (case-insensitive)."
-        },
         "expose_headers": {
           "type": "array",
           "items": { "type": "string" },
           "default": [ ],
           "description": "Headers exposed to browser (beyond CORS-safelisted headers)."
-        },
-        "max_age": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 86400,
-          "default": 86400,
-          "description": "Preflight cache duration in seconds (max 24h)."
         },
         "allow_credentials": {
           "type": "boolean",
@@ -229,7 +222,20 @@
           "description": "Allow credentials (cookies, auth headers). Requires specific origins (not '*')."
         }
       },
-      "required": [ "enabled" ]
+      "required": [ "enabled" ],
+      "if": {
+        "properties": {
+          "allow_credentials": { "const": true }
+        },
+        "required": [ "allow_credentials" ]
+      },
+      "then": {
+        "not": {
+          "properties": {
+            "allowed_origins": { "contains": { "const": "*" } }
+          }
+        }
+      }
     }
   }
 }

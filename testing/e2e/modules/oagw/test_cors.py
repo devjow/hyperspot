@@ -9,9 +9,7 @@ CORS_CONFIG = {
     "enabled": True,
     "allowed_origins": ["https://app.example.com"],
     "allowed_methods": ["GET", "POST"],
-    "allowed_headers": ["content-type", "authorization"],
     "expose_headers": ["x-request-id"],
-    "max_age": 3600,
     "allow_credentials": False,
 }
 
@@ -22,12 +20,17 @@ CORS_CONFIG = {
 
 
 @pytest.mark.asyncio
-async def test_cors_preflight_allowed_origin(
+async def test_cors_preflight_fully_permissive(
     oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
 ):
-    """Preflight with allowed origin returns 204 with CORS headers."""
+    """Preflight with no auth headers returns fully permissive 204.
+
+    The permissive preflight echoes origin, method, headers, enables
+    credentials, and sets a long max-age — all without upstream resolution.
+    The actual-request path enforces the real CORS policy.
+    """
     _ = mock_upstream
-    alias = unique_alias("cors-pre-ok")
+    alias = unique_alias("cors-pre-noauth")
     async with httpx.AsyncClient(timeout=10.0) as client:
         upstream = await create_upstream(
             client, oagw_base_url, oagw_headers, mock_upstream_url,
@@ -38,11 +41,11 @@ async def test_cors_preflight_allowed_origin(
             client, oagw_base_url, oagw_headers, uid, ["POST"], "/echo",
         )
 
+        # Send preflight with ONLY Origin + ACRM — no Authorization, no tenant headers.
         resp = await client.request(
             "OPTIONS",
             f"{oagw_base_url}/oagw/v1/proxy/{alias}/echo",
             headers={
-                **oagw_headers,
                 "origin": "https://app.example.com",
                 "access-control-request-method": "POST",
                 "access-control-request-headers": "content-type",
@@ -54,53 +57,20 @@ async def test_cors_preflight_allowed_origin(
         assert resp.headers["access-control-allow-origin"] == "https://app.example.com"
         assert "POST" in resp.headers["access-control-allow-methods"]
         assert "content-type" in resp.headers.get("access-control-allow-headers", "")
-        assert resp.headers.get("access-control-max-age") == "3600"
+        assert resp.headers.get("access-control-allow-credentials") == "true"
+        assert resp.headers.get("access-control-max-age") == "86400"
         assert "Origin" in resp.headers.get("vary", "")
 
         await delete_upstream(client, oagw_base_url, oagw_headers, uid)
 
 
 @pytest.mark.asyncio
-async def test_cors_preflight_rejected_origin(
+async def test_cors_preflight_permissive_echoes_any_method(
     oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
 ):
-    """Preflight with disallowed origin returns 403."""
+    """Preflight with method not in upstream CORS config still returns 204."""
     _ = mock_upstream
-    alias = unique_alias("cors-pre-bad")
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        upstream = await create_upstream(
-            client, oagw_base_url, oagw_headers, mock_upstream_url,
-            alias=alias, cors=CORS_CONFIG,
-        )
-        uid = upstream["id"]
-        await create_route(
-            client, oagw_base_url, oagw_headers, uid, ["POST"], "/echo",
-        )
-
-        resp = await client.request(
-            "OPTIONS",
-            f"{oagw_base_url}/oagw/v1/proxy/{alias}/echo",
-            headers={
-                **oagw_headers,
-                "origin": "https://evil.com",
-                "access-control-request-method": "POST",
-            },
-        )
-        assert resp.status_code == 403, (
-            f"Expected 403, got {resp.status_code}: {resp.text[:500]}"
-        )
-        assert "access-control-allow-origin" not in resp.headers
-
-        await delete_upstream(client, oagw_base_url, oagw_headers, uid)
-
-
-@pytest.mark.asyncio
-async def test_cors_preflight_rejected_method(
-    oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
-):
-    """Preflight with disallowed method returns 403."""
-    _ = mock_upstream
-    alias = unique_alias("cors-pre-meth")
+    alias = unique_alias("cors-pre-any")
     async with httpx.AsyncClient(timeout=10.0) as client:
         upstream = await create_upstream(
             client, oagw_base_url, oagw_headers, mock_upstream_url,
@@ -120,82 +90,10 @@ async def test_cors_preflight_rejected_method(
                 "access-control-request-method": "DELETE",
             },
         )
-        assert resp.status_code == 403, (
-            f"Expected 403, got {resp.status_code}: {resp.text[:500]}"
-        )
-
-        await delete_upstream(client, oagw_base_url, oagw_headers, uid)
-
-
-@pytest.mark.asyncio
-async def test_cors_preflight_rejected_header(
-    oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
-):
-    """Preflight with disallowed request header returns 403."""
-    _ = mock_upstream
-    alias = unique_alias("cors-pre-hdr")
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        upstream = await create_upstream(
-            client, oagw_base_url, oagw_headers, mock_upstream_url,
-            alias=alias, cors=CORS_CONFIG,  # only content-type, authorization allowed
-        )
-        uid = upstream["id"]
-        await create_route(
-            client, oagw_base_url, oagw_headers, uid, ["POST"], "/echo",
-        )
-
-        resp = await client.request(
-            "OPTIONS",
-            f"{oagw_base_url}/oagw/v1/proxy/{alias}/echo",
-            headers={
-                **oagw_headers,
-                "origin": "https://app.example.com",
-                "access-control-request-method": "POST",
-                "access-control-request-headers": "x-custom-secret",
-            },
-        )
-        assert resp.status_code == 403, (
-            f"Expected 403, got {resp.status_code}: {resp.text[:500]}"
-        )
-
-        await delete_upstream(client, oagw_base_url, oagw_headers, uid)
-
-
-@pytest.mark.asyncio
-async def test_cors_preflight_with_credentials(
-    oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
-):
-    """Preflight with allow_credentials reflects origin and includes credentials header."""
-    _ = mock_upstream
-    alias = unique_alias("cors-pre-cred")
-    cors_with_creds = {
-        **CORS_CONFIG,
-        "allow_credentials": True,
-    }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        upstream = await create_upstream(
-            client, oagw_base_url, oagw_headers, mock_upstream_url,
-            alias=alias, cors=cors_with_creds,
-        )
-        uid = upstream["id"]
-        await create_route(
-            client, oagw_base_url, oagw_headers, uid, ["POST"], "/echo",
-        )
-
-        resp = await client.request(
-            "OPTIONS",
-            f"{oagw_base_url}/oagw/v1/proxy/{alias}/echo",
-            headers={
-                **oagw_headers,
-                "origin": "https://app.example.com",
-                "access-control-request-method": "POST",
-            },
-        )
         assert resp.status_code == 204, (
-            f"Expected 204, got {resp.status_code}: {resp.text[:500]}"
+            f"Expected 204 (permissive), got {resp.status_code}: {resp.text[:500]}"
         )
-        assert resp.headers["access-control-allow-origin"] == "https://app.example.com"
-        assert resp.headers.get("access-control-allow-credentials") == "true"
+        assert "DELETE" in resp.headers["access-control-allow-methods"]
 
         await delete_upstream(client, oagw_base_url, oagw_headers, uid)
 
@@ -242,10 +140,10 @@ async def test_cors_actual_request_includes_headers(
 
 
 @pytest.mark.asyncio
-async def test_cors_actual_request_disallowed_origin_no_headers(
+async def test_cors_actual_request_disallowed_origin_rejected(
     oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
 ):
-    """Actual request with disallowed origin gets no CORS headers (browser blocks)."""
+    """Actual request with disallowed origin is rejected with 403 before reaching upstream."""
     _ = mock_upstream
     alias = unique_alias("cors-actual-bad")
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -267,11 +165,9 @@ async def test_cors_actual_request_disallowed_origin_no_headers(
             },
             json={"test": "cors"},
         )
-        # Request still succeeds (upstream proxied), but no CORS headers
-        assert resp.status_code == 200, (
-            f"Expected 200, got {resp.status_code}: {resp.text[:500]}"
+        assert resp.status_code == 403, (
+            f"Expected 403, got {resp.status_code}: {resp.text[:500]}"
         )
-        assert "access-control-allow-origin" not in resp.headers
 
         await delete_upstream(client, oagw_base_url, oagw_headers, uid)
 

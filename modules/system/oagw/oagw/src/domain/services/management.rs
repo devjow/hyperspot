@@ -2923,9 +2923,7 @@ mod tests {
             enabled: true,
             allowed_origins: origins.into_iter().map(String::from).collect(),
             allowed_methods: vec![CorsHttpMethod::Get, CorsHttpMethod::Post],
-            allowed_headers: vec!["content-type".into()],
             expose_headers: vec![],
-            max_age: 3600,
             allow_credentials: false,
         }
     }
@@ -3083,9 +3081,7 @@ mod tests {
             enabled: true,
             allowed_origins: vec!["*".into()],
             allowed_methods: vec![CorsHttpMethod::Get],
-            allowed_headers: vec![],
             expose_headers: vec![],
-            max_age: 3600,
             allow_credentials: false,
         });
         let mut child = make_upstream(t, "api", None, None, None, vec![]);
@@ -3094,9 +3090,7 @@ mod tests {
             enabled: true,
             allowed_origins: vec!["https://child.com".into()],
             allowed_methods: vec![CorsHttpMethod::Get],
-            allowed_headers: vec![],
             expose_headers: vec![],
-            max_age: 3600,
             allow_credentials: true,
         });
 
@@ -3116,9 +3110,7 @@ mod tests {
             enabled: true,
             allowed_origins: vec!["*".into()],
             allowed_methods: vec![CorsHttpMethod::Get],
-            allowed_headers: vec![],
             expose_headers: vec![],
-            max_age: 3600,
             allow_credentials: false,
         });
 
@@ -3142,9 +3134,7 @@ mod tests {
                 enabled: true,
                 allowed_origins: vec!["https://route.com".into()],
                 allowed_methods: vec![CorsHttpMethod::Get],
-                allowed_headers: vec![],
                 expose_headers: vec![],
-                max_age: 3600,
                 allow_credentials: true,
             }),
             tags: vec![],
@@ -3177,9 +3167,7 @@ mod tests {
             enabled: true,
             allowed_origins: vec!["https://locked.com".into()],
             allowed_methods: vec![CorsHttpMethod::Get],
-            allowed_headers: vec![],
             expose_headers: vec![],
-            max_age: 3600,
             allow_credentials: false,
         });
         svc.create_upstream(&root_ctx, req).await.unwrap();

@@ -122,7 +122,7 @@ Design constraints enforced: `cpt-cf-oagw-constraint-body-limit`, `cpt-cf-oagw-c
 14. [x] - `p1` - Execute auth plugin: inject credentials into outbound request - `inst-proxy-14`
 15. [x] - `p1` - **IF** auth plugin fails (secret not found, credential error) - `inst-proxy-15`
     1. [x] - `p1` - **RETURN** 401 AuthenticationFailed or 500 SecretNotFound with `X-OAGW-Error-Source: gateway` - `inst-proxy-15a`
-16. [x] - `p1` - Execute guard plugins: validate method, query params, path suffix, CORS - `inst-proxy-16`
+16. [x] - `p1` - Execute guard plugins: validate method, query params, path suffix, CORS origin (actual requests only; preflight returns permissive 204 at handler level — see [ADR: CORS](../ADR/0006-cors.md)) - `inst-proxy-16`
 17. [x] - `p1` - **IF** any guard rejects - `inst-proxy-17`
     1. [x] - `p1` - **RETURN** guard-specific error code with `X-OAGW-Error-Source: gateway` - `inst-proxy-17a`
 18. [x] - `p1` - Execute transform plugins: `on_request` phase — mutate outbound request - `inst-proxy-18`

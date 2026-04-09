@@ -13,6 +13,8 @@ Covers:
 - No buffering (streaming proxy)
 """
 
+from __future__ import annotations
+
 import io
 import uuid
 

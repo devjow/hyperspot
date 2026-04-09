@@ -1,5 +1,6 @@
-Created:  2026-02-04 by Constructor Tech
-Updated:  2026-03-06 by Constructor Tech
+<!-- Created: 2026-02-04 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # ADR-0016: Token-Based Session Sharing with Branching
 
 
@@ -13,7 +14,7 @@ Updated:  2026-03-06 by Constructor Tech
   - [Confirmation](#confirmation)
 - [Pros and Cons of the Options](#pros-and-cons-of-the-options)
   - [Option 1: Cryptographic share token with separate table](#option-1-cryptographic-share-token-with-separate-table)
-  - [Option 2: Signed session_id JWT](#option-2-signed-sessionid-jwt)
+  - [Option 2: Signed session_id JWT](#option-2-signed-session_id-jwt)
   - [Option 3: Publicly readable sessions](#option-3-publicly-readable-sessions)
 - [Related Design Elements](#related-design-elements)
 

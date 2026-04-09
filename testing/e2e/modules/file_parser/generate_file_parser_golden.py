@@ -26,11 +26,9 @@ def get_base_url():
 
 
 def get_auth_headers():
-    """Get authorization headers if token is set."""
-    token = os.getenv("E2E_AUTH_TOKEN")
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
+    """Get authorization headers (defaults to dummy token for accept_all mode)."""
+    token = os.getenv("E2E_AUTH_TOKEN", "e2e-token-tenant-a")
+    return {"Authorization": f"Bearer {token}"}
 
 
 def find_input_files(testdata_dir):

@@ -9,6 +9,8 @@ Falls back to direct SQLite only for turn-level fields not exposed via REST
 Provider-parameterized — runs against both OpenAI and Azure.
 """
 
+from __future__ import annotations
+
 import os
 import sqlite3
 import time

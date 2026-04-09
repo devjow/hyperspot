@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tokio::sync::Semaphore;
+
 use opentelemetry::trace::TraceContextExt as _;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
@@ -170,6 +172,8 @@ pub(crate) struct AppServices<
     pub(crate) turn_repo: Arc<TR>,
     pub(crate) enforcer: PolicyEnforcer,
     pub(crate) metrics: Arc<dyn MiniChatMetricsPort>,
+    /// Semaphore bounding concurrent in-flight uploads for memory backpressure.
+    pub(crate) upload_semaphore: Arc<Semaphore>,
 }
 
 impl<
@@ -203,6 +207,7 @@ impl<
         rag_config: RagConfig,
         thumbnail_config: ThumbnailConfig,
         metrics: Arc<dyn MiniChatMetricsPort>,
+        summary_config: crate::config::background::ThreadSummaryWorkerConfig,
     ) -> Self {
         let enforcer = PolicyEnforcer::new(authz);
 
@@ -224,6 +229,7 @@ impl<
             Arc::clone(&quota_svc) as Arc<dyn QuotaSettler>,
             Arc::clone(outbox_enqueuer),
             Arc::clone(&metrics),
+            summary_config,
         ));
 
         let turns = TurnService::new(
@@ -236,6 +242,8 @@ impl<
             Arc::clone(outbox_enqueuer),
             Arc::clone(&metrics),
         );
+
+        let upload_semaphore = Arc::new(Semaphore::new(rag_config.max_concurrent_uploads.into()));
 
         Self {
             chats: ChatService::new(
@@ -307,6 +315,7 @@ impl<
             turn_repo: Arc::clone(&repos.turn),
             enforcer,
             metrics,
+            upload_semaphore,
         }
     }
 }

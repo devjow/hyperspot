@@ -1,5 +1,6 @@
-Created:  2026-03-06 by Constructor Tech
-Updated:  2026-03-09 by Constructor Tech
+<!-- Created: 2026-03-06 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 ---
 status: accepted
 date: 2026-03-06
@@ -23,13 +24,13 @@ date: 2026-03-06
   - [Option 2: Hardcoded capabilities + GTS derived schemas](#option-2-hardcoded-capabilities--gts-derived-schemas)
   - [Option 3: All config in SessionType.metadata](#option-3-all-config-in-sessiontypemetadata)
 - [Capability Resolution via Model Registry](#capability-resolution-via-model-registry)
-  - [Capability Refresh on Model Change (`on_session_updated`)](#capability-refresh-on-model-change-onsessionupdated)
+  - [Capability Refresh on Model Change (`on_session_updated`)](#capability-refresh-on-model-change-on_session_updated)
 - [Plugin Input: Messages List](#plugin-input-messages-list)
 - [Schema Extensions](#schema-extensions)
   - [Plugin Config & Metadata Schemas](#plugin-config--metadata-schemas)
   - [Entity Schemas](#entity-schemas)
 - [Context Overflow and Summarization](#context-overflow-and-summarization)
-  - [Trigger: context_overflow Error](#trigger-contextoverflow-error)
+  - [Trigger: context_overflow Error](#trigger-context_overflow-error)
   - [Summarization Flow](#summarization-flow)
   - [Message Visibility After Summarization](#message-visibility-after-summarization)
   - [Re-summarization](#re-summarization)

@@ -5,9 +5,6 @@
 use super::error::DomainError;
 use super::model::{CorsConfig, CorsHttpMethod};
 
-/// Maximum allowed value for `max_age` (24 hours in seconds).
-const MAX_AGE_LIMIT: u32 = 86400;
-
 // ---------------------------------------------------------------------------
 // CorsHttpMethod helpers
 // ---------------------------------------------------------------------------
@@ -54,14 +51,6 @@ pub fn validate_cors_config(config: &CorsConfig) -> Result<(), DomainError> {
     if config.allow_credentials && config.allowed_origins.iter().any(|o| o == "*") {
         return Err(DomainError::Validation {
             detail: "allow_credentials cannot be true when allowed_origins contains '*'".into(),
-            instance: String::new(),
-        });
-    }
-
-    // max_age must not exceed 24 hours.
-    if config.max_age > MAX_AGE_LIMIT {
-        return Err(DomainError::Validation {
-            detail: format!("max_age must not exceed {MAX_AGE_LIMIT} seconds"),
             instance: String::new(),
         });
     }
@@ -136,136 +125,12 @@ fn is_valid_origin(origin: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Preflight detection
+// Actual request CORS enforcement
 // ---------------------------------------------------------------------------
 
-/// Check whether an inbound request is a CORS preflight.
-///
-/// A CORS preflight is an OPTIONS request with both `Origin` and
-/// `Access-Control-Request-Method` headers present.
-#[must_use]
-pub fn is_cors_preflight(method: &str, headers: &[(String, String)]) -> bool {
-    if !method.eq_ignore_ascii_case("OPTIONS") {
-        return false;
-    }
-
-    let has_origin = headers
-        .iter()
-        .any(|(k, _)| k.eq_ignore_ascii_case("origin"));
-    let has_request_method = headers
-        .iter()
-        .any(|(k, _)| k.eq_ignore_ascii_case("access-control-request-method"));
-
-    has_origin && has_request_method
-}
-
-// ---------------------------------------------------------------------------
-// Preflight handler
-// ---------------------------------------------------------------------------
-
-/// Handle a CORS preflight request.
-///
-/// Validates the origin, requested method, and requested headers against the
-/// CORS configuration. Returns the CORS response headers on success, or a
-/// `DomainError` on validation failure.
-pub fn handle_cors_preflight(
-    config: &CorsConfig,
-    origin: &str,
-    request_method: &str,
-    request_headers: &[String],
-    instance: &str,
-) -> Result<Vec<(String, String)>, DomainError> {
-    // 1. Validate origin.
-    if !is_origin_allowed(config, origin) {
-        return Err(DomainError::CorsOriginNotAllowed {
-            origin: origin.to_string(),
-            instance: instance.to_string(),
-        });
-    }
-
-    // 2. Validate request method.
-    let method = CorsHttpMethod::from_str_loose(request_method).ok_or_else(|| {
-        DomainError::CorsMethodNotAllowed {
-            method: request_method.to_string(),
-            instance: instance.to_string(),
-        }
-    })?;
-    if !config.allowed_methods.contains(&method) {
-        return Err(DomainError::CorsMethodNotAllowed {
-            method: request_method.to_string(),
-            instance: instance.to_string(),
-        });
-    }
-
-    // 3. Validate request headers (case-insensitive).
-    for header in request_headers {
-        let header_lower = header.trim().to_ascii_lowercase();
-        if header_lower.is_empty() {
-            continue;
-        }
-        let allowed = config
-            .allowed_headers
-            .iter()
-            .any(|h| h.eq_ignore_ascii_case(&header_lower));
-        if !allowed {
-            return Err(DomainError::CorsHeaderNotAllowed {
-                header: header.trim().to_string(),
-                instance: instance.to_string(),
-            });
-        }
-    }
-
-    // 4. Build response headers.
-    let mut resp_headers = Vec::new();
-
-    // Reflect origin (not wildcard) when credentials are allowed.
-    let allow_origin = if config.allow_credentials {
-        origin.to_string()
-    } else if config.allowed_origins.iter().any(|o| o == "*") {
-        "*".to_string()
-    } else {
-        origin.to_string()
-    };
-    resp_headers.push(("access-control-allow-origin".to_string(), allow_origin));
-
-    // Allowed methods.
-    let methods_str: String = config
-        .allowed_methods
-        .iter()
-        .map(CorsHttpMethod::as_str)
-        .collect::<Vec<_>>()
-        .join(", ");
-    resp_headers.push(("access-control-allow-methods".to_string(), methods_str));
-
-    // Allowed headers.
-    if !config.allowed_headers.is_empty() {
-        resp_headers.push((
-            "access-control-allow-headers".to_string(),
-            config.allowed_headers.join(", "),
-        ));
-    }
-
-    // Max-Age.
-    resp_headers.push((
-        "access-control-max-age".to_string(),
-        config.max_age.to_string(),
-    ));
-
-    // Credentials.
-    if config.allow_credentials {
-        resp_headers.push((
-            "access-control-allow-credentials".to_string(),
-            "true".to_string(),
-        ));
-    }
-
-    // Vary (prevent cache poisoning).
-    resp_headers.push((
-        "vary".to_string(),
-        "Origin, Access-Control-Request-Method, Access-Control-Request-Headers".to_string(),
-    ));
-
-    Ok(resp_headers)
+/// Check whether the request method is in the `allowed_methods` list.
+pub fn is_method_allowed(config: &CorsConfig, method: &str) -> bool {
+    CorsHttpMethod::from_str_loose(method).is_some_and(|m| config.allowed_methods.contains(&m))
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +188,7 @@ pub fn apply_cors_headers(config: &CorsConfig, origin: &str) -> Vec<(String, Str
 /// Check whether the given origin is in the `allowed_origins` list.
 ///
 /// Supports exact string match and the wildcard `"*"`.
-fn is_origin_allowed(config: &CorsConfig, origin: &str) -> bool {
+pub fn is_origin_allowed(config: &CorsConfig, origin: &str) -> bool {
     config
         .allowed_origins
         .iter()
@@ -345,9 +210,7 @@ mod tests {
             enabled: true,
             allowed_origins: vec!["https://example.com".to_string()],
             allowed_methods: vec![CorsHttpMethod::Get, CorsHttpMethod::Post],
-            allowed_headers: vec!["content-type".to_string(), "authorization".to_string()],
             expose_headers: vec!["x-request-id".to_string()],
-            max_age: 3600,
             allow_credentials: false,
         }
     }
@@ -372,16 +235,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_max_age_boundary() {
-        let mut config = make_config();
-        config.max_age = MAX_AGE_LIMIT;
-        assert!(validate_cors_config(&config).is_ok());
-
-        config.max_age = MAX_AGE_LIMIT + 1;
-        assert!(validate_cors_config(&config).is_err());
-    }
-
-    #[test]
     fn test_validate_invalid_origin_rejected() {
         let config = CorsConfig {
             allowed_origins: vec!["not-a-url".to_string()],
@@ -397,83 +250,6 @@ mod tests {
             ..make_config()
         };
         assert!(validate_cors_config(&config).is_ok());
-    }
-
-    // -- is_cors_preflight --
-
-    #[test]
-    fn test_is_cors_preflight_true() {
-        let headers = vec![
-            ("origin".to_string(), "https://example.com".to_string()),
-            (
-                "access-control-request-method".to_string(),
-                "POST".to_string(),
-            ),
-        ];
-        assert!(is_cors_preflight("OPTIONS", &headers));
-    }
-
-    #[test]
-    fn test_is_cors_preflight_wrong_method() {
-        let headers = vec![
-            ("origin".to_string(), "https://example.com".to_string()),
-            (
-                "access-control-request-method".to_string(),
-                "POST".to_string(),
-            ),
-        ];
-        assert!(!is_cors_preflight("GET", &headers));
-    }
-
-    #[test]
-    fn test_is_cors_preflight_missing_origin() {
-        let headers = vec![(
-            "access-control-request-method".to_string(),
-            "POST".to_string(),
-        )];
-        assert!(!is_cors_preflight("OPTIONS", &headers));
-    }
-
-    // -- handle_cors_preflight --
-
-    #[test]
-    fn test_preflight_valid_origin_returns_headers() {
-        let config = make_config();
-        let result =
-            handle_cors_preflight(&config, "https://example.com", "GET", &[], "/test").unwrap();
-        let origin_header = result
-            .iter()
-            .find(|(k, _)| k == "access-control-allow-origin")
-            .unwrap();
-        assert_eq!(origin_header.1, "https://example.com");
-
-        let vary = result.iter().find(|(k, _)| k == "vary").unwrap();
-        assert!(vary.1.contains("Origin"));
-    }
-
-    #[test]
-    fn test_preflight_invalid_origin_returns_error() {
-        let config = make_config();
-        let err =
-            handle_cors_preflight(&config, "https://evil.com", "GET", &[], "/test").unwrap_err();
-        assert!(matches!(err, DomainError::CorsOriginNotAllowed { .. }));
-    }
-
-    #[test]
-    fn test_preflight_invalid_method_returns_error() {
-        let config = make_config();
-        let err = handle_cors_preflight(&config, "https://example.com", "DELETE", &[], "/test")
-            .unwrap_err();
-        assert!(matches!(err, DomainError::CorsMethodNotAllowed { .. }));
-    }
-
-    #[test]
-    fn test_preflight_invalid_header_returns_error() {
-        let config = make_config();
-        let headers = vec!["x-custom-header".to_string()];
-        let err = handle_cors_preflight(&config, "https://example.com", "GET", &headers, "/test")
-            .unwrap_err();
-        assert!(matches!(err, DomainError::CorsHeaderNotAllowed { .. }));
     }
 
     // -- apply_cors_headers --

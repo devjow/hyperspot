@@ -154,6 +154,18 @@ where
             let column = M::map_field(*field);
             build_binary_condition(column, *op, value)
         }
+        FilterNode::InList { field, values } => {
+            if values.is_empty() {
+                return Err("IN list must not be empty".to_owned());
+            }
+            let column = M::map_field(*field);
+            let kind = field.kind();
+            let sea_values: Vec<sea_orm::Value> = values
+                .iter()
+                .map(|v| odata_value_to_sea_value_for_kind(v, kind))
+                .collect::<Result<_, _>>()?;
+            Ok(Condition::all().add(Expr::col(column).is_in(sea_values)))
+        }
         FilterNode::Composite { op, children } => {
             // Combine child conditions with AND or OR
             let base = match op {
@@ -218,8 +230,8 @@ where
             let s = extract_string(value)?;
             Expr::col(column).like(format!("%{}", escape_like(&s)))
         }
-        FilterOp::And | FilterOp::Or => {
-            return Err(format!("Logical operator {op:?} in binary context"));
+        FilterOp::In | FilterOp::And | FilterOp::Or => {
+            return Err(format!("Operator {op:?} not valid in binary context"));
         }
     };
 
@@ -249,6 +261,32 @@ fn odata_value_to_sea_value(value: &ODataValue) -> Result<sea_orm::Value, String
             return Err("NULL values should be handled separately".to_owned());
         }
     })
+}
+
+/// Convert an `ODataValue` to a `sea_orm::Value`, using the field's `FieldKind`
+/// to coerce numeric values to the correct SQL type (especially Decimal).
+fn odata_value_to_sea_value_for_kind(
+    value: &ODataValue,
+    kind: FieldKind,
+) -> Result<sea_orm::Value, String> {
+    match (kind, value) {
+        (FieldKind::I64, ODataValue::Number(n)) => n
+            .to_i64()
+            .map(|i| sea_orm::Value::BigInt(Some(i)))
+            .ok_or_else(|| "Number value out of range for i64".to_owned()),
+        (FieldKind::F64, ODataValue::Number(n)) => n
+            .to_f64()
+            .map(|f| sea_orm::Value::Double(Some(f)))
+            .ok_or_else(|| "Number value out of range for f64".to_owned()),
+        (FieldKind::Decimal, ODataValue::Number(n)) => {
+            let d = n
+                .to_string()
+                .parse::<rust_decimal::Decimal>()
+                .map_err(|_| "Invalid decimal value".to_owned())?;
+            Ok(sea_orm::Value::Decimal(Some(Box::new(d))))
+        }
+        _ => odata_value_to_sea_value(value),
+    }
 }
 
 /// Extract a string from an `ODataValue`.

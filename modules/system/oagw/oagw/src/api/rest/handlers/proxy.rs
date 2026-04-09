@@ -27,6 +27,47 @@ pub async fn proxy_handler(
     Extension(ctx): Extension<SecurityContext>,
     req: Request,
 ) -> Result<Response, Response> {
+    // Short-circuit CORS preflight — return permissive 204 without upstream resolution.
+    // The actual request validates the origin against the upstream's CORS config.
+    if req.method() == http::Method::OPTIONS
+        && req.headers().contains_key(http::header::ORIGIN)
+        && req
+            .headers()
+            .contains_key(http::header::ACCESS_CONTROL_REQUEST_METHOD)
+    {
+        let origin = req
+            .headers()
+            .get(http::header::ORIGIN)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("*");
+
+        let requested_method = req
+            .headers()
+            .get(http::header::ACCESS_CONTROL_REQUEST_METHOD)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        let requested_headers = req
+            .headers()
+            .get(http::header::ACCESS_CONTROL_REQUEST_HEADERS)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        return Ok(Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("access-control-allow-origin", origin)
+            .header("access-control-allow-methods", requested_method)
+            .header("access-control-allow-headers", requested_headers)
+            .header("access-control-allow-credentials", "true")
+            .header("access-control-max-age", "86400")
+            .header(
+                "vary",
+                "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+            )
+            .body(Body::empty())
+            .unwrap());
+    }
+
     let max_body_size = state.config.max_body_size_bytes;
     let (mut parts, body) = req.into_parts();
 

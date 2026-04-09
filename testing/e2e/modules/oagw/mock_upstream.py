@@ -6,6 +6,8 @@ fixture so the OAGW service under test can proxy to it.
 
 Uses only stdlib asyncio — no aiohttp dependency.
 """
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import base64

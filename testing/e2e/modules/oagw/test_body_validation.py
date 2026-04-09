@@ -47,7 +47,7 @@ async def test_invalid_content_length_returns_400(
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or 80
 
-        header_lines = [f"x-tenant-id: {oagw_headers['x-tenant-id']}"]
+        header_lines = []
         if "Authorization" in oagw_headers:
             header_lines.append(f"Authorization: {oagw_headers['Authorization']}")
 
@@ -91,7 +91,7 @@ async def test_body_exceeding_limit_returns_413(
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or 80
 
-        header_lines = [f"x-tenant-id: {oagw_headers['x-tenant-id']}"]
+        header_lines = []
         if "Authorization" in oagw_headers:
             header_lines.append(f"Authorization: {oagw_headers['Authorization']}")
 

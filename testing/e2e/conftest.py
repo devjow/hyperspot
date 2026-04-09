@@ -18,14 +18,15 @@ def base_url():
 def auth_headers():
     """
     Build Authorization headers using E2E_AUTH_TOKEN env var.
-    
+
+    Falls back to a dummy token suitable for the static-authn-plugin
+    running in ``accept_all`` mode (any non-empty Bearer token is accepted).
+
     Returns:
-        dict: Headers dict with Authorization header if token is set, empty dict otherwise.
+        dict: Headers dict with Authorization header.
     """
-    token = os.getenv("E2E_AUTH_TOKEN")
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
+    token = os.getenv("E2E_AUTH_TOKEN", "e2e-token-tenant-a")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture

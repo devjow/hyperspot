@@ -8,7 +8,7 @@ use tracing::{Instrument, debug, info, warn};
 
 use crate::domain::llm::ToolPhase;
 use crate::domain::ports::metric_labels::{stage, trigger};
-use crate::domain::repos::{MessageRepository, TurnRepository};
+use crate::domain::repos::{MessageRepository, ToolCallType, TurnRepository};
 use crate::domain::stream_events::{DoneData, ErrorData, StreamEvent};
 use crate::infra::db::entity::chat_turn::TurnState;
 use crate::infra::llm::{
@@ -139,14 +139,23 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
             if let Some(extra_body) = api_params.extra_body {
                 params["extra_body"] = extra_body;
             }
+            if let Some(ref effort) = api_params.reasoning_effort {
+                params["reasoning_effort"] = serde_json::json!(effort);
+            }
             builder = builder.additional_params(params);
         }
 
         let request = builder.build_streaming();
 
+        // Use a child token for the provider HTTP stream so that calling
+        // provider_stream.cancel() in tool-limit-exceeded branches only stops
+        // the provider without cancelling the parent token used by SseRelay.
+        // Client-disconnect cancellation still propagates via the token hierarchy.
+        let provider_cancel = cancel.child_token();
+
         // Call the provider to start streaming
         let stream_result = llm
-            .stream(ctx, request, &upstream_alias, cancel.clone())
+            .stream(ctx, request, &upstream_alias, provider_cancel)
             .await;
 
         let mut provider_stream = match stream_result {
@@ -326,6 +335,10 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                             let code = "web_search_calls_exceeded".to_owned();
                                             let message = "Web search calls exceeded for this message".to_owned();
 
+                                            // Cancel provider first so it stops executing the
+                                            // over-limit tool call during the finalization await.
+                                            provider_stream.cancel();
+
                                             // Finalize as failed, then emit error (D3)
                                             if let Some(ref fctx) = fin_ctx {
                                                 let input = fctx.to_finalization_input(
@@ -363,8 +376,6 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                                 })).await;
                                             }
 
-                                            provider_stream.cancel();
-
                                             // Metrics: web search limit exceeded
                                             if let Some(ref fctx) = fin_ctx {
                                                 let ms = stream_start.elapsed().as_secs_f64() * 1000.0;
@@ -394,6 +405,18 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                     }
                                     ToolPhase::Done => {
                                         web_search_completed_count += 1;
+                                        if let Some(ref fctx) = fin_ctx {
+                                            match fctx.db.conn() {
+                                                Ok(conn) => {
+                                                    if let Err(e) = fctx.turn_repo.increment_tool_calls(&conn, &fctx.scope, fctx.turn_id, ToolCallType::WebSearch).await {
+                                                        warn!(turn_id = %fctx.turn_id, error = %e, "failed to persist web_search_completed_count");
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    warn!(turn_id = %fctx.turn_id, error = %e, "failed to acquire DB connection for web_search_completed_count");
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -413,6 +436,10 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                             );
                                             let code = "code_interpreter_calls_exceeded".to_owned();
                                             let message = "Code interpreter calls exceeded for this message".to_owned();
+
+                                            // Cancel provider first so it stops executing the
+                                            // over-limit tool call during the finalization await.
+                                            provider_stream.cancel();
 
                                             if let Some(ref fctx) = fin_ctx {
                                                 let input = fctx.to_finalization_input(
@@ -450,8 +477,6 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                                 })).await;
                                             }
 
-                                            provider_stream.cancel();
-
                                             if let Some(ref fctx) = fin_ctx {
                                                 let ms = stream_start.elapsed().as_secs_f64() * 1000.0;
                                                 fctx.metrics.record_stream_failed(
@@ -480,6 +505,18 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                     }
                                     ToolPhase::Done => {
                                         code_interpreter_completed_count += 1;
+                                        if let Some(ref fctx) = fin_ctx {
+                                            match fctx.db.conn() {
+                                                Ok(conn) => {
+                                                    if let Err(e) = fctx.turn_repo.increment_tool_calls(&conn, &fctx.scope, fctx.turn_id, ToolCallType::CodeInterpreter).await {
+                                                        warn!(turn_id = %fctx.turn_id, error = %e, "failed to persist code_interpreter_completed_count");
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    warn!(turn_id = %fctx.turn_id, error = %e, "failed to acquire DB connection for code_interpreter_completed_count");
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -709,9 +746,9 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
-                                    quota_decision: "allow".into(),
-                                    downgrade_from: None,
-                                    downgrade_reason: None,
+                                    quota_decision: fctx.quota_decision.clone(),
+                                    downgrade_from: fctx.downgrade_from.clone(),
+                                    downgrade_reason: fctx.downgrade_reason.clone(),
                                     quota_warnings: None,
                                 })))
                                 .await;
@@ -818,9 +855,9 @@ pub(super) fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepos
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
-                                    quota_decision: "allow".into(),
-                                    downgrade_from: None,
-                                    downgrade_reason: None,
+                                    quota_decision: fctx.quota_decision.clone(),
+                                    downgrade_from: fctx.downgrade_from.clone(),
+                                    downgrade_reason: fctx.downgrade_reason.clone(),
                                     quota_warnings: None,
                                 })))
                                 .await;

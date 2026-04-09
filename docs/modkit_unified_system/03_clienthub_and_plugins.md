@@ -195,7 +195,7 @@ pub struct MyModule { /* ... */ }
 #[async_trait]
 impl Module for MyModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: ModuleConfig = ctx.config()?;
+        let cfg: ModuleConfig = ctx.config_or_default()?;
 
         // Register plugin SCHEMA in types-registry
         let registry = ctx.client_hub().get::<dyn TypesRegistryClient>()?;
@@ -230,7 +230,7 @@ pub struct VendorAPlugin { /* ... */ }
 #[async_trait]
 impl Module for VendorAPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: PluginConfig = ctx.config()?;
+        let cfg: PluginConfig = ctx.config_or_default()?;
 
         let instance_id = MyModulePluginSpecV1::gts_make_instance_id("vendor_a.pkg.my_module.plugin.v1");
 
@@ -256,6 +256,9 @@ impl Module for VendorAPlugin {
     }
 }
 ```
+
+Use `ctx.config()` only when startup must fail if `modules.<name>.config` is absent. For
+modules and plugins with defaults, use `ctx.config_or_default()` instead.
 
 ### Step 5: Main Module Resolves Plugin
 

@@ -10,6 +10,8 @@ Covers:
 - Exhausted flag correctness at zero remaining
 """
 
+from __future__ import annotations
+
 import os
 import sqlite3
 import time

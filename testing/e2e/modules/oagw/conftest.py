@@ -26,19 +26,12 @@ def mock_upstream_url():
 
 
 @pytest.fixture
-def tenant_id():
-    """Fixed tenant UUID for test isolation."""
-    return "00000000-df51-5b42-9538-d2b56b7ee953"
-
-
-@pytest.fixture
-def oagw_headers(tenant_id):
-    """Standard headers for OAGW requests (tenant + optional auth)."""
-    headers = {"x-tenant-id": tenant_id}
-    token = os.getenv("E2E_AUTH_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+def oagw_headers():
+    """Standard headers for OAGW requests (auth only — tenant comes from the token)."""
+    token = os.getenv("E2E_AUTH_TOKEN", "e2e-token-tenant-a")
+    return {
+        "Authorization": f"Bearer {token}",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +93,7 @@ def _check_oagw_reachable():
     """Skip all OAGW tests if the service is not reachable."""
     url = os.getenv("E2E_OAGW_BASE_URL", "http://localhost:8086")
     try:
-        resp = httpx.get(f"{url}/oagw/v1/upstreams", timeout=5.0,
-                         headers={"x-tenant-id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
+        resp = httpx.get(f"{url}/oagw/v1/upstreams", timeout=5.0)
         # Any response (even 401/403) means the service is up.
     except httpx.ConnectError:
         pytest.skip(f"OAGW service not running at {url}", allow_module_level=True)

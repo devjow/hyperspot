@@ -80,6 +80,7 @@ pub mod upload_result {
     pub const UNSUPPORTED_TYPE: &str = "unsupported_type";
     pub const PROVIDER_ERROR: &str = "provider_error";
     pub const STORAGE_LIMIT_EXCEEDED: &str = "storage_limit_exceeded";
+    pub const CONCURRENCY_LIMIT: &str = "concurrency_limit";
 }
 
 /// Cleanup resource type labels (`resource_type` label).

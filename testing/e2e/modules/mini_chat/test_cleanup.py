@@ -16,6 +16,8 @@ Covers:
 - Thread summary worker (P2 deferred)
 """
 
+from __future__ import annotations
+
 import io
 import os
 import sqlite3

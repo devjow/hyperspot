@@ -772,10 +772,24 @@ pub struct RagConfig {
     /// Maximum number of image attachments per message (DESIGN.md B.8).
     #[serde(default = "default_max_images_per_message")]
     pub max_images_per_message: u32,
+
+    /// Maximum concurrent in-flight uploads **per process** (across all tenants
+    /// within this pod). Each upload can buffer up to `uploaded_file_max_size_kb`
+    /// in memory; this semaphore prevents OOM under burst load.
+    ///
+    /// Note: cluster-wide concurrency scales with the number of replicas
+    /// (`max_concurrent_uploads × num_pods`).
+    /// Valid range: 1–256 (default 10).
+    #[serde(default = "default_max_concurrent_uploads")]
+    pub max_concurrent_uploads: u16,
 }
 
 fn default_max_images_per_message() -> u32 {
     4
+}
+
+fn default_max_concurrent_uploads() -> u16 {
+    10
 }
 
 impl Default for RagConfig {
@@ -787,6 +801,7 @@ impl Default for RagConfig {
             uploaded_image_max_size_kb: default_uploaded_image_max_size_kb(),
             allow_csv_upload: true,
             max_images_per_message: default_max_images_per_message(),
+            max_concurrent_uploads: default_max_concurrent_uploads(),
         }
     }
 }
@@ -807,6 +822,12 @@ impl RagConfig {
         }
         if self.max_images_per_message == 0 {
             return Err("rag max_images_per_message must be > 0".into());
+        }
+        if self.max_concurrent_uploads == 0 || self.max_concurrent_uploads > 256 {
+            return Err(format!(
+                "rag max_concurrent_uploads must be 1-256, got {}",
+                self.max_concurrent_uploads
+            ));
         }
         Ok(())
     }
@@ -1498,5 +1519,70 @@ mod tests {
             prefix: "  custom.prefix  ".to_owned(),
         };
         assert_eq!(cfg.effective_prefix("mini-chat"), "custom.prefix");
+    }
+
+    #[test]
+    fn rag_config_max_concurrent_uploads_validation() {
+        // zero is rejected
+        assert!(
+            RagConfig {
+                max_concurrent_uploads: 0,
+                ..RagConfig::default()
+            }
+            .validate()
+            .is_err()
+        );
+
+        // over 256 is rejected
+        assert!(
+            RagConfig {
+                max_concurrent_uploads: 257,
+                ..RagConfig::default()
+            }
+            .validate()
+            .is_err()
+        );
+
+        // boundary values are accepted
+        assert!(
+            RagConfig {
+                max_concurrent_uploads: 1,
+                ..RagConfig::default()
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            RagConfig {
+                max_concurrent_uploads: 256,
+                ..RagConfig::default()
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn upload_semaphore_exhaustion_blocks_further_acquires() {
+        use tokio::sync::Semaphore;
+
+        let sem = Semaphore::new(2);
+
+        // Acquire all permits.
+        let p1 = sem.try_acquire().expect("first permit");
+        let _p2 = sem.try_acquire().expect("second permit");
+
+        // Third acquire must fail — this is the 503 path.
+        assert!(
+            sem.try_acquire().is_err(),
+            "semaphore should be exhausted after all permits are taken"
+        );
+
+        // Releasing a permit makes the semaphore available again.
+        drop(p1);
+        assert!(
+            sem.try_acquire().is_ok(),
+            "permit should be available after release"
+        );
     }
 }

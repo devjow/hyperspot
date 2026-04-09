@@ -201,8 +201,10 @@ pub async fn authn_middleware(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // Skip CORS preflight
+    // Skip CORS preflight — insert anonymous SecurityContext so downstream
+    // handlers that extract Extension<SecurityContext> don't panic.
     if is_preflight_request(req.method(), req.headers()) {
+        req.extensions_mut().insert(SecurityContext::anonymous());
         return next.run(req).await;
     }
 

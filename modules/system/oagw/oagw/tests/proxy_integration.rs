@@ -1849,7 +1849,7 @@ async fn proxy_websocket_idle_timeout_closes_connection() {
     use tokio::io::AsyncWriteExt;
 
     let h = AppHarness::builder()
-        .with_websocket_idle_timeout(std::time::Duration::from_millis(200))
+        .with_websocket_idle_timeout(std::time::Duration::from_secs(1))
         .build()
         .await;
     setup_ws_upstream(&h, "ws-idle-timeout").await;
@@ -1864,8 +1864,8 @@ async fn proxy_websocket_idle_timeout_closes_connection() {
     let (opcode, _) = read_ws_frame(&mut stream).await.expect("echo frame");
     assert_eq!(opcode, 0x1, "expected text frame opcode");
 
-    // Wait longer than the idle timeout (200ms).
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    // Wait longer than the idle timeout (1s).
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Expect EOF or close frame indicating gateway closed the connection.
     if let Some((op, _)) = read_ws_frame(&mut stream).await {
@@ -3215,9 +3215,7 @@ fn test_cors_config() -> CorsConfig {
         enabled: true,
         allowed_origins: vec!["https://example.com".to_string()],
         allowed_methods: vec![CorsHttpMethod::Get, CorsHttpMethod::Post],
-        allowed_headers: vec!["content-type".to_string(), "authorization".to_string()],
         expose_headers: vec!["x-request-id".to_string()],
-        max_age: 3600,
         allow_credentials: false,
     }
 }
@@ -3371,133 +3369,6 @@ async fn cors_actual_request_includes_headers() {
     assert!(
         headers.get(http::header::VARY).is_some(),
         "Vary header must be present"
-    );
-}
-
-// CORS: Actual request with disallowed origin gets no CORS headers.
-#[tokio::test]
-async fn cors_actual_request_disallowed_origin_no_cors_headers() {
-    let mut guard = MockGuard::new();
-    guard.mock(
-        "GET",
-        "/api/data",
-        MockResponse {
-            status: 200,
-            headers: vec![("content-type".into(), "application/json".into())],
-            body: MockBody::Json(json!({"ok": true})),
-        },
-    );
-
-    let h = AppHarness::builder().build().await;
-    setup_cors_upstream(&h, &guard, "cors-bad-origin", Some(test_cors_config())).await;
-
-    let req = http::Request::builder()
-        .method(Method::GET)
-        .uri(format!("/cors-bad-origin{}", guard.path("/api/data")))
-        .header("origin", "https://evil.com")
-        .body(Body::Empty)
-        .unwrap();
-
-    let response = h
-        .facade()
-        .proxy_request(h.security_context().clone(), req)
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        response
-            .headers()
-            .get("access-control-allow-origin")
-            .is_none(),
-        "disallowed origin should not receive CORS headers"
-    );
-}
-
-// CORS: Preflight with allowed origin/method returns 204 with CORS headers.
-#[tokio::test]
-async fn cors_preflight_allowed_returns_204() {
-    let guard = MockGuard::new();
-
-    let h = AppHarness::builder().build().await;
-    setup_cors_upstream(&h, &guard, "cors-preflight", Some(test_cors_config())).await;
-
-    let req = http::Request::builder()
-        .method(Method::OPTIONS)
-        .uri(format!("/cors-preflight{}", guard.path("/api/data")))
-        .header("origin", "https://example.com")
-        .header("access-control-request-method", "POST")
-        .body(Body::Empty)
-        .unwrap();
-
-    let response = h
-        .facade()
-        .proxy_request(h.security_context().clone(), req)
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    let headers = response.headers();
-    assert_eq!(
-        headers.get("access-control-allow-origin").unwrap(),
-        "https://example.com"
-    );
-    assert!(
-        headers.get("access-control-allow-methods").is_some(),
-        "preflight must include allow-methods"
-    );
-    assert_eq!(headers.get("access-control-max-age").unwrap(), "3600");
-    assert!(
-        headers.get(http::header::VARY).is_some(),
-        "preflight must include Vary"
-    );
-}
-
-// CORS: Preflight with disallowed origin returns 403.
-#[tokio::test]
-async fn cors_preflight_rejected_origin_returns_403() {
-    let guard = MockGuard::new();
-
-    let h = AppHarness::builder().build().await;
-    setup_cors_upstream(&h, &guard, "cors-pf-bad-origin", Some(test_cors_config())).await;
-
-    let req = http::Request::builder()
-        .method(Method::OPTIONS)
-        .uri(format!("/cors-pf-bad-origin{}", guard.path("/api/data")))
-        .header("origin", "https://evil.com")
-        .header("access-control-request-method", "GET")
-        .body(Body::Empty)
-        .unwrap();
-
-    let response = h
-        .facade()
-        .proxy_request(h.security_context().clone(), req)
-        .await;
-    assert!(response.is_err(), "rejected preflight should return error");
-}
-
-// CORS: Preflight with disallowed method returns 403.
-#[tokio::test]
-async fn cors_preflight_rejected_method_returns_403() {
-    let guard = MockGuard::new();
-
-    let h = AppHarness::builder().build().await;
-    setup_cors_upstream(&h, &guard, "cors-pf-bad-method", Some(test_cors_config())).await;
-
-    let req = http::Request::builder()
-        .method(Method::OPTIONS)
-        .uri(format!("/cors-pf-bad-method{}", guard.path("/api/data")))
-        .header("origin", "https://example.com")
-        .header("access-control-request-method", "DELETE")
-        .body(Body::Empty)
-        .unwrap();
-
-    let response = h
-        .facade()
-        .proxy_request(h.security_context().clone(), req)
-        .await;
-    assert!(
-        response.is_err(),
-        "preflight with disallowed method should return error"
     );
 }
 
@@ -3717,9 +3588,7 @@ async fn cors_route_inherit_merges_origins() {
         enabled: true,
         allowed_origins: vec!["https://other.com".to_string()],
         allowed_methods: vec![CorsHttpMethod::Get, CorsHttpMethod::Post],
-        allowed_headers: vec!["content-type".to_string(), "authorization".to_string()],
         expose_headers: vec!["x-request-id".to_string()],
-        max_age: 3600,
         allow_credentials: false,
     };
 
@@ -3783,20 +3652,19 @@ async fn cors_route_inherit_merges_origins() {
     );
 }
 
-// CORS: Preflight with disallowed request header returns error.
+// CORS: Disallowed origin is rejected before reaching upstream.
 #[tokio::test]
-async fn cors_preflight_rejected_header_returns_error() {
+async fn cors_actual_request_disallowed_origin_rejected_before_upstream() {
     let guard = MockGuard::new();
+    // No mock registered — if the upstream is called, the request will fail differently.
 
     let h = AppHarness::builder().build().await;
-    setup_cors_upstream(&h, &guard, "cors-pf-bad-hdr", Some(test_cors_config())).await;
+    setup_cors_upstream(&h, &guard, "cors-reject-origin", Some(test_cors_config())).await;
 
     let req = http::Request::builder()
-        .method(Method::OPTIONS)
-        .uri(format!("/cors-pf-bad-hdr{}", guard.path("/api/data")))
-        .header("origin", "https://example.com")
-        .header("access-control-request-method", "GET")
-        .header("access-control-request-headers", "x-custom-forbidden")
+        .method(Method::GET)
+        .uri(format!("/cors-reject-origin{}", guard.path("/api/data")))
+        .header("origin", "https://evil.com")
         .body(Body::Empty)
         .unwrap();
 
@@ -3806,7 +3674,76 @@ async fn cors_preflight_rejected_header_returns_error() {
         .await;
     assert!(
         response.is_err(),
-        "preflight with disallowed request header should return error"
+        "disallowed origin on actual request should be rejected before reaching upstream"
+    );
+}
+
+// CORS: Disallowed method is rejected before reaching upstream.
+#[tokio::test]
+async fn cors_actual_request_disallowed_method_rejected_before_upstream() {
+    let guard = MockGuard::new();
+    // No mock registered — if the upstream is called, the request will fail differently.
+
+    let h = AppHarness::builder().build().await;
+    let ctx = h.security_context().clone();
+
+    // Route allows DELETE but CORS config only allows GET and POST.
+    let cors = test_cors_config(); // allowed_methods: [Get, Post]
+
+    let mut builder = CreateUpstreamRequest::builder(
+        Server {
+            endpoints: vec![Endpoint {
+                scheme: Scheme::Http,
+                host: "127.0.0.1".into(),
+                port: h.mock_port(),
+            }],
+        },
+        "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+    )
+    .alias("cors-reject-method");
+    builder = builder.cors(cors);
+
+    let upstream = h
+        .facade()
+        .create_upstream(ctx.clone(), builder.build())
+        .await
+        .unwrap();
+
+    h.facade()
+        .create_route(
+            ctx.clone(),
+            CreateRouteRequest::builder(
+                upstream.id,
+                MatchRules {
+                    http: Some(HttpMatch {
+                        methods: vec![HttpMethod::Get, HttpMethod::Post, HttpMethod::Delete],
+                        path: guard.path("/api/data"),
+                        query_allowlist: vec![],
+                        path_suffix_mode: PathSuffixMode::Disabled,
+                    }),
+                    grpc: None,
+                },
+            )
+            .build(),
+        )
+        .await
+        .unwrap();
+
+    // DELETE is allowed by the route but not by CORS — should be rejected.
+    let req = http::Request::builder()
+        .method(Method::DELETE)
+        .uri(format!("/cors-reject-method{}", guard.path("/api/data")))
+        .header("origin", "https://example.com")
+        .body(Body::Empty)
+        .unwrap();
+
+    let response = h
+        .facade()
+        .proxy_request(h.security_context().clone(), req)
+        .await;
+    assert!(
+        response.is_err(),
+        "disallowed method on actual request should be rejected before reaching upstream"
     );
 }
 
@@ -3856,7 +3793,7 @@ async fn cors_multiple_specific_origins() {
         "https://beta.com"
     );
 
-    // Non-matching origin gets no CORS headers.
+    // Non-matching origin is rejected before reaching upstream.
     let req = http::Request::builder()
         .method(Method::GET)
         .uri(format!("/cors-multi{}", guard.path("/api/data")))
@@ -3867,15 +3804,10 @@ async fn cors_multiple_specific_origins() {
     let response = h
         .facade()
         .proxy_request(h.security_context().clone(), req)
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+        .await;
     assert!(
-        response
-            .headers()
-            .get("access-control-allow-origin")
-            .is_none(),
-        "non-matching origin should not get CORS headers"
+        response.is_err(),
+        "non-matching origin should be rejected with 403"
     );
 }
 
@@ -3888,29 +3820,29 @@ async fn cors_multiple_specific_origins() {
 /// buffer fills without finding the terminator.
 async fn read_http_response_headers(stream: &mut tokio::net::TcpStream) -> String {
     use tokio::io::AsyncReadExt;
-    let mut buf = vec![0u8; 4096];
-    let mut filled = 0usize;
+    // Read one byte at a time so we never consume bytes beyond the
+    // \r\n\r\n header terminator. Chunk-based reads can over-read into
+    // the WebSocket frame stream, silently swallowing data and causing
+    // flaky EOF errors on the first frame read.
+    let mut buf = Vec::with_capacity(4096);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let n = tokio::time::timeout_at(deadline, stream.read(&mut buf[filled..]))
+        let mut byte = [0u8; 1];
+        tokio::time::timeout_at(deadline, stream.read_exact(&mut byte))
             .await
             .expect("timed out reading HTTP response headers")
-            .expect("read error");
-        assert!(n > 0, "unexpected EOF before header terminator");
-        filled += n;
-        let s = String::from_utf8_lossy(&buf[..filled]);
-        if s.contains("\r\n\r\n") {
-            return s.into_owned();
+            .expect("read error / unexpected EOF");
+        buf.push(byte[0]);
+        if buf.ends_with(b"\r\n\r\n") {
+            return String::from_utf8_lossy(&buf).into_owned();
         }
-        assert!(
-            filled < buf.len(),
-            "header buffer full without \\r\\n\\r\\n"
-        );
+        assert!(buf.len() < 4096, "header buffer full without \\r\\n\\r\\n");
     }
 }
 
 /// Helper: perform a WebSocket handshake over a raw TCP stream.
-/// Returns the stream positioned after the 101 response headers.
+/// Returns the stream positioned after the 101 response headers and after
+/// confirming the proxy bridge is fully operational via a Ping/Pong probe.
 async fn ws_handshake(stream: &mut tokio::net::TcpStream, uri: &str) {
     use tokio::io::AsyncWriteExt;
     let req = format!(
@@ -3928,6 +3860,11 @@ async fn ws_handshake(stream: &mut tokio::net::TcpStream, uri: &str) {
         resp.starts_with("HTTP/1.1 101"),
         "expected 101 Switching Protocols, got: {resp}"
     );
+    // Ensure the proxy bridge is fully operational before returning.
+    // Without this, the spawned bridge task may still be awaiting
+    // on_upgrade when the caller sends its first data frame, causing
+    // flaky "EOF on frame 0" failures under CI resource pressure.
+    ws_readiness_probe(stream).await;
 }
 
 /// Helper: build a masked WebSocket frame for sending from a client.
@@ -4005,6 +3942,37 @@ async fn read_ws_frame(stream: &mut tokio::net::TcpStream) -> Option<(u8, Vec<u8
         }
     }
     Some((opcode, payload))
+}
+
+/// Send a Ping and wait for the matching Pong, confirming the proxy bridge
+/// pipeline is fully operational before the test sends data frames.
+///
+/// The Ping is buffered in the TCP kernel even if the bridge task hasn't
+/// started reading yet — once `frame_relay` begins, it forwards the Ping
+/// to the upstream, axum's tungstenite layer auto-responds with Pong, and
+/// the Pong arrives back here.
+async fn ws_readiness_probe(stream: &mut tokio::net::TcpStream) {
+    use tokio::io::AsyncWriteExt;
+    let probe = b"ready";
+    let ping = build_masked_frame(0x9, probe);
+    stream.write_all(&ping).await.unwrap();
+    loop {
+        match read_ws_frame(stream).await {
+            Some((0xA, data)) if data == probe => return,
+            Some((0xA, _)) => continue, // stale or unrelated Pong
+            Some((0x9, _)) => continue, // Ping from upstream
+            Some((0x8, close_payload)) => panic!(
+                "readiness probe failed: expected Pong with payload {:?}, \
+                 but server sent Close frame with payload {close_payload:?} — \
+                 idle timeout may be too short for CI/coverage builds",
+                std::str::from_utf8(probe).unwrap(),
+            ),
+            other => panic!(
+                "readiness probe failed: expected Pong with payload {:?}, got {other:?}",
+                std::str::from_utf8(probe).unwrap(),
+            ),
+        }
+    }
 }
 
 /// Helper: set up an upstream + route pointing at the mock's /ws/echo endpoint.
@@ -4115,7 +4083,7 @@ async fn proxy_websocket_close_frame_propagated() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn proxy_websocket_idle_timeout_sends_1001() {
     let h = AppHarness::builder()
-        .with_websocket_idle_timeout(std::time::Duration::from_millis(200))
+        .with_websocket_idle_timeout(std::time::Duration::from_secs(1))
         .build()
         .await;
     setup_ws_upstream(&h, "ws-idle-1001").await;
@@ -4133,7 +4101,7 @@ async fn proxy_websocket_idle_timeout_sends_1001() {
     assert_eq!(echo.0, 0x1);
 
     // Wait for idle timeout to fire.
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Should receive Close 1001.
     let frame = read_ws_frame(&mut stream).await;

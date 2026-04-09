@@ -9,6 +9,8 @@ Covers:
 - quota_warnings in done event is consistent with GET /v1/quota/status
 """
 
+from __future__ import annotations
+
 import time
 from datetime import datetime, timezone
 

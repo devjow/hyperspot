@@ -22,7 +22,11 @@ use crate::server;
 
 /// Configuration for the module orchestrator
 #[derive(Clone, Debug, Default, serde::Deserialize)]
-pub struct ModuleOrchestratorConfig;
+#[allow(
+    clippy::empty_structs_with_brackets,
+    reason = "empty struct is required for config deserialization"
+)]
+pub struct ModuleOrchestratorConfig {}
 
 /// Module Orchestrator - system module for service discovery
 ///
@@ -46,7 +50,7 @@ pub struct ModuleOrchestrator {
 impl Default for ModuleOrchestrator {
     fn default() -> Self {
         Self {
-            config: RwLock::new(ModuleOrchestratorConfig),
+            config: RwLock::new(ModuleOrchestratorConfig {}),
             directory_api: OnceLock::new(),
             module_manager: OnceLock::new(),
             modules_service: OnceLock::new(),
@@ -68,7 +72,7 @@ impl SystemCapability for ModuleOrchestrator {
 impl modkit::Module for ModuleOrchestrator {
     async fn init(&self, ctx: &ModuleCtx) -> Result<()> {
         // Load configuration if present
-        let cfg = ctx.config::<ModuleOrchestratorConfig>().unwrap_or_default();
+        let cfg = ctx.config_or_default::<ModuleOrchestratorConfig>()?;
         *self.config.write().await = cfg;
 
         // Use the injected ModuleManager to create the DirectoryClient

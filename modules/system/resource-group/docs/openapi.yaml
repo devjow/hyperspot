@@ -1,5 +1,5 @@
-# Created:  2026-03-06 by Constructor Tech
-# Updated:  2026-03-18 by Constructor Tech
+# Created: 2026-03-06 by Constructor Tech
+# Updated: 2026-04-07 by Constructor Tech
 
 openapi: 3.1.0
 info:
@@ -1323,3 +1323,4 @@ components:
           description: Opaque token for previous page. Omitted on first page.
         limit:
           type: integer
+          format: int64

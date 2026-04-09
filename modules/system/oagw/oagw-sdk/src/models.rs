@@ -231,9 +231,7 @@ pub struct CorsConfig {
     pub enabled: bool,
     pub allowed_origins: Vec<String>,
     pub allowed_methods: Vec<CorsHttpMethod>,
-    pub allowed_headers: Vec<String>,
     pub expose_headers: Vec<String>,
-    pub max_age: u32,
     pub allow_credentials: bool,
 }
 

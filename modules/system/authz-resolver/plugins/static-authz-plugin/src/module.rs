@@ -34,7 +34,7 @@ impl Default for StaticAuthZPlugin {
 #[async_trait]
 impl Module for StaticAuthZPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: StaticAuthZPluginConfig = ctx.config()?;
+        let cfg: StaticAuthZPluginConfig = ctx.config_or_default()?;
         info!(
             vendor = %cfg.vendor,
             priority = cfg.priority,

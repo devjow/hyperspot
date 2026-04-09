@@ -1,8 +1,4 @@
----
-status: proposed
-date: 2026-02-23
-decision-makers: OAGW Team
----
+<!-- Updated: 2026-04-07 by Constructor Tech -->
 
 # Storage Schema — Portable Relational Baseline with JSON Blobs
 
@@ -28,16 +24,16 @@ decision-makers: OAGW Team
   - [Fully normalized (no JSON)](#fully-normalized-no-json)
 - [Rationale](#rationale)
 - [Appendix A: Schema Tables (Illustrative)](#appendix-a-schema-tables-illustrative)
-  - [`oagw_upstream`](#oagwupstream)
-  - [`oagw_upstream_tag`](#oagwupstreamtag)
-  - [`oagw_route`](#oagwroute)
-  - [`oagw_route_http_match`](#oagwroutehttpmatch)
-  - [`oagw_route_method`](#oagwroutemethod)
-  - [`oagw_route_grpc_match`](#oagwroutegrpcmatch)
-  - [`oagw_route_tag`](#oagwroutetag)
-  - [`oagw_plugin` (custom plugins)](#oagwplugin-custom-plugins)
-  - [`oagw_upstream_plugin`](#oagwupstreamplugin)
-  - [`oagw_route_plugin`](#oagwrouteplugin)
+  - [`oagw_upstream`](#oagw_upstream)
+  - [`oagw_upstream_tag`](#oagw_upstream_tag)
+  - [`oagw_route`](#oagw_route)
+  - [`oagw_route_http_match`](#oagw_route_http_match)
+  - [`oagw_route_method`](#oagw_route_method)
+  - [`oagw_route_grpc_match`](#oagw_route_grpc_match)
+  - [`oagw_route_tag`](#oagw_route_tag)
+  - [`oagw_plugin` (custom plugins)](#oagw_plugin-custom-plugins)
+  - [`oagw_upstream_plugin`](#oagw_upstream_plugin)
+  - [`oagw_route_plugin`](#oagw_route_plugin)
 - [Appendix B: Example Queries (Illustrative)](#appendix-b-example-queries-illustrative)
   - [Resolve upstream by alias across a tenant hierarchy](#resolve-upstream-by-alias-across-a-tenant-hierarchy)
   - [Match HTTP route by (method, longest path prefix, priority)](#match-http-route-by-method-longest-path-prefix-priority)

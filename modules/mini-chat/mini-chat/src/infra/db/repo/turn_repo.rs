@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::domain::error::DomainError;
-use crate::domain::repos::{CasCompleteParams, CasTerminalParams, CreateTurnParams};
+use crate::domain::repos::{CasCompleteParams, CasTerminalParams, CreateTurnParams, ToolCallType};
 use crate::infra::db::entity::chat_turn::{
     ActiveModel, Column, Entity as TurnEntity, Model as TurnModel, TurnState,
 };
@@ -46,6 +46,8 @@ impl crate::domain::repos::TurnRepository for TurnRepository {
             effective_model: Set(params.effective_model),
             minimal_generation_floor_applied: Set(params.minimal_generation_floor_applied),
             web_search_enabled: Set(params.web_search_enabled),
+            web_search_completed_count: Set(0),
+            code_interpreter_completed_count: Set(0),
             deleted_at: Set(None),
             replaced_by_request_id: Set(None),
             started_at: Set(now),
@@ -379,6 +381,32 @@ impl crate::domain::repos::TurnRepository for TurnRepository {
             .await?;
         Ok(result.rows_affected)
     }
+
+    async fn increment_tool_calls<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        turn_id: Uuid,
+        tool: ToolCallType,
+    ) -> Result<(), DomainError> {
+        let col = match tool {
+            ToolCallType::WebSearch => Column::WebSearchCompletedCount,
+            ToolCallType::CodeInterpreter => Column::CodeInterpreterCompletedCount,
+        };
+        TurnEntity::update_many()
+            .col_expr(col, Expr::col(col).add(1i32))
+            .filter(
+                Condition::all()
+                    .add(Column::Id.eq(turn_id))
+                    .add(Column::State.eq(TurnState::Running))
+                    .add(Column::DeletedAt.is_null()),
+            )
+            .secure()
+            .scope_with(scope)
+            .exec(runner)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -684,5 +712,105 @@ mod tests {
 
         let rows = repo.cas_finalize_orphan(&conn, turn_id, 60).await.unwrap();
         assert_eq!(rows, 0, "CAS should fail for already terminal turn");
+    }
+
+    // ── Phase 4: increment_tool_calls ──
+
+    #[tokio::test]
+    async fn create_turn_zeros_tool_counts() {
+        let db = mock_db_provider(inmem_db().await);
+        let (_, chat_id, _, request_id) = setup_running_turn(&db).await;
+
+        let conn = db.conn().unwrap();
+        let scope = AccessScope::allow_all();
+        let repo = TurnRepository;
+        let turn = repo
+            .find_by_chat_and_request_id(&conn, &scope, chat_id, request_id)
+            .await
+            .unwrap()
+            .expect("turn should exist");
+
+        assert_eq!(turn.web_search_completed_count, 0);
+        assert_eq!(turn.code_interpreter_completed_count, 0);
+    }
+
+    #[tokio::test]
+    async fn increment_tool_calls_web_search() {
+        let db = mock_db_provider(inmem_db().await);
+        let (_, chat_id, turn_id, request_id) = setup_running_turn(&db).await;
+
+        let conn = db.conn().unwrap();
+        let scope = AccessScope::allow_all();
+        let repo = TurnRepository;
+
+        repo.increment_tool_calls(&conn, &scope, turn_id, ToolCallType::WebSearch)
+            .await
+            .expect("increment should succeed");
+
+        let turn = repo
+            .find_by_chat_and_request_id(&conn, &scope, chat_id, request_id)
+            .await
+            .unwrap()
+            .expect("turn should exist");
+
+        assert_eq!(turn.web_search_completed_count, 1);
+        assert_eq!(
+            turn.code_interpreter_completed_count, 0,
+            "unrelated counter must not change"
+        );
+    }
+
+    #[tokio::test]
+    async fn increment_tool_calls_code_interpreter() {
+        let db = mock_db_provider(inmem_db().await);
+        let (_, chat_id, turn_id, request_id) = setup_running_turn(&db).await;
+
+        let conn = db.conn().unwrap();
+        let scope = AccessScope::allow_all();
+        let repo = TurnRepository;
+
+        repo.increment_tool_calls(&conn, &scope, turn_id, ToolCallType::CodeInterpreter)
+            .await
+            .expect("increment should succeed");
+
+        let turn = repo
+            .find_by_chat_and_request_id(&conn, &scope, chat_id, request_id)
+            .await
+            .unwrap()
+            .expect("turn should exist");
+
+        assert_eq!(turn.code_interpreter_completed_count, 1);
+        assert_eq!(
+            turn.web_search_completed_count, 0,
+            "unrelated counter must not change"
+        );
+    }
+
+    #[tokio::test]
+    async fn increment_tool_calls_accumulates() {
+        let db = mock_db_provider(inmem_db().await);
+        let (_, chat_id, turn_id, request_id) = setup_running_turn(&db).await;
+
+        let conn = db.conn().unwrap();
+        let scope = AccessScope::allow_all();
+        let repo = TurnRepository;
+
+        for _ in 0..3 {
+            repo.increment_tool_calls(&conn, &scope, turn_id, ToolCallType::WebSearch)
+                .await
+                .expect("increment should succeed");
+        }
+        repo.increment_tool_calls(&conn, &scope, turn_id, ToolCallType::CodeInterpreter)
+            .await
+            .expect("increment should succeed");
+
+        let turn = repo
+            .find_by_chat_and_request_id(&conn, &scope, chat_id, request_id)
+            .await
+            .unwrap()
+            .expect("turn should exist");
+
+        assert_eq!(turn.web_search_completed_count, 3);
+        assert_eq!(turn.code_interpreter_completed_count, 1);
     }
 }

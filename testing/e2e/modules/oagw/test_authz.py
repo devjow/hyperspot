@@ -6,8 +6,6 @@ import pytest
 
 from .helpers import create_route, create_upstream, delete_upstream, unique_alias
 
-NIL_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
 
 @pytest.mark.asyncio
 async def test_proxy_authz_allowed(
@@ -39,9 +37,18 @@ async def test_proxy_authz_allowed(
 async def test_proxy_authz_forbidden_nil_tenant(
     oagw_base_url, oagw_headers, mock_upstream_url, mock_upstream,
 ):
-    """Nil tenant UUID is denied by authz with 403 and Problem Details body."""
+    """Nil tenant UUID is denied by authz with 403 and Problem Details body.
+
+    The static-authz plugin denies requests when the token's subject_tenant_id
+    is the nil UUID (00000000-0000-0000-0000-000000000000). The authz check
+    runs before upstream resolution, so this produces a clean 403.
+    The tenant is extracted from the token by the auth middleware — there is
+    no x-tenant-id header.
+    """
     _ = mock_upstream
     alias = unique_alias("authz-deny")
+    # Use a token whose subject_tenant_id is the nil UUID.
+    nil_tenant_token = os.getenv("E2E_AUTH_TOKEN_NIL_TENANT", "e2e-token-nil-tenant")
     async with httpx.AsyncClient(timeout=10.0) as client:
         upstream = await create_upstream(
             client, oagw_base_url, oagw_headers, mock_upstream_url, alias=alias,
@@ -52,10 +59,9 @@ async def test_proxy_authz_forbidden_nil_tenant(
                 client, oagw_base_url, oagw_headers, uid, ["GET"], "/v1/models",
             )
 
-            denied_headers = {"x-tenant-id": NIL_TENANT_ID}
-            token = os.getenv("E2E_AUTH_TOKEN")
-            if token:
-                denied_headers["Authorization"] = f"Bearer {token}"
+            denied_headers = {
+                "Authorization": f"Bearer {nil_tenant_token}",
+            }
 
             resp = await client.get(
                 f"{oagw_base_url}/oagw/v1/proxy/{alias}/v1/models",
@@ -64,12 +70,14 @@ async def test_proxy_authz_forbidden_nil_tenant(
 
             if resp.status_code == 401:
                 pytest.skip(
-                    "Server requires JWT auth; set E2E_AUTH_TOKEN to a token with nil tenant"
+                    "Token rejected by auth; ensure a nil-tenant token is configured"
                 )
             if resp.status_code == 200:
                 pytest.skip("AuthZ not enforced in this environment")
 
-            assert resp.status_code == 403
+            assert resp.status_code == 403, (
+                f"Expected 403, got {resp.status_code}: {resp.text[:500]}"
+            )
             assert resp.headers.get("x-oagw-error-source") == "gateway"
             body = resp.json()
             assert body["status"] == 403

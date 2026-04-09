@@ -55,6 +55,14 @@ pub struct FinalizationInput {
     /// Number of completed code interpreter calls during this turn.
     pub code_interpreter_calls: u32,
 
+    /// Context window size of the effective model (tokens) — for summary trigger.
+    pub context_window: u32,
+    /// Estimated input tokens from context assembly (all messages + system prompt).
+    pub assembled_context_tokens: u64,
+    /// `true` when context assembly dropped older messages due to budget.
+    /// Primary signal for the thread summary trigger.
+    pub messages_truncated: bool,
+
     /// Time-to-first-token in milliseconds (captured in `stream_service`).
     pub ttft_ms: Option<u64>,
     /// Total stream duration in milliseconds (captured in `stream_service`).
@@ -119,4 +127,8 @@ pub struct OrphanFinalizationInput {
     pub minimal_generation_floor_applied: Option<i32>,
     /// `started_at` — used to derive `period_starts` for quota settlement.
     pub started_at: OffsetDateTime,
+    /// Completed web search tool calls persisted from the DB (0 if pod crashed before increment).
+    pub web_search_completed_count: u32,
+    /// Completed code interpreter tool calls persisted from the DB (0 if pod crashed before increment).
+    pub code_interpreter_completed_count: u32,
 }

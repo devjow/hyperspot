@@ -69,6 +69,14 @@ pub struct UpdatePreflightParams {
     pub minimal_generation_floor_applied: i32,
 }
 
+/// Identifies which completed tool call counter to increment.
+#[domain_model]
+#[derive(Debug, Clone, Copy)]
+pub enum ToolCallType {
+    WebSearch,
+    CodeInterpreter,
+}
+
 /// Repository trait for turn persistence operations.
 #[async_trait]
 #[allow(dead_code)]
@@ -212,4 +220,16 @@ pub trait TurnRepository: Send + Sync {
         scope: &AccessScope,
         params: UpdatePreflightParams,
     ) -> Result<u64, DomainError>;
+
+    /// Atomically increment the completed tool call counter for a turn.
+    ///
+    /// Called from the streaming task on `ToolPhase::Done`. Best-effort:
+    /// callers are expected to log and swallow errors.
+    async fn increment_tool_calls<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        turn_id: Uuid,
+        tool: ToolCallType,
+    ) -> Result<(), DomainError>;
 }

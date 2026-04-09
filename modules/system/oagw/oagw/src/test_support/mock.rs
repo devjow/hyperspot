@@ -628,6 +628,11 @@ async fn handle_ws_echo(mut socket: WebSocket) {
                     break;
                 }
             }
+            Message::Ping(data) => {
+                if socket.send(Message::Pong(data)).await.is_err() {
+                    break;
+                }
+            }
             Message::Close(_) => break,
             _ => {}
         }

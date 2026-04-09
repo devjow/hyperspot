@@ -37,8 +37,6 @@ pub(crate) const ERR_CORS_ORIGIN_NOT_ALLOWED: &str =
     "gts.x.core.errors.err.v1~x.oagw.cors.origin_not_allowed.v1";
 pub(crate) const ERR_CORS_METHOD_NOT_ALLOWED: &str =
     "gts.x.core.errors.err.v1~x.oagw.cors.method_not_allowed.v1";
-pub(crate) const ERR_CORS_HEADER_NOT_ALLOWED: &str =
-    "gts.x.core.errors.err.v1~x.oagw.cors.header_not_allowed.v1";
 pub(crate) const ERR_STREAM_ABORTED: &str = "gts.x.core.errors.err.v1~x.oagw.stream.aborted.v1";
 pub(crate) const ERR_LINK_UNAVAILABLE: &str = "gts.x.core.errors.err.v1~x.oagw.link.unavailable.v1";
 pub(crate) const ERR_CIRCUIT_BREAKER_OPEN: &str =
@@ -75,7 +73,6 @@ fn gts_type(err: &DomainError) -> &str {
         DomainError::GuardRejected { .. } => ERR_GUARD_REJECTED,
         DomainError::CorsOriginNotAllowed { .. } => ERR_CORS_ORIGIN_NOT_ALLOWED,
         DomainError::CorsMethodNotAllowed { .. } => ERR_CORS_METHOD_NOT_ALLOWED,
-        DomainError::CorsHeaderNotAllowed { .. } => ERR_CORS_HEADER_NOT_ALLOWED,
         DomainError::StreamAborted { .. } => ERR_STREAM_ABORTED,
         DomainError::LinkUnavailable { .. } => ERR_LINK_UNAVAILABLE,
         DomainError::CircuitBreakerOpen { .. } => ERR_CIRCUIT_BREAKER_OPEN,
@@ -116,9 +113,9 @@ fn http_status_code(err: &DomainError) -> StatusCode {
             .ok()
             .filter(|code| code.is_client_error() || code.is_server_error())
             .unwrap_or(StatusCode::BAD_REQUEST),
-        DomainError::CorsOriginNotAllowed { .. }
-        | DomainError::CorsMethodNotAllowed { .. }
-        | DomainError::CorsHeaderNotAllowed { .. } => StatusCode::FORBIDDEN,
+        DomainError::CorsOriginNotAllowed { .. } | DomainError::CorsMethodNotAllowed { .. } => {
+            StatusCode::FORBIDDEN
+        }
         DomainError::Forbidden { .. } => StatusCode::FORBIDDEN,
     }
 }
@@ -143,7 +140,6 @@ fn error_title(err: &DomainError) -> &str {
         DomainError::GuardRejected { .. } => "Guard Rejected",
         DomainError::CorsOriginNotAllowed { .. } => "CORS Origin Not Allowed",
         DomainError::CorsMethodNotAllowed { .. } => "CORS Method Not Allowed",
-        DomainError::CorsHeaderNotAllowed { .. } => "CORS Header Not Allowed",
         DomainError::StreamAborted { .. } => "Stream Aborted",
         DomainError::LinkUnavailable { .. } => "Link Unavailable",
         DomainError::CircuitBreakerOpen { .. } => "Circuit Breaker Open",
@@ -171,7 +167,6 @@ fn error_instance(err: &DomainError) -> &str {
         | DomainError::GuardRejected { instance, .. }
         | DomainError::CorsOriginNotAllowed { instance, .. }
         | DomainError::CorsMethodNotAllowed { instance, .. }
-        | DomainError::CorsHeaderNotAllowed { instance, .. }
         | DomainError::StreamAborted { instance, .. }
         | DomainError::LinkUnavailable { instance, .. }
         | DomainError::CircuitBreakerOpen { instance, .. }
@@ -373,10 +368,6 @@ mod tests {
             },
             DomainError::CorsMethodNotAllowed {
                 method: "DELETE".into(),
-                instance: "/test".into(),
-            },
-            DomainError::CorsHeaderNotAllowed {
-                header: "x-custom".into(),
                 instance: "/test".into(),
             },
             DomainError::StreamAborted {

@@ -190,17 +190,6 @@ pub fn init_tracing(
     Ok(otel_layer)
 }
 
-/// No-op when the `otel` feature is disabled.
-///
-/// # Errors
-/// Always returns an error indicating the feature is disabled.
-#[cfg(not(feature = "otel"))]
-pub fn init_tracing(
-    _otel_cfg: &super::config::OpenTelemetryConfig,
-) -> anyhow::Result<crate::bootstrap::host::logging::OtelLayer> {
-    Err(anyhow::anyhow!("otel feature is disabled"))
-}
-
 #[cfg(feature = "otel")]
 pub(crate) fn build_headers_from_cfg_and_env(
     exporter: Option<&crate::telemetry::config::Exporter>,

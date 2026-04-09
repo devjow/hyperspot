@@ -21,7 +21,7 @@ Expected:
 
 ## Scenario B: reject at request time (if config validation allows storing)
 
-If configuration is accepted, preflight or actual request must be rejected.
+If configuration is accepted, the actual request must be rejected.
 
 Expected:
 - `403 Forbidden`

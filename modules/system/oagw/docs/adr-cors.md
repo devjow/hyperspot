@@ -1,6 +1,6 @@
 # ADR: Cross-Origin Resource Sharing (CORS)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-02-03
 - **Deciders**: OAGW Team
 
@@ -61,9 +61,7 @@ Implement CORS as a guard plugin. Configurable per upstream/route.
         "config": {
           "allowed_origins": [ "https://app.example.com", "https://admin.example.com" ],
           "allowed_methods": [ "GET", "POST", "PUT", "DELETE" ],
-          "allowed_headers": [ "Content-Type", "Authorization" ],
           "expose_headers": [ "X-Request-ID" ],
-          "max_age": 86400,
           "allow_credentials": true
         }
       }
@@ -100,9 +98,7 @@ CORS as first-class feature in upstream/route configuration. Handled before plug
     "enabled": true,
     "allowed_origins": [ "https://app.example.com" ],
     "allowed_methods": [ "GET", "POST" ],
-    "allowed_headers": [ "Content-Type", "Authorization" ],
     "expose_headers": [ "X-Request-ID" ],
-    "max_age": 86400,
     "allow_credentials": true
   }
 }
@@ -173,24 +169,11 @@ Options 1 and 2 rejected:
         "default": [ "GET", "POST" ],
         "description": "Allowed HTTP methods"
       },
-      "allowed_headers": {
-        "type": "array",
-        "items": { "type": "string" },
-        "default": [ "Content-Type", "Authorization" ],
-        "description": "Allowed request headers (case-insensitive)"
-      },
       "expose_headers": {
         "type": "array",
         "items": { "type": "string" },
         "default": [ ],
         "description": "Headers exposed to browser (beyond CORS-safelisted headers)"
-      },
-      "max_age": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 86400,
-        "default": 86400,
-        "description": "Preflight cache duration in seconds (max 24h)"
       },
       "allow_credentials": {
         "type": "boolean",
@@ -212,9 +195,7 @@ Options 1 and 2 rejected:
   "cors": {
     "enabled": true,
     "allowed_origins": [ "*" ],
-    "allowed_methods": [ "GET", "POST" ],
-    "allowed_headers": [ "Content-Type" ],
-    "max_age": 86400
+    "allowed_methods": [ "GET", "POST" ]
   }
 }
 ```
@@ -230,9 +211,7 @@ Options 1 and 2 rejected:
       "https://admin.example.com"
     ],
     "allowed_methods": [ "GET", "POST", "PUT", "DELETE" ],
-    "allowed_headers": [ "Content-Type", "Authorization", "X-API-Key" ],
     "expose_headers": [ "X-Request-ID", "X-RateLimit-Remaining" ],
-    "max_age": 3600,
     "allow_credentials": true
   }
 }
@@ -258,6 +237,8 @@ Options 1 and 2 rejected:
 
 ### Preflight Request Handling
 
+Browser preflight requests contain no credentials (per WHATWG Fetch spec), so no tenant context is available for upstream resolution. The proxy handler detects preflight and returns a permissive 204 that echoes back the requested origin, method, and headers. Origin and method validation is deferred to the actual request.
+
 ```
 OPTIONS /api/oagw/v1/proxy/api.example.com/users
 Origin: https://app.example.com
@@ -266,11 +247,9 @@ Access-Control-Request-Headers: Content-Type, Authorization
 
 ↓
 
-1. Check: Is CORS enabled for this upstream/route?
-2. Check: Is origin in allowed_origins?
-3. Check: Is method in allowed_methods?
-4. Check: Are headers in allowed_headers?
-5. Return 204 No Content with CORS headers (or 403 if checks fail)
+1. Handler detects CORS preflight (OPTIONS + Origin + Access-Control-Request-Method)
+2. Return 204 No Content echoing the request's origin, method, and headers
+   (no upstream resolution, no tenant context required)
 ```
 
 **Response headers** (preflight):
@@ -278,12 +257,13 @@ Access-Control-Request-Headers: Content-Type, Authorization
 ```http
 HTTP/1.1 204 No Content
 Access-Control-Allow-Origin: https://app.example.com
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE
+Access-Control-Allow-Methods: POST
 Access-Control-Allow-Headers: Content-Type, Authorization
 Access-Control-Max-Age: 86400
-Access-Control-Allow-Credentials: true
-Vary: Origin
+Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
 ```
+
+Origin enforcement happens on the subsequent actual request — after upstream resolution, the origin is validated against the upstream's CORS config before the request is forwarded. See [Actual Request Handling](#actual-request-handling).
 
 ### Actual Request Handling
 
@@ -294,9 +274,11 @@ Content-Type: application/json
 
 ↓
 
-1. Check: Is origin in allowed_origins?
-2. Forward request to upstream
-3. Add CORS headers to response
+1. Resolve upstream (requires tenant context from authenticated request)
+2. Check: Is origin in allowed_origins? (403 if not)
+3. Check: Is method in allowed_methods? (403 if not)
+4. Forward request to upstream
+5. Add CORS headers to response
 ```
 
 **Response headers** (actual request):
@@ -358,9 +340,9 @@ return Err("Cannot use allow_credentials with wildcard origin");
 
 **Preflight optimization**:
 
-- Cache preflight responses (client-side via `max_age`)
-- Return 204 No Content (no body)
-- Skip auth/rate-limit checks for preflight
+- Return permissive 204 No Content at handler level (no upstream resolution, no body)
+- Origin validation happens on the actual request (after upstream resolution, before forwarding)
+- Skip per-request auth/plugin checks for preflight (global/edge rate limiting and WAF/DDoS controls still apply)
 
 **Vary header**:
 Always include `Vary: Origin` to prevent cache poisoning.
@@ -389,7 +371,7 @@ With `sharing: enforce`, child cannot add origins.
 
 ## Error Responses
 
-**Preflight rejected** (origin not allowed):
+**Origin not allowed** (actual request — disallowed origin rejected before forwarding to upstream):
 
 ```http
 HTTP/1.1 403 Forbidden
@@ -403,7 +385,7 @@ Content-Type: application/problem+json
 }
 ```
 
-**Method not allowed**:
+**Method not allowed** (actual request — disallowed method rejected before forwarding to upstream):
 
 ```http
 HTTP/1.1 403 Forbidden
@@ -436,7 +418,7 @@ HTTP/1.1 403 Forbidden
 
 - CORS only affects browser clients (other clients unaffected)
 - Configuration complexity proportional to security requirements
-- Preflight requests bypass auth/rate-limiting (by design)
+- Preflight requests bypass per-request auth/plugin checks (by design) but still pass through global/edge rate limiting and WAF/DDoS controls
 
 ## Links
 

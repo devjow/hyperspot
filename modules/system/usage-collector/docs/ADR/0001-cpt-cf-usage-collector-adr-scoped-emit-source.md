@@ -1,10 +1,5 @@
----
-status: accepted
-date: 2026-03-06
-decision_owner: Platform Engineering
-approver: Architecture Review Board
-scope: usage-collector-sdk; all platform modules integrating usage metering
----
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # ADR-0001: Use `for_module()` Scoped Client for Metric Source Attribution
 
 
@@ -18,7 +13,7 @@ scope: usage-collector-sdk; all platform modules integrating usage metering
   - [Confirmation](#confirmation)
 - [Pros and Cons of the Options](#pros-and-cons-of-the-options)
   - [Per-call source declaration on `emit()` or `UsageRecord`](#per-call-source-declaration-on-emit-or-usagerecord)
-  - [`for_module()` scoped client bound once at module init](#formodule-scoped-client-bound-once-at-module-init)
+  - [`for_module()` scoped client bound once at module init](#for_module-scoped-client-bound-once-at-module-init)
   - [Convention-only, no SDK-level source tracking](#convention-only-no-sdk-level-source-tracking)
 - [More Information](#more-information)
 - [Review Cadence](#review-cadence)

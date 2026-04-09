@@ -67,7 +67,7 @@ Call your external service through OAGW's proxy endpoint: `{METHOD} /api/oagw/v1
 
 - [Token bucket rate limiting](rate-limiting/positive-18.1-token-bucket-sustained-burst.md) — see [Rate limiting](#rate-limiting)
 - [Request path rewrite](plugins/transforms/positive-11.1-request-path-rewrite-transform.md) — see [Transform plugins](#transform-plugins)
-- [Custom Starlark guard](plugins/guards/positive-10.2-built-cors-handling.md) — see [Guard plugins](#guard-plugins)
+- [Built-in CORS handling](plugins/guards/positive-10.2-built-cors-handling.md) — see [Guard plugins](#guard-plugins)
 - [Tags for discovery](management-api/upstreams/positive-2.9-tags-support-discovery-filtering.md) — see [Upstream management](#upstream-management)
 
 ---
@@ -356,13 +356,9 @@ Call your external service through OAGW's proxy endpoint: `{METHOD} /api/oagw/v1
 
 ### CORS
 
-#### Built-in CORS handling (preflight)
+#### Built-in CORS handling (preflight + actual request)
 - **Scenario**: [positive-10.2-built-cors-handling.md](plugins/guards/positive-10.2-built-cors-handling.md)
-- **Mechanism**: OPTIONS preflight handled locally (`204` with correct `Access-Control-*`). Preflight bypasses upstream call.
-
-#### Actual request adds CORS headers on response
-- **Scenario**: *Section 21.1 — no separate file. Behavior verified as part of HTTP passthrough and guard plugin scenarios.*
-- **Mechanism**: Response includes `Access-Control-Allow-Origin` (specific origin, not `*` when credentials). Includes `Vary: Origin`.
+- **Mechanism**: OPTIONS preflight returns permissive `204` at handler level (no upstream resolution). Origin enforcement happens on actual requests after upstream resolution — disallowed origins are rejected with `403` before reaching the upstream. Allowed origins receive CORS response headers (`Access-Control-Allow-Origin`, `Vary: Origin`, etc.).
 
 #### Hierarchical merge/union for CORS allowed origins
 - **Scenario**: *Covered within hierarchical configuration scenarios.*
@@ -374,7 +370,7 @@ Call your external service through OAGW's proxy endpoint: `{METHOD} /api/oagw/v1
 
 > **Flow reference**: [Plugin Execution](flows/plugin-execution.md)
 
-*Note: CORS preflight guard is covered in [CORS](#cors) above. Timeout and Starlark guard rejection scenarios are in [Guardrails → Guard rejections](#guard-rejections).*
+*Note: CORS origin validation is covered in [CORS](#cors) above. Timeout and Starlark guard rejection scenarios are in [Guardrails → Guard rejections](#guard-rejections).*
 
 ---
 

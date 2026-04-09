@@ -9,6 +9,8 @@ Falls back to direct SQLite only for turn-level fields not exposed via REST
 Follows the same patterns as test_web_search_usage.py.
 """
 
+from __future__ import annotations
+
 import io
 import os
 import sqlite3

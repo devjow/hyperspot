@@ -1,5 +1,6 @@
-Created:  2026-02-04 by Constructor Tech
-Updated:  2026-03-06 by Constructor Tech
+<!-- Created: 2026-02-04 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # ADR-0011: Message Variants with Index and Active Flag
 
 
@@ -12,7 +13,7 @@ Updated:  2026-03-06 by Constructor Tech
   - [Consequences](#consequences)
   - [Confirmation](#confirmation)
 - [Pros and Cons of the Options](#pros-and-cons-of-the-options)
-  - [Option 1: variant_index + is_active flags](#option-1-variantindex--isactive-flags)
+  - [Option 1: variant_index + is_active flags](#option-1-variant_index--is_active-flags)
   - [Option 2: Separate variants table](#option-2-separate-variants-table)
   - [Option 3: Version field with timestamps](#option-3-version-field-with-timestamps)
 - [Related Design Elements](#related-design-elements)

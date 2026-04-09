@@ -276,7 +276,7 @@ Multiple per upstream/route. Can reject requests before they reach upstream.
 | Plugin ID | Description |
 |---|---|
 | `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1` | Request timeout enforcement |
-| `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1` | CORS preflight validation |
+| `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1` | CORS origin validation (actual requests; preflight handled at handler level — see [ADR: CORS](./ADR/0006-cors.md)) |
 
 Circuit breaker is **core functionality** (not a plugin). See [ADR: Circuit Breaker](./ADR/0005-circuit-breaker.md).
 
@@ -497,7 +497,8 @@ Validation rules that can reject requests:
 | Query params | Validate against `match.http.query_allowlist`; reject if unknown |
 | Path suffix | Reject if `path_suffix_mode`: `disabled` and suffix provided |
 | Body | See body validation rules below |
-| CORS | Reject if CORS policy validation fails |
+| CORS origin | Reject if origin is not in upstream's `allowed_origins` (actual cross-origin requests only; preflight returns permissive 204 at handler level — see [ADR: CORS](./ADR/0006-cors.md)) |
+| CORS method | Reject if method is not in upstream's `allowed_methods` (actual cross-origin requests only) |
 
 #### Body Validation Rules
 
@@ -565,7 +566,7 @@ Without appropriate permissions, descendant must use ancestor's configuration as
 - Headers: Well-known headers stripping and validation.
 - Request Validation: Path, query parameters validation against route configuration.
 
-**Cross-Origin Resource Sharing (CORS)**: Built-in, configured per upstream/route. Preflight OPTIONS requests handled locally (no upstream round-trip). See [ADR: CORS](./ADR/0006-cors.md).
+**Cross-Origin Resource Sharing (CORS)**: Built-in, configured per upstream/route. Preflight OPTIONS requests return a permissive 204 at the handler level (no upstream resolution or tenant context required). Origin validation happens on actual requests after upstream resolution, before forwarding. See [ADR: CORS](./ADR/0006-cors.md).
 
 **HTTP Version Negotiation**: OAGW uses adaptive per-host HTTP version detection:
 1. **First request**: Attempt HTTP/2 via ALPN during TLS handshake

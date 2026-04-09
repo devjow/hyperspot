@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db"
-version = "0.5.11"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db-macros"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -605,18 +605,19 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "axum 0.8.8",
  "http",
  "serde",
+ "serde_json",
  "tracing",
  "utoipa",
 ]
 
 [[package]]
 name = "cf-modkit-errors-macro"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -627,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-macros"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -638,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "base64",
  "bigdecimal",
@@ -658,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-sdk"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "cf-modkit-odata",
  "cf-modkit-security",
@@ -668,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-security"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "postcard",
@@ -680,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-utils"
-version = "0.5.11"
+version = "0.6.2"
 dependencies = [
  "humantime",
  "regex",
@@ -691,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdk-directory"
-version = "0.1.30"
+version = "0.1.33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -699,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdks"
-version = "0.1.30"
+version = "0.1.33"
 dependencies = [
  "cf-system-sdk-directory",
 ]
@@ -1092,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "de0503_plugin_client_suffix"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "clippy_utils",
@@ -1103,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "de0504_client_versioning"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "clippy_utils",

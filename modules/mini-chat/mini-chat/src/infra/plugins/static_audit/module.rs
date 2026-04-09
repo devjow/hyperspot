@@ -40,7 +40,7 @@ impl Default for StaticMiniChatAuditPlugin {
 #[async_trait]
 impl Module for StaticMiniChatAuditPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: StaticMiniChatAuditPluginConfig = ctx.config()?;
+        let cfg: StaticMiniChatAuditPluginConfig = ctx.config_or_default()?;
         info!(
             enabled = cfg.enabled,
             "Loaded static mini-chat audit plugin configuration"

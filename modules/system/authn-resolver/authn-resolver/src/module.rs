@@ -48,7 +48,7 @@ impl SystemCapability for AuthNResolver {}
 impl Module for AuthNResolver {
     #[tracing::instrument(skip_all, fields(vendor))]
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: AuthNResolverConfig = ctx.config()?;
+        let cfg: AuthNResolverConfig = ctx.config_or_default()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
         info!(vendor = %cfg.vendor);
 

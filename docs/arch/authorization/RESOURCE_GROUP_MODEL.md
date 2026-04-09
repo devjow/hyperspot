@@ -1,3 +1,5 @@
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # Resource Group Model — AuthZ Perspective
 
 This document describes how CyberFabric's authorization system uses Resource Groups (RG) for access control. For the full RG module design (domain model, API contracts, database schemas, type system), see [RG Technical Design](../../../modules/system/resource-group/docs/DESIGN.md).
@@ -38,16 +40,29 @@ AuthZ consumes RG data as a **PIP (Policy Information Point)** source. RG is pol
 
 ### Projection Tables
 
-PEP enforces group-based constraints (`in_group`, `in_group_subtree`) in SQL by joining against projection tables. Two RG tables are relevant for AuthZ projections:
+RG tables are the canonical source of truth, owned by the RG module. External consumers (AuthZ resolver, domain services) may maintain **projection copies** in their databases — synchronized from RG via read contracts (`ResourceGroupReadHierarchy`).
+
+**Projectable tables:**
 
 - **`resource_group`** — group entities with hierarchy (`parent_id`) and tenant scope (`tenant_id`)
 - **`resource_group_closure`** — pre-computed ancestor-descendant pairs with depth, enabling efficient subtree queries
+- **`resource_group_membership`** — resource-to-group M:N links (see guidance below)
 
-These tables are the canonical source of truth, owned by the RG module. External consumers (AuthZ resolver, Tenant Resolver, domain services) may maintain their own **projection copies** of these tables in their databases for efficient SQL joins — synchronized from RG via read contracts (`ResourceGroupReadHierarchy`).
+#### Progressive projection strategy
 
-> **Note:** `resource_group_membership` (resource-to-group M:N links) is a separate RG canonical table used for `in_group` predicates. It is not part of the hierarchy projection. Is expected to be very big and not recommended for projection.
+Whether and which tables to project depends on the deployment topology and access patterns. **Do not add projections speculatively** — each projection creates an additional database, synchronization load, and operational complexity.
 
-PEP compiles SQL predicates that reference whichever projection is available in the domain service's database. The RG module does not dictate the projection schema in domain services — it only provides the canonical data and read contracts.
+| Deployment | Recommended projections | Rationale |
+|------------|------------------------|-----------|
+| **Monolith** (single shared DB) | **None** — all tables are already co-located | PEP JOINs against canonical tables directly; no extra databases or sync needed |
+| **Microservices** (separate DBs, typical case) | **`resource_group` + `resource_group_closure`** | Enables `in_group_subtree` predicates locally; hierarchy tables are small (~100 K rows). Membership resolved by PDP via capability degradation → `in` predicates |
+| **Microservices** with membership filtering/pagination | **`resource_group` + `resource_group_closure` + `resource_group_membership`** | Only when profiling confirms the two-request pattern (RG API → domain service) is unacceptable for latency budget. Membership table is expected to be **10× or more larger** (~455 M rows, ~110 GB at scale) |
+
+> **Important:** When a domain service query includes filters by resource group attributes (e.g., `GET /tasks?status=pending&project={projectX}&after=…&limit=50`), the two-request pattern means N additional round-trips to the RG Membership API (one per filter page or group), not just +1. If this N-request fan-out violates the latency budget, that is the signal to project the membership table locally.
+>
+> **Architecture guidance:** default to consuming degraded `in` predicates from PDP. The `in_group` and `in_group_subtree` predicates are natively executable within the RG module; domain services that choose not to project the membership table rely on PDP capability degradation.
+
+PEP within the RG module compiles `in_group`/`in_group_subtree` predicates into SQL subqueries using the membership table. Domain services without the membership projection receive degraded `in` predicates and do not need group-related projection tables for authorization filtering.
 
 - RG canonical table schemas: [RG DESIGN §Database Schemas](../../../modules/system/resource-group/docs/DESIGN.md#37-database-schemas--tables)
 - When to use which table: [AUTHZ_USAGE_SCENARIOS §Choosing Projection Tables](./AUTHZ_USAGE_SCENARIOS.md#choosing-projection-tables)

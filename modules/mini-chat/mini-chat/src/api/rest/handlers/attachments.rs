@@ -14,6 +14,7 @@ use crate::domain::mime_validation::{
     MIME_OCTET_STREAM, infer_mime_from_extension, normalize_mime, remap_csv_to_plain,
     truncate_filename, validate_mime,
 };
+use crate::domain::ports::metric_labels::{kind as kind_label, upload_result};
 use crate::module::AppServices;
 
 // ── multer::Field → FileStream adapter ──────────────────────────────────
@@ -228,7 +229,32 @@ pub(crate) async fn upload_attachment(
         }
     }
 
-    // 9. Call domain service with pre-resolved context.
+    // 9. Acquire upload concurrency permit — returns 503 + Retry-After if all permits are taken.
+    const UPLOAD_RETRY_AFTER_SECS: &str = "5";
+    let Ok(_permit) = svc.upload_semaphore.try_acquire() else {
+        let kind_metric = if is_document {
+            kind_label::DOCUMENT
+        } else {
+            kind_label::IMAGE
+        };
+        tracing::warn!("upload concurrency limit reached, rejecting upload");
+        svc.metrics
+            .record_attachment_upload(kind_metric, upload_result::CONCURRENCY_LIMIT);
+        let mut resp = Problem::new(
+            http::StatusCode::SERVICE_UNAVAILABLE,
+            "Too Many Uploads",
+            "Upload concurrency limit reached, retry shortly",
+        )
+        .with_code("upload_concurrency_limit".to_owned())
+        .into_response();
+        resp.headers_mut().insert(
+            http::header::RETRY_AFTER,
+            http::HeaderValue::from_static(UPLOAD_RETRY_AFTER_SECS),
+        );
+        return Ok(resp);
+    };
+
+    // 10. Call domain service with pre-resolved context.
     let row = svc
         .attachments
         .upload_file(

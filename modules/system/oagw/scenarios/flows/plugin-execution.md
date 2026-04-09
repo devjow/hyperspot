@@ -137,8 +137,7 @@ Execution order: upstream guards, then route guards.
 
 **Actions**:
 1. Check `Origin` header: `https://example.com`
-2. Validate against allowed origins
-3. Not a preflight (not OPTIONS) → skip preflight logic
+2. Validate against allowed origins (preflight never reaches plugins — handled at handler level)
 
 **Output**: `GuardDecision::Allow`
 

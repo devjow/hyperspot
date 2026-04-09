@@ -207,10 +207,6 @@ pub enum CorsHttpMethod {
     Options,
 }
 
-fn default_max_age() -> u32 {
-    86400
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CorsConfig {
     #[serde(default)]
@@ -222,11 +218,7 @@ pub struct CorsConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_methods: Vec<CorsHttpMethod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allowed_headers: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expose_headers: Vec<String>,
-    #[serde(default = "default_max_age")]
-    pub max_age: u32,
     #[serde(default)]
     pub allow_credentials: bool,
 }
@@ -633,9 +625,7 @@ impl From<CorsConfig> for domain::CorsConfig {
             enabled: v.enabled,
             allowed_origins: v.allowed_origins,
             allowed_methods: v.allowed_methods.into_iter().map(Into::into).collect(),
-            allowed_headers: v.allowed_headers,
             expose_headers: v.expose_headers,
-            max_age: v.max_age,
             allow_credentials: v.allow_credentials,
         }
     }
@@ -898,9 +888,7 @@ impl From<domain::CorsConfig> for CorsConfig {
             enabled: v.enabled,
             allowed_origins: v.allowed_origins,
             allowed_methods: v.allowed_methods.into_iter().map(Into::into).collect(),
-            allowed_headers: v.allowed_headers,
             expose_headers: v.expose_headers,
-            max_age: v.max_age,
             allow_credentials: v.allow_credentials,
         }
     }

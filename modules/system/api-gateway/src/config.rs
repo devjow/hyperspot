@@ -48,7 +48,13 @@ pub struct ApiGatewayConfig {
     #[serde(default)]
     pub prefix_path: String,
 
-    /// HTTP metrics settings.
+    /// Route-level policy configuration.
+    /// Allows early rejection of requests based on token scopes without calling the PDP.
+    /// Rules are evaluated in declaration order (first match wins).
+    #[serde(default)]
+    pub route_policies: RoutePoliciesConfig,
+
+    /// HTTP metrics configuration.
     #[serde(default)]
     pub metrics: MetricsConfig,
 }
@@ -158,4 +164,53 @@ impl Default for OpenApiConfig {
             description: None,
         }
     }
+}
+
+/// Route-level policy configuration.
+///
+/// Enables coarse-grained early rejection of requests based on token scopes
+/// without calling the PDP. This is an optimization for performance-critical routes.
+///
+/// # Example YAML
+///
+/// ```yaml
+/// route_policies:
+///   enabled: true
+///   rules:
+///     - path: "/admin/**"
+///       required_scopes: ["admin"]
+///     - path: "/events/v1/*"
+///       required_scopes: ["read:events", "write:events"]  # any of these
+/// ```
+///
+/// # Behavior
+///
+/// - Rules are evaluated in declaration order (first match wins)
+/// - If `token_scopes: ["*"]` → always pass (first-party app)
+/// - If `token_scopes` contains any of `required_scopes` → pass
+/// - Otherwise → 403 Forbidden (before PDP call)
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RoutePoliciesConfig {
+    /// Whether route policy enforcement is enabled.
+    pub enabled: bool,
+    /// Route policy rules evaluated in declaration order.
+    /// Patterns support glob syntax (e.g., `/admin/*`, `/events/v1/**`).
+    pub rules: Vec<RoutePolicyRule>,
+}
+
+/// A single route policy rule.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutePolicyRule {
+    /// Path pattern to match. Supports glob syntax (`*` = one segment, `**` = any depth).
+    pub path: String,
+    /// HTTP method to match (GET, POST, PUT, PATCH, DELETE, etc.).
+    /// If not specified, matches any method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// Required scopes for this route. Request passes if token has ANY of these scopes.
+    /// Must not be empty.
+    pub required_scopes: Vec<String>,
+    // Future fields: rate_limit, timeout, operation_id, etc.
 }

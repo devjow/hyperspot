@@ -1,5 +1,5 @@
-Created:  2026-03-06 by Constructor Tech
-Updated:  2026-03-06 by Constructor Tech
+<!-- Created: 2026-03-06 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
 
 # Technical Design - Resource Group (RG)
 
@@ -87,9 +87,9 @@ For AuthZ-facing deployments aligned with current platform architecture, `owners
 | `cpt-cf-resource-group-fr-manage-types`                       | Type service with validated lifecycle API and uniqueness guarantees.                                                                  |
 | `cpt-cf-resource-group-fr-validate-type-code`                 | Type service enforces code format, length, and case-insensitive normalization before persistence.                                     |
 | `cpt-cf-resource-group-fr-reject-duplicate-type`              | Unique `schema_id` persistence constraint and deterministic conflict mapping prevent duplicate type creation.                         |
-| `cpt-cf-resource-group-fr-seed-types`                         | Any RG plugin MUST perform schema migration. Type data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). AuthZ config determines required types. |
-| `cpt-cf-resource-group-fr-seed-groups`                        | Group data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). Validates parent-child links and type compatibility when performed. |
-| `cpt-cf-resource-group-fr-seed-memberships`                   | Membership data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). Validates group existence and tenant compatibility when performed. |
+| `cpt-cf-resource-group-fr-seed-types`                         | Any RG plugin MUST perform schema migration. Type data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). AuthZ config determines required types. Types have no interdependencies and SHOULD be seeded in parallel (`JoinSet`) for throughput. |
+| `cpt-cf-resource-group-fr-seed-groups`                        | Group data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). Validates parent-child links and type compatibility when performed. Groups MUST be seeded sequentially (parents before children) due to hierarchy dependencies. |
+| `cpt-cf-resource-group-fr-seed-memberships`                   | Membership data seeding is optional and deployment-specific (plugin data migration, manual DB admin, or RG API). Validates group existence and tenant compatibility when performed. Memberships have no interdependencies and SHOULD be seeded in parallel. |
 | `cpt-cf-resource-group-fr-validate-type-update-hierarchy`     | Type update validates removed `allowed_parents` and `can_be_root` changes against existing groups; rejects with `AllowedParentsViolation` when hierarchy would become inconsistent. |
 | `cpt-cf-resource-group-fr-delete-type-only-if-empty`          | Type deletion flow checks for existing entities and rejects delete when references remain.                                            |
 | `cpt-cf-resource-group-fr-manage-entities`                    | Entity service with create/get/update/move/delete operations.                                                                         |
@@ -122,6 +122,8 @@ For AuthZ-facing deployments aligned with current platform architecture, `owners
 | `cpt-cf-resource-group-nfr-transactional-consistency` | transactional write consistency | transaction boundary in persistence adapter | canonical + closure updates commit together    | integration tests |
 | `cpt-cf-resource-group-nfr-deterministic-errors`      | stable failures                 | unified error mapper                        | all domain/infra failures mapped to SDK errors | unit tests        |
 | `cpt-cf-resource-group-nfr-production-scale`          | projected production volumes    | schema design + index strategy              | composite indexes, partitioning candidate for membership table (~455M rows, ~110 GB) | capacity planning |
+| `cpt-cf-resource-group-nfr-compatibility`             | API and SDK compatibility       | SDK trait contracts + REST versioning       | path-based API versioning, trait backward compat | integration tests |
+| `cpt-cf-resource-group-nfr-data-lifecycle`            | data lifecycle on deprovisioning | force delete cascade + tenant scope        | cascade-delete memberships/groups via force delete on tenant removal | integration tests |
 
 
 #### Architecture Decision Records
@@ -160,19 +162,19 @@ For AuthZ-facing deployments aligned with current platform architecture, `owners
 
 #### Policy-Agnostic Core
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-policy-agnostic`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-policy-agnostic`
 
 RG handles graph/membership data only.
 
 #### Strict Forest Integrity
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-strict-forest`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-strict-forest`
 
 Hierarchy guarantees single parent and cycle prevention for all writes.
 
 #### Dynamic Type Governance
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-dynamic-types`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-dynamic-types`
 
 Type rules are runtime-configurable through API/seed data with deterministic validation.
 
@@ -182,19 +184,19 @@ Type rules are runtime-configurable through API/seed data with deterministic val
 
 #### Query Profile as Guardrail
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-query-profile-guardrail`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-query-profile-guardrail`
 
 `(max_depth, max_width)` is a service profile controlling write admissibility and SLO classification.
 
 #### Tenant Scope for Ownership Graph
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-tenant-scope-ownership-graph`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-tenant-scope-ownership-graph`
 
 In ownership-graph usage, groups are tenant-scoped and links must be tenant-hierarchy-compatible (same-tenant or allowed related-tenant link per tenant hierarchy rules).
 
 #### Barrier as Data (Not Enforcement)
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-principle-barrier-as-data`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-principle-barrier-as-data`
 
 `barrier` is not a dedicated database column. For GTS types that support barrier semantics (e.g. tenant types), `barrier` is stored inside the `metadata` JSONB field as `metadata.barrier` (boolean). **ADRs**: `cpt-cf-resource-group-adr-p1-gts-type-system`. **RG stores and returns it without enforcement** — RG does not filter, restrict, or alter query results based on the barrier value. RG stores it in `metadata` and returns it in API responses within the `metadata` object, nothing more.
 
@@ -218,19 +220,19 @@ This aligns with the core constraint "No AuthZ Decision Logic" — RG is a data 
 
 #### No AuthZ Decision Logic
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-constraint-no-authz-decision`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-constraint-no-authz-decision`
 
 RG cannot return allow/deny decisions.
 
 #### No SQL/ORM Filter Generation
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-constraint-no-sql-filter-generation`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-constraint-no-sql-filter-generation`
 
 RG cannot generate SQL fragments or access-scope objects.
 
 #### Database-Agnostic Persistence
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-constraint-db-agnostic`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-constraint-db-agnostic`
 
 RG persistence layer uses SeaORM abstractions and standard SQL. The module **MUST NOT** depend on vendor-specific SQL extensions or features of a particular RDBMS. Any SQL-compatible database supported by SeaORM can be used as the storage backend.
 
@@ -238,7 +240,7 @@ RG persistence layer uses SeaORM abstractions and standard SQL. The module **MUS
 
 #### Surrogate IDs Are Internal Only
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-constraint-surrogate-ids-internal`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-constraint-surrogate-ids-internal`
 
 SMALLINT surrogate IDs (`gts_type.id`, `gts_type_id` FK columns) are a **DB-internal optimization**. They MUST NOT appear in any API response, SDK type, REST contract, or OpenAPI schema. All external interfaces (REST API, SDK traits, gRPC) use GTS type paths (strings) exclusively. The server resolves GTS paths to/from SMALLINT IDs at the persistence layer boundary.
 
@@ -261,7 +263,7 @@ This ensures the hierarchy is always governed by the RG type contract (`can_be_r
 
 #### Profile Change Safety
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-constraint-profile-change-safety`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-constraint-profile-change-safety`
 
 Reducing enabled `max_depth`/`max_width` cannot rewrite existing rows. Writes that worsen violation are rejected until external migration runs. Limits may also be disabled.
 
@@ -331,7 +333,7 @@ AuthZ plugin depends only on the narrow `ResourceGroupReadHierarchy` trait (hier
 
 #### RG Module (Gateway)
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-module`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-module`
 
 Responsibilities:
 
@@ -348,7 +350,7 @@ Boundaries:
 
 #### Type Service
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-type-service`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-type-service`
 
 Responsibilities:
 
@@ -358,7 +360,7 @@ Responsibilities:
 
 #### Entity Service
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-entity-service`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-entity-service`
 
 Responsibilities:
 
@@ -369,7 +371,7 @@ Responsibilities:
 
 #### Hierarchy Service
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-hierarchy-service`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-hierarchy-service`
 
 Responsibilities:
 
@@ -379,7 +381,7 @@ Responsibilities:
 
 #### Membership Service
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-membership-service`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-membership-service`
 
 Responsibilities:
 
@@ -388,7 +390,7 @@ Responsibilities:
 
 #### Integration Read Service
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-integration-read-service`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-integration-read-service`
 
 Responsibilities:
 
@@ -397,7 +399,7 @@ Responsibilities:
 
 #### Persistence Adapter
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-component-persistence-adapter`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-component-persistence-adapter`
 
 Responsibilities:
 
@@ -405,6 +407,11 @@ Responsibilities:
 - index-aware query execution
 - consistent canonical + closure updates
 - support canonical persistence strategy
+
+Each repository MUST be defined as a trait first (e.g., `TypeRepositoryTrait`, `GroupRepositoryTrait`, `MembershipRepositoryTrait`, `ClosureRepositoryTrait`) and injected into domain services as `Arc<dyn Trait>`. This enables:
+- unit testing via in-memory trait implementations (`InMemoryTypeRepository`, etc.) without database
+- swappable storage backends without touching domain layer
+- clear contract boundary between domain and infrastructure
 
 Boundaries:
 
@@ -474,7 +481,7 @@ Base path: `/api/resource-group/v1` (groups, memberships), `/api/types-registry/
 | GET | resource-group | `/groups` | `listGroups` | List groups with OData query |
 | POST | resource-group | `/groups` | `createGroup` | Create group (`tenant_id` derived from `SecurityContext` effective tenant scope) |
 | GET | resource-group | `/groups/{group_id}` | `getGroup` | Get group by ID |
-| PUT | resource-group | `/groups/{group_id}` | `updateGroup` | Update group (including parent move) |
+| PUT | resource-group | `/groups/{group_id}` | `updateGroup` | Full replace of group (including parent move) |
 | DELETE | resource-group | `/groups/{group_id}` | `deleteGroup` | Delete group (optional `?force=true`) |
 | GET | resource-group | `/groups/{group_id}/hierarchy` | `listGroupHierarchy` | Traverse hierarchy from reference group with relative depth |
 | GET | resource-group | `/memberships` | `listMemberships` | List memberships with OData query |
@@ -849,7 +856,7 @@ RG Module exposes its REST/gRPC API with **two authentication modes**. The mode 
 
 ##### Mode 1: JWT (public API — all endpoints)
 
-Standard user/service requests authenticated via JWT bearer token. **All** RG REST API endpoints are available. Every request goes through AuthZ evaluation via `PolicyEnforcer`, same as any other domain service (e.g. courses).
+Standard user/service requests authenticated via JWT bearer token. **All** RG REST API endpoints are available. Every request goes through AuthZ evaluation via `PolicyEnforcer`, same as any other domain service (e.g. courses). JWT token lifecycle (expiry, refresh, revocation) is managed by the AuthN Resolver and API Gateway — RG delegates token validation entirely to the platform authentication layer and does not implement its own session timeout or token renewal logic.
 
 Applies to:
 - `GET /api/types-registry/v1/types` — list/get types
@@ -1166,7 +1173,7 @@ Ownership-graph tenant enforcement:
 | invalid parent type         | `InvalidParentType`        |
 | type update violates existing hierarchy | `AllowedParentsViolation` |
 | cycle attempt               | `CycleDetected`            |
-| active references on delete | `ConflictActiveReferences` |
+| active references on delete | `ConflictActiveReferences` (response body MUST include list of blocking entities — children and/or memberships — so the caller can display what prevents deletion) |
 | depth/width violation       | `LimitViolation`           |
 | tenant-incompatible parent/child/membership write | `TenantIncompatibility` |
 | infra timeout/unavailable   | `ServiceUnavailable`       |
@@ -1189,6 +1196,7 @@ RG relies on database-level performance rather than application-level caching:
 - **No application-level cache**: hierarchy and membership reads go directly to PostgreSQL. Performance is ensured by indexed closure table lookups (btree indexes on `ancestor_id`, `descendant_id`, `depth`). The closure table pattern eliminates N+1 queries by design — a single SQL query returns the complete ancestor/descendant set.
 - **Connection pooling**: handled by platform database infrastructure (connection pool configuration is deployment-specific).
 - **Scalability approach**: vertical scaling of the database instance is the primary strategy. Horizontal read replicas can be added for read-heavy AuthZ query paths. `resource_group_membership` partitioning is a candidate optimization for production scale (see PRD Open Questions).
+- **Application-tier horizontal scaling**: RG is a stateless service with no in-process caches, sessions, or local state. Multiple RG instances can run behind the platform load balancer without session affinity. Scaling the application tier is a simple matter of increasing replica count — the platform orchestration layer handles load distribution. All coordination is delegated to PostgreSQL (SERIALIZABLE transactions for write consistency, connection pool for concurrency control).
 - **Query cost protection**: all list endpoints enforce `limit` (max 200 per page). Unbounded hierarchy traversals are bounded by `max_depth` query profile. Database-level query timeout (statement_timeout) is configured at the connection pool level per platform defaults. API-layer rate limiting is handled by the API gateway — RG does not implement its own throttling.
 - **Closure write amplification bounds**: subtree move operations update `O(N × D)` closure rows where N = subtree size and D = depth. With `max_depth = 10` and typical organizational hierarchies (width >> depth), expected subtree sizes for move operations are under 10K nodes. For larger subtrees, SERIALIZABLE isolation + bounded retry (max 3) prevents runaway transactions. No hard cap on subtree size is enforced — `max_depth` and `max_width` provide indirect bounds.
 - **Optimistic concurrency**: v1 uses last-write-wins semantics for `PUT /groups/{id}`. ETag-based optimistic concurrency control is a candidate for future versions if concurrent update conflicts become a production concern.
@@ -1247,6 +1255,7 @@ Notes:
 RG is a stateless service layer backed by a PostgreSQL database:
 
 - **Fault tolerance**: HA, failover, and backup are handled at the platform database infrastructure level. RG does not implement its own circuit breakers or redundancy beyond transaction retry for serialization conflicts (see Concurrency Testing section).
+- **AuthZ dependency resilience**: Circuit breaking for the AuthZ Resolver dependency (PolicyEnforcer calls on JWT path) is handled at the platform PolicyEnforcer/SDK level. If the AuthZ Resolver becomes unavailable, JWT-authenticated RG requests will fail with **503 Service Unavailable** errors. RG does not implement its own circuit breaker for this dependency.
 - **Recovery**: RPO/RTO follow platform defaults for stateful services with PostgreSQL persistence. No module-specific recovery architecture.
 
 ### Data Governance
@@ -1266,6 +1275,8 @@ RG follows standard CyberFabric observability patterns:
 - **Logging**: structured request/response logging via platform middleware (request ID, tenant ID, operation, latency). Domain-level events (type created, group moved, membership added) logged at INFO level. Error paths logged at WARN/ERROR with deterministic error category.
 - **Metrics**: standard HTTP endpoint metrics (request count, latency histogram, error rate) exposed via platform metrics infrastructure. No RG-specific custom metrics in v1.
 - **Alerting**: follows platform alerting defaults for error rate and latency thresholds. No RG-specific alert rules in v1.
+- **Health checks**: RG delegates health check and readiness/liveness probe endpoints to the platform infrastructure layer (`modkit` runtime). The platform exposes standard health endpoints (e.g., `GET /health`, `GET /ready`) that include database connectivity checks. RG does not implement its own health check endpoint.
+- **Distributed tracing**: RG participates in platform distributed tracing via OpenTelemetry trace propagation injected by platform middleware. Request spans include `request_id`, `tenant_id`, and operation context. All API handlers MUST use `#[tracing::instrument]` and enrich spans with business context fields (e.g., `type_code`, `group_id`, `app_id`) via `tracing::Span::current().record()` to enable effective production debugging and request correlation.
 
 ### Architecture Evolution: RG as Persistent Storage for Types Registry
 
@@ -1288,6 +1299,7 @@ Rationale:
 | `resource_group_membership` partitioning (455M rows projected) | Table size >50 GB or query latency degradation | Medium |
 | Domain events for group/membership lifecycle | Consumer demand for real-time notifications or cache invalidation | Medium |
 | GTS validation for `resource_type` in membership operations | Cross-module type reuse creates governance need | Low |
+| Parallel seeding for types and memberships via `JoinSet` | Large seed configurations with many independent items | Low |
 
 ### Open Questions
 
@@ -1359,8 +1371,8 @@ Index-to-data ratio: **2.03×** (reasonable for btree-only indexes with UUID key
 | Level | Database | Network | What is real | What is mocked |
 |---|---|---|---|---|
 | **Unit** | No DB — in-memory trait mocks | No network | Domain services, invariant logic, error mapping | All repositories (trait-based `InMemory*` impls) |
-| **Integration** | Real PostgreSQL (testcontainers, per-test tx rollback) | No network — direct repo calls | Repositories, closure table SQL, SecureORM tenant scoping, indexes, constraints | Nothing DB-related; no HTTP layer |
-| **API** | Real PostgreSQL (testcontainers) | No real network — `Router::oneshot()` (in-process HTTP simulation) | REST handlers, OData parsing, domain services, DB | `PolicyEnforcer` / `AuthZResolverClient` (mock Allow/Deny) |
+| **Integration** | SQLite in-memory (`:memory:`, per-test schema) | No network — direct repo calls | Repositories, closure table SQL, SecureORM tenant scoping, constraints | PostgreSQL-dialect SQL, SERIALIZABLE semantics, `gts_type_path` DOMAIN (covered by E2E) |
+| **API** | SQLite in-memory | No real network — `Router::oneshot()` (in-process HTTP simulation) | REST handlers, OData parsing, domain services, DB | `PolicyEnforcer` / `AuthZResolverClient` (mock Allow/Deny) |
 | **E2E** | Real PostgreSQL (Docker or hosted) | Real HTTP via `httpx` to running `hyperspot-server` | Everything: AuthZ, DB, network, auth modes | Nothing — full production-like stack |
 
 #### Level 1: Unit Tests (Domain Layer)
@@ -1403,11 +1415,13 @@ Test builder: `RgTestHarness::unit()` with fluent API — `.with_types(...)`, `.
 
 Integration tests verify SQL correctness, closure table integrity, transactional behavior, and SecureORM tenant isolation against a real database.
 
-**Infrastructure**: PostgreSQL via `testcontainers` (pattern from `modkit-db/tests/common.rs` — `bring_up_postgres()`).
+**Infrastructure**: SQLite in-memory (`:memory:`). Each test creates a fresh in-memory DB and applies migrations via `run_migrations_for_testing(db, migrations)` from `modkit-db`. This gives sub-millisecond setup, no Docker dependency, and deterministic isolation without transaction rollback overhead.
 
-**Schema setup**: module implements `DatabaseCapability` trait with `fn migrations()` returning `MigrationTrait` list. Tests apply schema via `run_migrations_for_testing(db, migrations)` from `modkit-db` (uses `"_test"` prefix for migration history table). Migrations are defined in `src/infra/storage/migrations/mod.rs` — `Migrator` struct implements `MigratorTrait` and lists migrations in chronological order, each using raw SQL (`POSTGRES_UP` / `POSTGRES_DOWN` constants).
+**Rationale for SQLite**: functional domain logic (closure table operations, seeding idempotency, tenant scoping, OData filtering) is identical across SQL dialects. PostgreSQL-specific behaviors — FK enforcement order, SERIALIZABLE isolation semantics, `gts_type_path` DOMAIN validation, `gen_random_uuid()` — are covered by Level 4 E2E tests that run against real PostgreSQL.
 
-**Isolation strategy**: each test function runs inside a transaction that is rolled back after assertions. For tests that require committed data (e.g. concurrent access), use per-test schemas or unique tenant UUIDs.
+**Schema setup**: module migrations are applied against the in-memory SQLite DB. Migrations are defined in `src/infra/storage/migrations/mod.rs` using the `SQLITE_UP` constants; the `POSTGRES_UP` variants are used at Level 4.
+
+**Isolation strategy**: each test function creates its own `:memory:` DB instance. No shared state across tests; no transaction rollback needed.
 
 | What to test | Setup | Verification target |
 |---|---|---|
@@ -1419,8 +1433,8 @@ Integration tests verify SQL correctness, closure table integrity, transactional
 | Closure table correctness — create 5-level deep tree | Seed types | Verify `(N*(N+1))/2` closure rows with correct depths |
 | Subtree move — closure rebuild | Seed tree `A→B→C`, move `B` under `D` | Old closure paths removed, new paths via `D` created, `C` ancestors updated |
 | Subtree delete — cascade closure removal | Seed tree with subtree | All closure rows for removed nodes deleted |
-| Cycle detection at DB level — concurrent moves | Seed `A→B→C`, concurrent move `A` under `C` + move `C` under `A` | At least one fails with serialization error or `CycleDetected` |
-| SERIALIZABLE retry — concurrent entity create under same parent | Two parallel create operations | Both succeed (via retry) or one gets deterministic error |
+| Cycle detection at DB level — concurrent moves | Seed `A→B→C`, concurrent move `A` under `C` + move `C` under `A` | At least one fails with serialization error or `CycleDetected` _(SERIALIZABLE semantics verified at E2E only — SQLite does not support SERIALIZABLE isolation)_ |
+| SERIALIZABLE retry — concurrent entity create under same parent | Two parallel create operations | Both succeed (via retry) or one gets deterministic error _(SERIALIZABLE semantics verified at E2E only — see Level 4)_ |
 | Membership CRUD — add, remove, query by group, query by resource | Seed entities | Composite key `(group_id, resource_type, resource_id)` enforced |
 | Membership — duplicate rejection at DB level | Pre-seed membership | `UNIQUE` constraint violation mapped to `Conflict` |
 | Tenant isolation — SecureORM | Seed data for tenant A, query with `SecurityContext` of tenant B | Empty result set |
@@ -1446,17 +1460,17 @@ This function is called at the end of every integration test that mutates hierar
 
 API tests verify HTTP-level behavior: request/response shapes, status codes, OData query parsing, authentication mode routing, and RFC 9457 error format.
 
-**Infrastructure**: `Router::oneshot()` (axum test pattern per `10_checklists_and_templates.md`) with real database + real domain services. `PolicyEnforcer` is mocked to isolate RG REST layer from AuthZ.
+**Infrastructure**: `Router::oneshot()` (axum test pattern per `10_checklists_and_templates.md`) with SQLite in-memory database + real domain services. `PolicyEnforcer` is mocked to isolate RG REST layer from AuthZ.
 
 **Mock boundaries**:
 
 | Dependency | Mock | Why |
 |---|---|---|
 | `PolicyEnforcer` / `AuthZResolverClient` | `MockAuthZResolverClient` (always Allow) or `DenyingAuthZResolverClient` | Isolate from AuthZ; test RG's own auth mode logic |
-| Database | Real PostgreSQL | REST tests need real query execution for OData/pagination |
+| Database | SQLite in-memory | REST tests need real query execution for OData/pagination; PostgreSQL-dialect behavior covered by E2E |
 | Domain services | Real (not mocked) | REST layer delegates to real services |
 
-**Schema setup**: same pattern as Integration — `bring_up_postgres()` + `run_migrations_for_testing()`. Test builder (`RgTestHarness::api()`) encapsulates all initialization: DB, migrations, domain services, routes, AuthZ mocks. Builder provides `.with_types(...)`, `.with_authz_client(...)`, `.build().await` → returns harness with `.router()` accessor.
+**Schema setup**: same pattern as Integration — SQLite `:memory:` + `run_migrations_for_testing()`. Test builder (`RgTestHarness::api()`) encapsulates all initialization: DB, migrations, domain services, routes, AuthZ mocks. Builder provides `.with_types(...)`, `.with_authz_client(...)`, `.build().await` → returns harness with `.router()` accessor.
 
 | What to test | Method | Verification target |
 |---|---|---|
@@ -1468,12 +1482,12 @@ API tests verify HTTP-level behavior: request/response shapes, status codes, ODa
 | Create group — invalid parent type | `POST /groups` | 400/409, Problem JSON with `InvalidParentType` |
 | Move group — cycle | `PUT /groups/{id}` (parent = descendant) | 409, `CycleDetected` |
 | Delete group — has children, no force | `DELETE /groups/{id}` | 409, `ConflictActiveReferences` |
-| Delete group — force cascade | `DELETE /groups/{id}?force=true` | 200, subtree + memberships removed |
+| Delete group — force cascade | `DELETE /groups/{id}?force=true` | 204 No Content, subtree + memberships removed |
 | List group hierarchy — depth filter | `GET /groups/{id}/hierarchy?$filter=hierarchy/depth ge 0` | 200 OK, descendants with `depth` field |
 | List group hierarchy — ancestors | `GET /groups/{id}/hierarchy?$filter=hierarchy/depth le 0` | 200 OK, ancestors with negative `depth` |
 | Add membership | `POST /memberships/{gid}/{rtype}/{rid}` | 201 Created |
 | Add membership — duplicate | `POST /memberships/{gid}/{rtype}/{rid}` again | 409 Conflict |
-| Remove membership | `DELETE /memberships/{gid}/{rtype}/{rid}` | 200 OK |
+| Remove membership | `DELETE /memberships/{gid}/{rtype}/{rid}` | 204 No Content |
 | List memberships — by group | `GET /memberships?$filter=group_id eq '...'` | 200 OK, filtered result |
 | Cursor pagination — all list endpoints | `GET /types?limit=2`, follow `next_cursor` | All items eventually returned |
 | Invalid OData filter | `GET /groups?$filter=invalid` | 400 Bad Request |
@@ -1515,12 +1529,14 @@ Fixtures (following `oagw` e2e pattern): session-scoped `rg_base_url` (from env 
 
 #### What Must NOT Be Mocked
 
-| Component | Why |
-|---|---|
-| Closure table logic | Core of the module — correctness depends on real SQL execution |
-| Forest invariants in integration tests | Must verify actual DB constraint enforcement |
-| SecureORM tenant scoping | Must verify real `WHERE tenant_id IN (...)` generation |
-| Index behavior for hierarchy queries | Performance correctness depends on actual query plans |
+| Component | Level | Why |
+|---|---|---|
+| Closure table logic (SQL correctness) | Integration (Level 2) | Correctness depends on real SQL execution — SQLite verifies functional behavior |
+| Forest invariants | Integration (Level 2) | DB-level constraint enforcement tested on SQLite; PG-dialect FK order tested at E2E |
+| SecureORM tenant scoping | Integration (Level 2) | Must verify real `WHERE tenant_id IN (...)` generation |
+| PostgreSQL FK enforcement order | E2E (Level 4) | `ON DELETE RESTRICT` enforcement order differs from SQLite — only testable against real PG |
+| SERIALIZABLE transaction semantics | E2E (Level 4) | Retry-under-concurrent-writes behavior is PostgreSQL-specific |
+| `gts_type_path` DOMAIN validation | E2E (Level 4) | PostgreSQL DOMAIN-level regex enforcement not present in SQLite |
 
 #### Concurrency Testing
 
@@ -1533,7 +1549,7 @@ Hierarchy mutations (`create/move/delete`) use `SERIALIZABLE` isolation with bou
 - on exhaustion: return `ServiceUnavailable` with retry-after hint
 - transaction timeout: 5s (configurable)
 
-**Concurrency test pattern** (integration test level):
+**Concurrency test pattern** (E2E test level — requires real PostgreSQL for SERIALIZABLE isolation):
 
 Test pattern: seed hierarchy (e.g. `A → B → C → D`, `E → F`), spawn N concurrent tasks performing conflicting moves (move B under E, move F under A, etc.), synchronize start via barrier, then verify: `verify_closure_integrity(tx)`, no cycles in canonical `parent_id` chain, all moves either succeeded or returned deterministic error.
 
@@ -1543,7 +1559,7 @@ Test pattern: seed hierarchy (e.g. `A → B → C → D`, `E → F`), spawn N co
 |---|---|---|
 | `cpt-cf-resource-group-nfr-hierarchy-query-latency` (p95 < 250ms) | Integration | Timed queries on seeded dataset (100K+ groups); assert < 250ms |
 | `cpt-cf-resource-group-nfr-membership-query-latency` (p95 < 30ms) | Integration | Timed queries on seeded dataset (200K+ memberships); assert < 30ms |
-| `cpt-cf-resource-group-nfr-transactional-consistency` | Integration | Concurrent writes + `verify_closure_integrity()` after each |
+| `cpt-cf-resource-group-nfr-transactional-consistency` | E2E | Concurrent writes on real PostgreSQL + `verify_closure_integrity()` after each |
 | `cpt-cf-resource-group-nfr-deterministic-errors` | Unit | Test every `From<DomainError>` mapping; verify 100% variant coverage |
 | `cpt-cf-resource-group-nfr-production-scale` | Deferred | Capacity planning validated via database size analysis (section 4.1) |
 

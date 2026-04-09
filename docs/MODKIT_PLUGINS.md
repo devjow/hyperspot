@@ -327,7 +327,7 @@ pub struct MyModule {
 #[async_trait]
 impl Module for MyModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: ModuleConfig = ctx.config()?;
+        let cfg: ModuleConfig = ctx.config_or_default()?;
 
         // === SCHEMA REGISTRATION ===
         // The main module is responsible for registering the plugin SCHEMA.
@@ -471,7 +471,7 @@ pub struct VendorAPlugin {
 #[async_trait]
 impl Module for VendorAPlugin {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: PluginConfig = ctx.config()?;
+        let cfg: PluginConfig = ctx.config_or_default()?;
 
         // 1. Generate stable GTS instance ID
         let instance_id = MyModulePluginSpecV1::gts_make_instance_id("vendor_a.pkg_b.my_module.plugin.v1");
@@ -503,6 +503,9 @@ impl Module for VendorAPlugin {
     }
 }
 ```
+
+Use `ctx.config()` only for required module configuration. When the module or plugin can start
+with `Default` values, prefer `ctx.config_or_default()`.
 
 The plugin service implements the plugin API:
 

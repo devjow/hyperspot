@@ -539,7 +539,7 @@ impl modkit::contracts::GrpcHubCapability for GrpcHub {
 impl Module for GrpcHub {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
         // Load typed configuration
-        let cfg: GrpcHubConfig = ctx.config()?;
+        let cfg: GrpcHubConfig = ctx.config_or_default()?;
         tracing::debug!(listen_addr = %cfg.listen_addr, "Loaded gRPC hub configuration");
 
         // Parse listen_addr into appropriate transport type

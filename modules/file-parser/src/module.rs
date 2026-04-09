@@ -56,19 +56,11 @@ impl Module for FileParserModule {
 
         info!("Registered {} parser backends", parsers.len());
 
-        // allowed_local_base_dir is mandatory — fail fast if missing.
-        let raw_base = cfg.allowed_local_base_dir.ok_or_else(|| {
-            anyhow::anyhow!(
-                "file-parser: 'allowed_local_base_dir' is required but not set. \
-                 Add it to your config under modules.file-parser.config."
-            )
-        })?;
-
         // Canonicalize at startup so we only do it once.
-        let allowed_local_base_dir = raw_base.canonicalize().map_err(|e| {
+        let allowed_local_base_dir = cfg.allowed_local_base_dir.canonicalize().map_err(|e| {
             anyhow::anyhow!(
                 "allowed_local_base_dir '{}' cannot be resolved: {e}",
-                raw_base.display()
+                cfg.allowed_local_base_dir.display()
             )
         })?;
         if !allowed_local_base_dir.is_dir() {

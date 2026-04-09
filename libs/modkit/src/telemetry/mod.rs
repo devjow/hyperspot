@@ -11,5 +11,7 @@ pub use config::{
     Exporter, HttpOpts, LogsCorrelation, MetricsConfig, OpenTelemetryConfig, OpenTelemetryResource,
     Propagation, Sampler, TracingConfig,
 };
-pub use init::{init_metrics_provider, init_tracing, shutdown_tracing};
+#[cfg(feature = "otel")]
+pub use init::init_tracing;
+pub use init::{init_metrics_provider, shutdown_tracing};
 pub use throttled_log::ThrottledLog;

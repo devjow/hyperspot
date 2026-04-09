@@ -30,6 +30,8 @@ pub struct Model {
     pub effective_model: Option<String>,
     pub minimal_generation_floor_applied: Option<i32>,
     pub web_search_enabled: bool,
+    pub web_search_completed_count: i32,
+    pub code_interpreter_completed_count: i32,
     pub deleted_at: Option<OffsetDateTime>,
     pub replaced_by_request_id: Option<Uuid>,
     pub started_at: OffsetDateTime,

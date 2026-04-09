@@ -49,7 +49,7 @@ impl modkit::contracts::DatabaseCapability for SettingsModule {
 #[async_trait]
 impl Module for SettingsModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: SettingsConfig = ctx.config()?;
+        let cfg: SettingsConfig = ctx.config_or_default()?;
 
         let db: Arc<DBProvider<DbError>> = Arc::new(ctx.db_required()?);
 

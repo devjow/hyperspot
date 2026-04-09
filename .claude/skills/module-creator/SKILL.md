@@ -32,6 +32,8 @@ Read the minimum set of docs needed for the task. Start with the routing table b
 | Configure lifecycle, background tasks, cancellation | `docs/modkit_unified_system/08_lifecycle_stateful_tasks.md` |
 | Create out-of-process module, gRPC, OoP SDK | `docs/modkit_unified_system/09_oop_grpc_sdk_pattern.md` |
 | Get checklists, code templates, test patterns | `docs/modkit_unified_system/10_checklists_and_templates.md` |
+| Write unit tests, test file layout, mocks, fixtures | `docs/modkit_unified_system/12_unit_testing.md` |
+| Write E2E tests, cross-module integration tests | `docs/modkit_unified_system/13_e2e_testing.md` |
 
 ## Workflow: Create a new module
 

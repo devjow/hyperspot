@@ -72,13 +72,9 @@ pub enum DomainError {
     #[error("CORS origin not allowed: {origin}")]
     CorsOriginNotAllowed { origin: String, instance: String },
 
-    /// CORS: the preflight request method is not in the allowed methods list.
+    /// CORS: the request method is not in the allowed methods list.
     #[error("CORS method not allowed: {method}")]
     CorsMethodNotAllowed { method: String, instance: String },
-
-    /// CORS: a preflight request header is not in the allowed headers list.
-    #[error("CORS header not allowed: {header}")]
-    CorsHeaderNotAllowed { header: String, instance: String },
 
     #[error("{detail}")]
     StreamAborted { detail: String, instance: String },

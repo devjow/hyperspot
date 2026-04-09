@@ -228,17 +228,9 @@ struct CorsConfig {
     #[serde(default)]
     allowed_methods: Vec<CorsHttpMethod>,
     #[serde(default)]
-    allowed_headers: Vec<String>,
-    #[serde(default)]
     expose_headers: Vec<String>,
-    #[serde(default = "default_max_age")]
-    max_age: u32,
     #[serde(default)]
     allow_credentials: bool,
-}
-
-fn default_max_age() -> u32 {
-    86400
 }
 
 #[derive(Deserialize)]
@@ -535,9 +527,7 @@ impl From<CorsConfig> for domain::CorsConfig {
             enabled: v.enabled,
             allowed_origins: v.allowed_origins,
             allowed_methods: v.allowed_methods.into_iter().map(Into::into).collect(),
-            allowed_headers: v.allowed_headers,
             expose_headers: v.expose_headers,
-            max_age: v.max_age,
             allow_credentials: v.allow_credentials,
         }
     }

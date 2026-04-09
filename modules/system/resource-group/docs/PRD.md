@@ -1,5 +1,5 @@
-Created:  2026-03-06 by Constructor Tech
-Updated:  2026-03-06 by Constructor Tech
+<!-- Created: 2026-03-06 by Constructor Tech -->
+<!-- Updated: 2026-04-07 by Constructor Tech -->
 
 # PRD - Resource Group (RG)
 
@@ -302,7 +302,7 @@ Caller: platform-admin, barrier_mode: "none"
 
 #### Create, List, Get, Update, Delete Type
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-types`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-types`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`, `cpt-cf-resource-group-actor-apps`
 
@@ -318,7 +318,7 @@ A type includes:
 
 #### Validate Type Code Format
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-type-code`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-type-code`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`, `cpt-cf-resource-group-actor-apps`
 
@@ -332,13 +332,13 @@ Invalid input **MUST** return validation error with field-specific details.
 
 #### Reject Duplicate Type
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-reject-duplicate-type`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-reject-duplicate-type`
 
 Creating a type with existing code **MUST** return `TypeAlreadyExists`.
 
 #### Schema Migration and Type Data Seeding
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-types`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-types`
 
 Any RG plugin **MUST** perform schema migration (create/update required database schema) as part of its deployment lifecycle.
 
@@ -356,7 +356,7 @@ AuthZ deployment determines which types are needed:
 
 #### Validate Type Update Against Existing Hierarchy
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-type-update-hierarchy`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-type-update-hierarchy`
 
 Updating a type's placement rules (`allowed_parents`, `can_be_root`) **MUST** be validated against the existing group hierarchy:
 
@@ -367,7 +367,7 @@ Violation **MUST** return `AllowedParentsViolation` with details identifying the
 
 #### Delete Type Only If Unused
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-delete-type-only-if-empty`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-delete-type-only-if-empty`
 
 Type deletion **MUST** be rejected if at least one entity of that type exists.
 
@@ -375,7 +375,7 @@ Type deletion **MUST** be rejected if at least one entity of that type exists.
 
 #### Create, Get, Update, Move, Delete Entity
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-entities`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-entities`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`, `cpt-cf-resource-group-actor-tenant-administrator`, `cpt-cf-resource-group-actor-apps`
 
@@ -383,7 +383,7 @@ The module **MUST** provide API operations for:
 
 - create entity
 - retrieve entity by ID
-- update mutable fields (`name`, `type`, `metadata`)
+- full update of mutable fields via PUT (`name`, `type`, `metadata`)
 - move entity to new parent (subtree move)
 - delete entity
 
@@ -401,7 +401,7 @@ In `ownership-graph` profile, entity also carries tenant scope metadata for tena
 
 #### Enforce Forest Invariants
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-enforce-forest-hierarchy`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-enforce-forest-hierarchy`
 
 The hierarchy **MUST** remain a strict forest:
 
@@ -412,7 +412,7 @@ Cycle attempts **MUST** return `CycleDetected`.
 
 #### Validate Parent Type Compatibility
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-parent-type`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-validate-parent-type`
 
 Entity create/move with parent **MUST** validate parent-child type compatibility against type definition.
 
@@ -420,19 +420,19 @@ Invalid relation **MUST** return `InvalidParentType`.
 
 #### Delete Entity Only If No Active References
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-delete-entity-no-active-references`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-delete-entity-no-active-references`
 
 Entity deletion **MUST** be rejected if active references/memberships prevent safe removal according to configured deletion policy.
 
 #### Group Data Seeding
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-groups`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-groups`
 
 Group data seeding (populating group hierarchy) is **optional** and deployment-specific. It can be performed via plugin data migration, manual database administration, or RG API calls. When performed, seeding **MUST** validate parent-child links and type compatibility. Repeated runs **MUST** be idempotent.
 
 #### Enforce Tenant Scope in Ownership-Graph Profile
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-tenant-scope-ownership-graph`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-tenant-scope-ownership-graph`
 
 In `ownership-graph` profile, create/move/membership operations **MUST** reject tenant-incompatible links (including cross-tenant links outside configured tenant hierarchy scope).
 
@@ -440,7 +440,7 @@ In `ownership-graph` profile, create/move/membership operations **MUST** reject 
 
 #### Manage Membership Links
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-membership`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-manage-membership`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`, `cpt-cf-resource-group-actor-tenant-administrator`, `cpt-cf-resource-group-actor-apps`
 
@@ -458,7 +458,7 @@ Membership does not store `tenant_id` directly — tenant scope is derived from 
 
 #### Query Membership Relations
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-query-membership-relations`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-query-membership-relations`
 
 The module **MUST** support deterministic membership lookups:
 
@@ -468,7 +468,7 @@ The module **MUST** support deterministic membership lookups:
 
 #### Membership Data Seeding
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-memberships`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-seed-memberships`
 
 Membership data seeding (populating membership links) is **optional** and deployment-specific. It can be performed via plugin data migration, manual database administration, or RG API calls. When performed, seeding **MUST** validate group existence and tenant compatibility. Repeated runs **MUST** be idempotent.
 
@@ -476,7 +476,7 @@ Membership data seeding (populating membership links) is **optional** and deploy
 
 #### Use Closure Table Pattern
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-closure-table`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-closure-table`
 
 **Actors**: `cpt-cf-resource-group-actor-apps`, `cpt-cf-resource-group-actor-authz-plugin-consumer`
 
@@ -493,7 +493,7 @@ For authz-compatibility projections, `ancestor_id/descendant_id` are exported di
 
 #### Ancestor and Descendant Queries
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-query-group-hierarchy`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-query-group-hierarchy`
 
 The module **MUST** support:
 
@@ -502,7 +502,7 @@ The module **MUST** support:
 
 #### Efficient Subtree Move/Delete
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-subtree-operations`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-subtree-operations`
 
 The module **MUST** support efficient subtree move/delete operations with closure updates in transaction boundary.
 
@@ -510,7 +510,7 @@ The module **MUST** support efficient subtree move/delete operations with closur
 
 #### Query Profile Configuration
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-query-profile`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-query-profile`
 
 Hierarchy query operations **MUST** apply service-level constraint configuration:
 
@@ -527,13 +527,13 @@ Effective `(max_depth, max_width)` **MUST** be treated as query profile for SLO 
 
 #### Constraint Changes Must Not Rewrite Existing Data
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-profile-change-no-rewrite`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-profile-change-no-rewrite`
 
 Changing query profile **MUST NOT** delete/rewrite existing hierarchy data.
 
 #### Reduced Constraints Behavior
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-reduced-constraints-behavior`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-reduced-constraints-behavior`
 
 If enabled limits are reduced and stored data exceeds new limits, and no migration has been run:
 
@@ -546,7 +546,7 @@ Operator is responsible for separate data migration to restore compliance.
 
 #### REST API Endpoints
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-rest-api`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-rest-api`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`, `cpt-cf-resource-group-actor-tenant-administrator`, `cpt-cf-resource-group-actor-apps`
 
@@ -558,7 +558,7 @@ The module **MUST** expose REST API endpoints for:
 
 #### OData Query Support
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-odata-query`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-odata-query`
 
 List endpoints **MUST** support:
 
@@ -570,13 +570,13 @@ List endpoints **MUST** support:
 
 #### Group List with Hierarchy Depth
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-list-groups-depth`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-list-groups-depth`
 
 A dedicated group hierarchy endpoint (`/groups/{group_id}/hierarchy`) **MUST** return groups with a computed `hierarchy.depth` field (relative distance from reference group) and support depth-based filtering via OData nested path `hierarchy/depth` (`eq`, `ne`, `gt`, `ge`, `lt`, `le`). Positive depth = descendants, negative depth = ancestors, `0` = reference group itself.
 
 #### Force Delete
 
-- [ ] `p2` - **ID**: `cpt-cf-resource-group-fr-force-delete`
+- [x] `p2` - **ID**: `cpt-cf-resource-group-fr-force-delete`
 
 Group delete endpoint **MUST** support optional `force` query parameter to control cascade deletion behavior.
 
@@ -586,7 +586,7 @@ Group delete endpoint **MUST** support optional `force` query parameter to contr
 
 #### Provide Generic Read Port for External Consumers
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-integration-read-port`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-integration-read-port`
 
 **Actors**: `cpt-cf-resource-group-actor-authz-plugin-consumer`, `cpt-cf-resource-group-actor-apps`
 
@@ -609,7 +609,7 @@ The read contract **MUST NOT** contain AuthZ decision semantics.
 
 #### Keep Policy and SQL Semantics Outside RG
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-no-authz-and-sql-logic`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-no-authz-and-sql-logic`
 
 RG **MUST NOT**:
 
@@ -619,7 +619,7 @@ RG **MUST NOT**:
 
 ### 5.8 Deterministic Error Semantics
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-deterministic-errors`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-deterministic-errors`
 
 **Actors**: `cpt-cf-resource-group-actor-apps`, `cpt-cf-resource-group-actor-authz-plugin-consumer`
 
@@ -634,7 +634,7 @@ The module **MUST** map all failures to deterministic categories:
 
 ### 5.9 Authentication Modes
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-fr-dual-auth-modes`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-fr-dual-auth-modes`
 
 RG REST API supports two authentication modes:
 
@@ -653,7 +653,7 @@ See DESIGN.md `cpt-cf-resource-group-seq-auth-modes` for detailed sequence diagr
 
 ### 6.1 Hierarchy Query Latency
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-hierarchy-query-latency`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-hierarchy-query-latency`
 
 The module **MUST** support low-latency ancestor/descendant queries for depth up to configured query profile.
 
@@ -661,7 +661,7 @@ The module **MUST** support low-latency ancestor/descendant queries for depth up
 
 ### 6.2 Membership Query Latency
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-membership-query-latency`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-membership-query-latency`
 
 The module **MUST** support low-latency membership reads.
 
@@ -669,19 +669,19 @@ The module **MUST** support low-latency membership reads.
 
 ### 6.3 Transactional Consistency
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-transactional-consistency`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-transactional-consistency`
 
 Entity/membership changes and derived closure updates **MUST** be transactionally consistent.
 
 ### 6.4 Deterministic Error Coverage
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-deterministic-errors`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-deterministic-errors`
 
 100% of failure paths **MUST** map to documented error categories.
 
 ### 6.5 Expected Production Scale
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-production-scale`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-production-scale`
 
 The module **MUST** be designed and validated for the following projected production volumes:
 
@@ -714,7 +714,7 @@ RG operations **MUST** produce audit events via the platform audit infrastructur
 
 ### 6.9 API and SDK Compatibility
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-compatibility`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-compatibility`
 
 **Actors**: `cpt-cf-resource-group-actor-apps`, `cpt-cf-resource-group-actor-authz-plugin-consumer`
 
@@ -722,7 +722,7 @@ REST API **MUST** follow path-based versioning (`/api/resource-group/v1/` for gr
 
 ### 6.10 Data Lifecycle
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-nfr-data-lifecycle`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-nfr-data-lifecycle`
 
 **Actors**: `cpt-cf-resource-group-actor-instance-administrator`
 
@@ -742,7 +742,7 @@ Data lifecycle follows platform defaults. Tenant deprovisioning **MUST** cascade
 
 #### Core Client Trait
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-interface-resource-group-client`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-interface-resource-group-client`
 
 **Actors**: `cpt-cf-resource-group-actor-apps`, `cpt-cf-resource-group-actor-tenant-administrator`, `cpt-cf-resource-group-actor-instance-administrator`
 
@@ -750,7 +750,7 @@ The module **MUST** expose a stable SDK trait (`ResourceGroupClient`) via Client
 
 #### Integration Read Traits
 
-- [ ] `p1` - **ID**: `cpt-cf-resource-group-interface-integration-read-hierarchy`
+- [x] `p1` - **ID**: `cpt-cf-resource-group-interface-integration-read-hierarchy`
 
 **Actors**: `cpt-cf-resource-group-actor-authz-plugin-consumer`
 
@@ -1088,20 +1088,20 @@ See `cpt-cf-resource-group-fr-dual-auth-modes` in section 5.9 for the full authe
 
 ## 9. Acceptance Criteria
 
-- [ ] Dynamic type API is available with validation.
-- [ ] Entity hierarchy remains strict forest under all operations.
-- [ ] Closure-table ancestor/descendant queries are available and ordered by depth.
-- [ ] Subtree move/delete are supported with transactional closure updates.
-- [ ] Query profile (`max_depth`, `max_width`) behavior matches specified reduced-constraint rules, including disabled-limit (unlimited) mode.
-- [ ] RG remains AuthZ-agnostic while exposing integration read contracts.
-- [ ] No changes are required in existing AuthN/AuthZ resolver contracts.
-- [ ] Tenant-scoped constraints for AuthZ usage are enforced and tenant-incompatible links are rejected.
-- [ ] Integration read hierarchy rows include `tenant_id` (via `ResourceGroupWithDepth`); membership rows match REST `Membership` schema (no `tenant_id`). Callers derive membership tenant scope from group data.
-- [ ] `resource_group_membership` derives tenant scope from the referenced group's `tenant_id` via `group_id` JOIN, and AuthZ query path always uses effective tenant-scoped reads/SQL predicates.
-- [ ] Platform-admin provisioning via RG API may run without caller tenant scoping, while tenant hierarchy compatibility invariants remain enforced.
-- [ ] Membership operations use composite key `(group_id, resource_type, resource_id)`.
-- [ ] REST API endpoints available under `/api/resource-group/v1/` (groups/memberships) and `/api/types-registry/v1/` (types) with OData query support.
-- [ ] Dedicated group depth endpoint returns relative `depth` and supports depth-based filtering.
+- [x] Dynamic type API is available with validation.
+- [x] Entity hierarchy remains strict forest under all operations.
+- [x] Closure-table ancestor/descendant queries are available and ordered by depth.
+- [x] Subtree move/delete are supported with transactional closure updates.
+- [x] Query profile (`max_depth`, `max_width`) behavior matches specified reduced-constraint rules, including disabled-limit (unlimited) mode.
+- [x] RG remains AuthZ-agnostic while exposing integration read contracts.
+- [x] No changes are required in existing AuthN/AuthZ resolver contracts.
+- [x] Tenant-scoped constraints for AuthZ usage are enforced and tenant-incompatible links are rejected.
+- [x] Integration read hierarchy rows include `tenant_id` (via `ResourceGroupWithDepth`); membership rows match REST `Membership` schema (no `tenant_id`). Callers derive membership tenant scope from group data.
+- [x] `resource_group_membership` derives tenant scope from the referenced group's `tenant_id` via `group_id` JOIN, and AuthZ query path always uses effective tenant-scoped reads/SQL predicates.
+- [x] Platform-admin provisioning via RG API may run without caller tenant scoping, while tenant hierarchy compatibility invariants remain enforced.
+- [x] Membership operations use composite key `(group_id, resource_type, resource_id)`.
+- [x] REST API endpoints available under `/api/resource-group/v1/` (groups/memberships) and `/api/types-registry/v1/` (types) with OData query support.
+- [x] Dedicated group depth endpoint returns relative `depth` and supports depth-based filtering.
 
 ## 10. Dependencies
 

@@ -6,7 +6,7 @@
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use utoipa::openapi::{
     OpenApi, OpenApiBuilder, Ref, RefOr, Required,
@@ -84,7 +84,8 @@ pub struct OpenApiRegistryImpl {
     /// Store operation specs keyed by "METHOD:path"
     pub operation_specs: DashMap<String, operation_builder::OperationSpec>,
     /// Store schema components using arc-swap for lock-free reads
-    pub components_registry: ArcSwap<HashMap<String, RefOr<Schema>>>,
+    /// `BTreeMap` ensures deterministic ordering of schemas in the `OpenAPI` document
+    pub components_registry: ArcSwap<BTreeMap<String, RefOr<Schema>>>,
 }
 
 impl OpenApiRegistryImpl {
@@ -93,7 +94,7 @@ impl OpenApiRegistryImpl {
     pub fn new() -> Self {
         Self {
             operation_specs: DashMap::new(),
-            components_registry: ArcSwap::from_pointee(HashMap::new()),
+            components_registry: ArcSwap::from_pointee(BTreeMap::new()),
         }
     }
 
@@ -738,7 +739,7 @@ mod tests {
     }
 
     /// Helper: build a minimal `OpenAPI` doc with the given component schemas.
-    fn build_test_openapi(schemas: HashMap<String, RefOr<Schema>>) -> OpenApi {
+    fn build_test_openapi(schemas: BTreeMap<String, RefOr<Schema>>) -> OpenApi {
         let mut components = ComponentsBuilder::new();
         for (name, schema) in schemas {
             components = components.schema(name, schema);
@@ -750,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_dangling_refs_detects_missing_in_components() {
-        let mut schemas: HashMap<String, RefOr<Schema>> = HashMap::new();
+        let mut schemas: BTreeMap<String, RefOr<Schema>> = BTreeMap::new();
         // Register "Foo" with a $ref to "Bar" which is NOT registered
         let foo_schema = serde_json::from_value::<Schema>(serde_json::json!({
             "type": "object",
@@ -768,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_dangling_refs_no_false_positives() {
-        let mut schemas: HashMap<String, RefOr<Schema>> = HashMap::new();
+        let mut schemas: BTreeMap<String, RefOr<Schema>> = BTreeMap::new();
         // Register "Bar"
         let bar_schema = Schema::Object(ObjectBuilder::new().build());
         schemas.insert("Bar".to_owned(), RefOr::T(bar_schema));

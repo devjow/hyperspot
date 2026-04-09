@@ -1,3 +1,5 @@
+<!-- Updated: 2026-04-07 by Constructor Tech -->
+
 # AuthZ Resolver
 
 Authorization resolution for CyberFabric — evaluates access requests and produces SQL-compilable constraints.
@@ -159,5 +161,5 @@ let response = authz.evaluate(EvaluationRequest {
 
 ### Phase 2: Production PDP Plugin (Planned)
 
-- Advanced predicates: `in_tenant_subtree`, `in_group`, `in_group_subtree`
-- Local projection tables for hierarchy-aware constraints
+- Advanced predicates: `in_tenant_subtree`, `in_group`, `in_group_subtree` (group predicates are RG-internal only; domain services receive degraded `in` predicates)
+- Local projection tables for hierarchy-aware constraints (`tenant_closure`, `resource_group_closure`; `resource_group_membership` projection not recommended but not forbidden)

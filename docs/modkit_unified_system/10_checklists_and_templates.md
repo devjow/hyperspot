@@ -14,6 +14,7 @@ This section provides minimal checklists and code templates for common ModKit ta
 - [ ] Add `#[derive(Scopable)]` on SeaORM entities (import `modkit_db_macros::Scopable`)
 - [ ] Use `SecureConn` + `SecurityContext` for all DB operations
 - [ ] Register client in `init()`: `ctx.client_hub().register::<dyn MyModuleApi>(api)`
+- [ ] Pick the right config loader: `ctx.config()` is strict; `ctx.config_or_default()` is lenient
 - [ ] Export SDK types from module crate `lib.rs`
 - [ ] Add module to `Cargo.toml` workspace and `main.rs` type_name check
 

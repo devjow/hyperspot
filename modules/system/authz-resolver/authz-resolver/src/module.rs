@@ -48,7 +48,7 @@ impl SystemCapability for AuthZResolver {}
 impl Module for AuthZResolver {
     #[tracing::instrument(skip_all, fields(vendor))]
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: AuthZResolverConfig = ctx.config()?;
+        let cfg: AuthZResolverConfig = ctx.config_or_default()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
         info!(vendor = %cfg.vendor);
 

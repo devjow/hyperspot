@@ -48,7 +48,7 @@ impl SystemCapability for TenantResolver {}
 impl Module for TenantResolver {
     #[tracing::instrument(skip_all, fields(vendor))]
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: TenantResolverConfig = ctx.config()?;
+        let cfg: TenantResolverConfig = ctx.config_or_default()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
         info!(vendor = %cfg.vendor);
 

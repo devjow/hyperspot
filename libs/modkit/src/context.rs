@@ -4,7 +4,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 // Import configuration types from the config module
-use crate::config::{ConfigError, ConfigProvider, module_config_or_default};
+use crate::{
+    config::{ConfigError, ConfigProvider, module_config_or_default},
+    module_config_required,
+};
 
 // Note: runtime-dependent features are conditionally compiled
 
@@ -208,6 +211,17 @@ impl ModuleCtx {
         })
     }
 
+    /// Deserialize the module's config section into `T`.
+    ///
+    /// This reads the `modules.<name>.config` object for the current module and
+    /// deserializes it into the requested type.
+    ///
+    /// # Errors
+    /// Returns `ConfigError` if the module config is missing or deserialization fails.
+    pub fn config<T: DeserializeOwned>(&self) -> Result<T, ConfigError> {
+        module_config_required(self.config_provider.as_ref(), &self.module_name)
+    }
+
     /// Deserialize the module's config section into T, or use defaults if missing.
     ///
     /// This method uses lenient configuration loading: if the module is not present in config,
@@ -225,20 +239,40 @@ impl ModuleCtx {
     ///     timeout_ms: u64,
     /// }
     ///
-    /// let config: MyConfig = ctx.config()?;
+    /// let config: MyConfig = ctx.config_or_default()?;
     /// ```
     ///
     /// # Errors
     /// Returns `ConfigError` if deserialization fails.
-    pub fn config<T: DeserializeOwned + Default>(&self) -> Result<T, ConfigError> {
+    pub fn config_or_default<T: DeserializeOwned + Default>(&self) -> Result<T, ConfigError> {
         module_config_or_default(self.config_provider.as_ref(), &self.module_name)
     }
 
     /// Like [`config()`](Self::config), but additionally expands `${VAR}` placeholders
+    /// in fields marked with `#[expand_vars]`.
+    ///
+    /// # Errors
+    /// Returns `ConfigError` if the module config is missing, deserialization fails,
+    /// or environment variable expansion fails.
+    pub fn config_expanded<T>(&self) -> Result<T, ConfigError>
+    where
+        T: DeserializeOwned + crate::var_expand::ExpandVars,
+    {
+        let mut cfg: T = self.config()?;
+        cfg.expand_vars().map_err(|e| ConfigError::VarExpand {
+            module: self.module_name.to_string(),
+            source: e,
+        })?;
+        Ok(cfg)
+    }
+
+    /// Like [`config_or_default()`](Self::config_or_default), but additionally expands `${VAR}`
+    /// placeholders
     /// in fields marked with `#[expand_vars]` (requires `#[derive(ExpandVars)]` on the config
     /// struct).
     ///
-    /// Modules that do not need environment variable expansion should use [`config()`](Self::config).
+    /// Modules that do not need environment variable expansion should use
+    /// [`config_or_default()`](Self::config_or_default).
     ///
     /// # Example
     ///
@@ -250,16 +284,16 @@ impl ModuleCtx {
     ///     timeout_ms: u64,
     /// }
     ///
-    /// let config: MyConfig = ctx.config_expanded()?;
+    /// let config: MyConfig = ctx.config_expanded_or_default()?;
     /// ```
     ///
     /// # Errors
     /// Returns `ConfigError` if deserialization fails or if environment variable expansion fails.
-    pub fn config_expanded<T>(&self) -> Result<T, ConfigError>
+    pub fn config_expanded_or_default<T>(&self) -> Result<T, ConfigError>
     where
         T: DeserializeOwned + Default + crate::var_expand::ExpandVars,
     {
-        let mut cfg: T = self.config()?;
+        let mut cfg: T = self.config_or_default()?;
         cfg.expand_vars().map_err(|e| ConfigError::VarExpand {
             module: self.module_name.to_string(),
             source: e,
@@ -374,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn test_module_ctx_config_returns_default_for_missing_module() {
+    fn test_module_ctx_config_returns_error_for_missing_module() {
         let provider = Arc::new(MockConfigProvider::new());
         let ctx = ModuleCtx::new(
             "nonexistent_module",
@@ -386,6 +420,25 @@ mod tests {
         );
 
         let result: Result<TestConfig, ConfigError> = ctx.config();
+        assert!(matches!(
+            result,
+            Err(ConfigError::ModuleNotFound { ref module }) if module == "nonexistent_module"
+        ));
+    }
+
+    #[test]
+    fn test_module_ctx_config_or_default_returns_default_for_missing_module() {
+        let provider = Arc::new(MockConfigProvider::new());
+        let ctx = ModuleCtx::new(
+            "nonexistent_module",
+            Uuid::new_v4(),
+            provider,
+            Arc::new(crate::client_hub::ClientHub::default()),
+            CancellationToken::new(),
+            None,
+        );
+
+        let result: Result<TestConfig, ConfigError> = ctx.config_or_default();
         assert!(result.is_ok());
 
         let config = result.unwrap();
@@ -502,9 +555,19 @@ mod tests {
     }
 
     #[test]
-    fn config_expanded_falls_back_to_default_when_missing() {
+    fn config_expanded_returns_error_when_missing() {
         let ctx = make_ctx("missing_mod", json!({}));
-        let cfg: ExpandableConfig = ctx.config_expanded().unwrap();
+        let err = ctx.config_expanded::<ExpandableConfig>().unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::MissingConfigSection { ref module } if module == "missing_mod"
+        ));
+    }
+
+    #[test]
+    fn config_expanded_or_default_falls_back_to_default_when_missing() {
+        let ctx = make_ctx("missing_mod", json!({}));
+        let cfg: ExpandableConfig = ctx.config_expanded_or_default().unwrap();
         assert_eq!(cfg, ExpandableConfig::default());
     }
 

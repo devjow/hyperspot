@@ -40,7 +40,7 @@ impl Default for CredStoreModule {
 impl Module for CredStoreModule {
     #[tracing::instrument(skip_all, fields(vendor))]
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: CredStoreConfig = ctx.config()?;
+        let cfg: CredStoreConfig = ctx.config_or_default()?;
         tracing::Span::current().record("vendor", cfg.vendor.as_str());
         info!(vendor = %cfg.vendor);
 

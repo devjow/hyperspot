@@ -13,21 +13,7 @@ pub struct FileParserConfig {
     /// files under this directory (after symlink resolution / canonicalization)
     /// are allowed.  The module will fail to start if this field is missing or
     /// the path cannot be resolved.
-    ///
-    /// Wrapped in `Option` because the `ModKit` config loader requires `Default`,
-    /// but `init()` treats `None` as a hard startup error.
-    #[serde(default)]
-    pub allowed_local_base_dir: Option<PathBuf>,
-}
-
-impl Default for FileParserConfig {
-    fn default() -> Self {
-        Self {
-            max_file_size_mb: default_max_file_size_mb(),
-            // None here — init() will reject this with a clear error message.
-            allowed_local_base_dir: None,
-        }
-    }
+    pub allowed_local_base_dir: PathBuf,
 }
 
 fn default_max_file_size_mb() -> u64 {

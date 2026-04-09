@@ -2,7 +2,9 @@ use sea_orm_migration::prelude::*;
 
 mod m20260302_000001_initial;
 mod m20260329_000001_add_last_progress_at;
+mod m20260330_000001_thread_summary_composite_frontier;
 mod m20260330_000002_add_web_search_enabled_to_turns;
+mod m20260402_000003_add_tool_counts_to_turns;
 
 pub struct Migrator;
 
@@ -13,6 +15,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260302_000001_initial::Migration),
             Box::new(m20260329_000001_add_last_progress_at::Migration),
             Box::new(m20260330_000002_add_web_search_enabled_to_turns::Migration),
+            Box::new(m20260330_000001_thread_summary_composite_frontier::Migration),
+            Box::new(m20260402_000003_add_tool_counts_to_turns::Migration),
         ]
     }
 }

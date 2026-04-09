@@ -59,7 +59,7 @@ impl Default for OutboundApiGatewayModule {
 #[async_trait]
 impl Module for OutboundApiGatewayModule {
     async fn init(&self, ctx: &ModuleCtx) -> anyhow::Result<()> {
-        let cfg: OagwConfig = ctx.config()?;
+        let cfg: OagwConfig = ctx.config_or_default()?;
         cfg.validate()
             .map_err(|e| anyhow::anyhow!("invalid OAGW config: {e}"))?;
         info!("OAGW config: proxy_timeout_secs={}", cfg.proxy_timeout_secs);

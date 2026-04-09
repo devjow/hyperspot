@@ -979,3 +979,76 @@ fn parse_error_preserves_position_info() {
         other => panic!("expected ParseError::Parsing(String), got: {other:?}"),
     }
 }
+
+#[test]
+fn odata_navigation_path_identifier() {
+    // OData 4.0 navigation property paths use `/` (e.g., hierarchy/depth)
+    let result = parse_str("hierarchy/depth ge 0").expect("valid filter tree");
+    assert_eq!(
+        result,
+        Expr::Compare(
+            Expr::Identifier("hierarchy/depth".to_owned()).into(),
+            CompareOperator::GreaterOrEqual,
+            Expr::Value(Value::Number(BigDecimal::from_str("0").unwrap())).into()
+        )
+    );
+}
+
+#[test]
+fn odata_navigation_path_with_and() {
+    let result =
+        parse_str("hierarchy/depth ge 0 and hierarchy/depth le 5").expect("valid filter tree");
+    match result {
+        Expr::And(left, right) => {
+            assert_eq!(
+                *left,
+                Expr::Compare(
+                    Expr::Identifier("hierarchy/depth".to_owned()).into(),
+                    CompareOperator::GreaterOrEqual,
+                    Expr::Value(Value::Number(BigDecimal::from_str("0").unwrap())).into()
+                )
+            );
+            assert_eq!(
+                *right,
+                Expr::Compare(
+                    Expr::Identifier("hierarchy/depth".to_owned()).into(),
+                    CompareOperator::LessOrEqual,
+                    Expr::Value(Value::Number(BigDecimal::from_str("5").unwrap())).into()
+                )
+            );
+        }
+        other => panic!("expected And, got: {other:?}"),
+    }
+}
+
+#[test]
+fn odata_navigation_path_parent_id_eq_uuid() {
+    let result = parse_str("hierarchy/parent_id eq 11111111-2222-3333-4444-555555555555")
+        .expect("valid filter tree");
+    assert_eq!(
+        result,
+        Expr::Compare(
+            Expr::Identifier("hierarchy/parent_id".to_owned()).into(),
+            CompareOperator::Equal,
+            Expr::Value(Value::Uuid(
+                uuid::Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap()
+            ))
+            .into()
+        )
+    );
+}
+
+#[test]
+fn odata_navigation_path_leading_slash_rejected() {
+    parse_str("/depth eq 1").expect_err("leading slash should be rejected");
+}
+
+#[test]
+fn odata_navigation_path_empty_segment_rejected() {
+    parse_str("hierarchy/ eq 1").expect_err("trailing slash with empty segment should be rejected");
+}
+
+#[test]
+fn odata_navigation_path_double_slash_rejected() {
+    parse_str("hierarchy//depth eq 1").expect_err("double slash should be rejected");
+}

@@ -401,26 +401,16 @@ impl DataPlaneService for DataPlaneServiceImpl {
             Body::Stream(s) => (Bytes::new(), Some(s)),
         };
 
-        // For CORS preflight, resolve the route using the intended method
-        // (from Access-Control-Request-Method) instead of OPTIONS, which has
-        // no matching HttpMethod variant and would fail route resolution.
-        let resolve_method = if method.as_ref().eq_ignore_ascii_case("OPTIONS") {
-            req_headers
-                .get("access-control-request-method")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or(method.as_ref())
-        } else {
-            method.as_ref()
-        };
-
         // 1+2. Resolve upstream + route in one pass (single hierarchy walk).
         let (upstream, route) = self
             .cp
-            .resolve_proxy_target(&ctx, &alias, resolve_method, &path_suffix)
+            .resolve_proxy_target(&ctx, &alias, method.as_ref(), &path_suffix)
             .await?;
 
-        // 1c. CORS: use effective config (already merged by compute_effective_config)
-        // and handle preflight short-circuit.
+        // 1c. CORS origin enforcement for actual cross-origin requests.
+        // Preflight is handled permissively at the handler level (no upstream resolution).
+        // Here we validate the Origin against the upstream's CORS config and reject
+        // disallowed origins before the request reaches the upstream.
         let effective_cors = upstream.cors.clone();
         let request_origin = req_headers
             .get(http::header::ORIGIN)
@@ -429,46 +419,20 @@ impl DataPlaneService for DataPlaneServiceImpl {
 
         if let Some(ref cors_config) = effective_cors
             && cors_config.enabled
+            && let Some(ref origin) = request_origin
         {
-            let header_vec: Vec<(String, String)> = headers::header_map_to_vec(&req_headers);
-            if crate::domain::cors::is_cors_preflight(method.as_ref(), &header_vec) {
-                let origin = request_origin.as_deref().unwrap_or("");
-                let request_method = req_headers
-                    .get("access-control-request-method")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                let request_headers_list: Vec<String> = req_headers
-                    .get("access-control-request-headers")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.split(',').map(|h| h.trim().to_string()).collect())
-                    .unwrap_or_default();
+            if !crate::domain::cors::is_origin_allowed(cors_config, origin) {
+                return Err(DomainError::CorsOriginNotAllowed {
+                    origin: origin.clone(),
+                    instance: instance_uri,
+                });
+            }
 
-                let cors_headers = crate::domain::cors::handle_cors_preflight(
-                    cors_config,
-                    origin,
-                    request_method,
-                    &request_headers_list,
-                    &instance_uri,
-                )?;
-
-                let mut response = http::Response::builder()
-                    .status(http::StatusCode::NO_CONTENT)
-                    .body(Body::Empty)
-                    .map_err(|e| DomainError::Internal {
-                        message: format!("failed to build CORS preflight response: {e}"),
-                    })?;
-                for (name, value) in cors_headers {
-                    if let Ok(v) = HeaderValue::from_str(&value)
-                        && let Ok(n) = http::header::HeaderName::from_bytes(name.as_bytes())
-                    {
-                        if n == http::header::VARY {
-                            response.headers_mut().append(n, v);
-                        } else {
-                            response.headers_mut().insert(n, v);
-                        }
-                    }
-                }
-                return Ok(response);
+            if !crate::domain::cors::is_method_allowed(cors_config, method.as_ref()) {
+                return Err(DomainError::CorsMethodNotAllowed {
+                    method: method.to_string(),
+                    instance: instance_uri,
+                });
             }
         }
 
@@ -1298,9 +1262,7 @@ fn domain_error_status(err: &DomainError) -> u16 {
         DomainError::PluginNotFound { .. } => 404,
         DomainError::PluginInUse { .. } => 409,
         DomainError::GuardRejected { status, .. } => *status,
-        DomainError::CorsOriginNotAllowed { .. }
-        | DomainError::CorsMethodNotAllowed { .. }
-        | DomainError::CorsHeaderNotAllowed { .. } => 403,
+        DomainError::CorsOriginNotAllowed { .. } | DomainError::CorsMethodNotAllowed { .. } => 403,
     }
 }
 
@@ -1326,7 +1288,6 @@ fn domain_error_type_name(err: &DomainError) -> &'static str {
         DomainError::GuardRejected { .. } => "GuardRejected",
         DomainError::CorsOriginNotAllowed { .. } => "CorsOriginNotAllowed",
         DomainError::CorsMethodNotAllowed { .. } => "CorsMethodNotAllowed",
-        DomainError::CorsHeaderNotAllowed { .. } => "CorsHeaderNotAllowed",
         DomainError::StreamAborted { .. } => "StreamAborted",
         DomainError::LinkUnavailable { .. } => "LinkUnavailable",
         DomainError::CircuitBreakerOpen { .. } => "CircuitBreakerOpen",
