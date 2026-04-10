@@ -93,6 +93,7 @@ async fn test_db_phase_with_manager_succeeds() {
         clients: Vec::new(),
         instance_id: Uuid::new_v4(),
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = timeout(Duration::from_millis(500), run(opts)).await;
@@ -123,6 +124,7 @@ async fn test_db_phase_without_config_skips_migration() {
         clients: Vec::new(),
         instance_id: Uuid::new_v4(),
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = timeout(Duration::from_millis(500), run(opts)).await;
@@ -153,6 +155,7 @@ async fn test_db_phase_with_none_option() {
         clients: Vec::new(),
         instance_id: Uuid::new_v4(),
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = timeout(Duration::from_millis(500), run(opts)).await;
@@ -205,6 +208,7 @@ async fn test_db_phase_error_propagation() {
         clients: Vec::new(),
         instance_id: Uuid::new_v4(),
         oop: None,
+        shutdown_deadline: None,
     };
 
     // Run should either succeed (if no modules try to use bad config)
@@ -231,6 +235,7 @@ async fn test_db_phase_completes_before_init() {
         clients: Vec::new(),
         instance_id: Uuid::new_v4(),
         oop: None,
+        shutdown_deadline: None,
     };
 
     let start = std::time::Instant::now();

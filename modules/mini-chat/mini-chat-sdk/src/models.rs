@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Current policy version metadata for a user.
@@ -35,8 +36,8 @@ pub struct KillSwitches {
 /// A single model in the catalog (API: `PolicyModelCatalogItem`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelCatalogEntry {
-    /// Provider-level model identifier (e.g. "gpt-4").
-    pub model_id: String,
+    /// model identifier (e.g. "`gts.x.cyber_chat.llm.provider.v1.0~x.core.cyber_chat.azure_openai.v1.0`").
+    pub id: String,
     /// The model ID on the provider side (e.g., `"gpt-5.2"` for `OpenAI`,
     /// `"claude-opus-4-6"` for Anthropic). Sent in LLM API requests.
     pub provider_model_id: String,
@@ -45,9 +46,6 @@ pub struct ModelCatalogEntry {
     /// Short description of the model.
     #[serde(default)]
     pub description: String,
-    /// Model version string.
-    #[serde(default)]
-    pub version: String,
     /// LLM provider CTI identifier.
     pub provider_id: String,
     /// Routing identifier for provider resolution. Maps to a key in
@@ -80,7 +78,10 @@ pub struct ModelCatalogEntry {
     #[serde(default)]
     pub estimation_budgets: EstimationBudgets,
     /// Top-k chunks returned by similarity search per `file_search` call.
-    pub max_retrieved_chunks_per_turn: u32,
+    pub max_num_results: u32,
+    /// Search context size hint for the web search provider.
+    #[serde(default)]
+    pub web_search_context_size: WebSearchContextSize,
     /// Maximum tool calls the provider may make per request.
     #[serde(default = "default_max_tool_calls")]
     pub max_tool_calls: u32,
@@ -158,26 +159,20 @@ pub struct ModelApiParams {
 }
 
 /// Feature capability flags (API: `PolicyModelFeatures`).
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelFeatures {
     pub streaming: bool,
-    pub function_calling: bool,
     pub structured_output: bool,
-    pub fine_tuning: bool,
-    pub distillation: bool,
-    pub fim_completion: bool,
-    pub chat_prefix_completion: bool,
 }
 
-/// Supported input modalities (API: `PolicyModelInputType`).
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelInputType {
-    pub text: bool,
-    pub image: bool,
-    pub audio: bool,
-    pub video: bool,
+/// Search context size hint passed to the web search provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WebSearchContextSize {
+    #[default]
+    Low,
+    Medium,
+    High,
 }
 
 /// Tool support flags (API: `PolicyModelToolSupport`).
@@ -188,7 +183,6 @@ pub struct ModelToolSupport {
     pub file_search: bool,
     pub image_generation: bool,
     pub code_interpreter: bool,
-    pub computer_use: bool,
     pub mcp: bool,
 }
 
@@ -198,33 +192,11 @@ pub struct ModelToolSupport {
 pub struct ModelSupportedEndpoints {
     pub chat_completions: bool,
     pub responses: bool,
-    pub realtime: bool,
-    pub assistants: bool,
-    pub batch_api: bool,
-    pub fine_tuning: bool,
     pub embeddings: bool,
-    pub videos: bool,
     pub image_generation: bool,
-    pub image_edit: bool,
     pub audio_speech_generation: bool,
     pub audio_transcription: bool,
     pub audio_translation: bool,
-    pub moderations: bool,
-    pub completions: bool,
-}
-
-/// Token credit multipliers (API: `PolicyModelTokenPolicy`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelTokenPolicy {
-    pub input_tokens_credit_multiplier: f64,
-    pub output_tokens_credit_multiplier: f64,
-}
-
-/// Estimated performance characteristics (API: `PolicyModelPerformance`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelPerformance {
-    pub response_latency_ms: u32,
-    pub speed_tokens_per_second: u32,
 }
 
 /// General configuration from Settings Service (API: `PolicyModelGeneralConfig`).
@@ -238,11 +210,8 @@ pub struct ModelGeneralConfig {
     pub max_file_size_mb: u32,
     pub api_params: ModelApiParams,
     pub features: ModelFeatures,
-    pub input_type: ModelInputType,
     pub tool_support: ModelToolSupport,
     pub supported_endpoints: ModelSupportedEndpoints,
-    pub token_policy: ModelTokenPolicy,
-    pub performance: ModelPerformance,
 }
 
 /// Per-tenant preference settings (API: `PolicyModelPreference`).
@@ -256,8 +225,7 @@ pub struct ModelPreference {
 /// Model pricing/capability tier.
 ///
 /// Serializes as `"Standard"` / `"Premium"` (`PascalCase`).
-/// Accepts lowercase aliases (`"standard"`, `"premium"`) on deserialization
-/// for compatibility with CCM and DESIGN maps.
+/// Accepts lowercase aliases (`"standard"`, `"premium"`) on deserialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelTier {
     #[serde(alias = "standard")]
@@ -389,11 +357,10 @@ mod tests {
 
     fn sample_catalog_entry() -> ModelCatalogEntry {
         ModelCatalogEntry {
-            model_id: "test-model".to_owned(),
+            id: "test-model".to_owned(),
             provider_model_id: "test-model-v1".to_owned(),
             display_name: "Test Model".to_owned(),
             description: String::new(),
-            version: String::new(),
             provider_id: "default".to_owned(),
             provider_display_name: "Default".to_owned(),
             icon: String::new(),
@@ -407,7 +374,8 @@ mod tests {
             output_tokens_credit_multiplier_micro: 3_000_000,
             multiplier_display: "1x".to_owned(),
             estimation_budgets: EstimationBudgets::default(),
-            max_retrieved_chunks_per_turn: 5,
+            max_num_results: 5,
+            web_search_context_size: WebSearchContextSize::Low,
             max_tool_calls: 2,
             general_config: sample_general_config(),
             preference: Some(ModelPreference {
@@ -435,51 +403,23 @@ mod tests {
             },
             features: ModelFeatures {
                 streaming: true,
-                function_calling: false,
                 structured_output: false,
-                fine_tuning: false,
-                distillation: false,
-                fim_completion: false,
-                chat_prefix_completion: false,
-            },
-            input_type: ModelInputType {
-                text: true,
-                image: false,
-                audio: false,
-                video: false,
             },
             tool_support: ModelToolSupport {
                 web_search: false,
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             supported_endpoints: ModelSupportedEndpoints {
                 chat_completions: true,
                 responses: false,
-                realtime: false,
-                assistants: false,
-                batch_api: false,
-                fine_tuning: false,
                 embeddings: false,
-                videos: false,
                 image_generation: false,
-                image_edit: false,
                 audio_speech_generation: false,
                 audio_transcription: false,
                 audio_translation: false,
-                moderations: false,
-                completions: false,
-            },
-            token_policy: ModelTokenPolicy {
-                input_tokens_credit_multiplier: 1.0,
-                output_tokens_credit_multiplier: 3.0,
-            },
-            performance: ModelPerformance {
-                response_latency_ms: 500,
-                speed_tokens_per_second: 100,
             },
         }
     }
@@ -527,7 +467,6 @@ mod tests {
 
         let entry: ModelCatalogEntry = serde_json::from_value(json).unwrap();
         assert!(entry.description.is_empty());
-        assert!(entry.version.is_empty());
         assert!(entry.icon.is_empty());
         assert!(!entry.enabled);
         assert!(entry.preference.is_none());
@@ -611,7 +550,7 @@ mod tests {
 
     // ── ModelTier serde representation ──
     // Serializes as PascalCase ("Standard"/"Premium") for the UI/API.
-    // Accepts lowercase aliases for CCM/DESIGN compatibility.
+    // Accepts lowercase aliases.
 
     #[test]
     fn model_tier_serializes_as_pascal_case() {

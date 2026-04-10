@@ -594,6 +594,7 @@ pub async fn run_oop_with_options(opts: OopRunOptions) -> Result<()> {
         )],
         instance_id,
         oop: None, // OoP modules don't spawn other OoP modules
+        shutdown_deadline: None,
     };
 
     let result = run(run_options).await;

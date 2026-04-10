@@ -4057,8 +4057,8 @@ Contents (logically):
   - `description` (user-facing help text; used by Models API)
   - `multimodal_capabilities` (array of capability flags, e.g. `["VISION_INPUT", "RAG"]`; used by Models API)
   - `context_window` (integer; max context tokens; used by Models API and token budget computation)
-  - `input_tokens_credit_multiplier` (micro-credits per 1K tokens; > 0 always)
-  - `output_tokens_credit_multiplier` (micro-credits per 1K tokens; > 0 always)
+  - `input_tokens_credit_multiplier_micro` (micro-credits per 1K tokens; > 0 always)
+  - `output_tokens_credit_multiplier_micro` (micro-credits per 1K tokens; > 0 always)
   - `multiplier_display` (human-readable, e.g. `"1x"`, `"2x"`; used by Models API)
 
 - `estimation_budgets` (fixed surcharge token budgets for preflight reserve estimation):
@@ -4305,10 +4305,10 @@ Where:
 
 **Rounding rule (normative)**: `ceil_div` is applied **per-component** (input and output separately), NOT to the sum. This ensures deterministic results regardless of the ratio between input and output tokens. `ceil_div(a, 1000) + ceil_div(b, 1000)` may differ from `ceil_div(a + b, 1000)` by up to 1 micro-credit — this is intentional and consistent.
 
-**Note on zero multipliers**: if a model had `input_tokens_credit_multiplier = 0` and `output_tokens_credit_multiplier = 0`, then the system would not debit credits and a credit-based quota would not be consumed, which effectively creates unlimited usage. Therefore, in a credit-based enforcement model:
+**Note on zero multipliers**: if a model had `input_tokens_credit_multiplier_micro = 0` and `output_tokens_credit_multiplier_micro = 0`, then the system would not debit credits and a credit-based quota would not be consumed, which effectively creates unlimited usage. Therefore, in a credit-based enforcement model:
 
-- `input_tokens_credit_multiplier > 0` always
-- `output_tokens_credit_multiplier > 0` always
+- `input_tokens_credit_multiplier_micro > 0` always
+- `output_tokens_credit_multiplier_micro > 0` always
 
 #### Overflow Protection (Normative)
 
@@ -5043,8 +5043,8 @@ reserved_credits_micro =
 
 Where:
 
-- `in_mult` = `input_tokens_credit_multiplier` > 0 (always)
-- `out_mult` = `output_tokens_credit_multiplier` > 0 (always)
+- `in_mult` = `input_tokens_credit_multiplier_micro` > 0 (always)
+- `out_mult` = `output_tokens_credit_multiplier_micro` > 0 (always)
 - `max_output_tokens_applied` = the `max_output_tokens` value persisted on `chat_turns` for this turn
 
 #### 5.5.8 Limit Checks and max_output_tokens
@@ -6272,7 +6272,7 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 
 **Bump Triggers**:
 - Changes to model catalog
-- Changes to credit multipliers (`input_tokens_credit_multiplier`, `output_tokens_credit_multiplier`)
+- Changes to credit multipliers (`input_tokens_credit_multiplier_micro`, `output_tokens_credit_multiplier_micro`)
 - Changes to kill switches (`disable_premium_tier`, `force_standard_tier`, `disable_web_search`, `disable_code_interpreter`, `disable_file_search`, `disable_images`)
 - User allocation logic changes affecting `GetUserLimits` output
 - User entitlements/plan changes
@@ -6570,13 +6570,11 @@ All fields below are per-model entries inside the catalog.
 | `context_window` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].context_window` |
 | `max_output` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].max_output_tokens` |
 | `is_default` | `bool` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].is_default` |
-| `input_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.token_policy.input_tokens_credit_multiplier` and `input_tokens_credit_multiplier_micro` |
-| `output_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.token_policy.output_tokens_credit_multiplier` and `output_tokens_credit_multiplier_micro` |
+| `input_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].input_tokens_credit_multiplier_micro` |
+| `output_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].output_tokens_credit_multiplier_micro` |
 | `api_params.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.api_params` |
 | `features.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.features` |
-| `input_type.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.input_type` |
 | `tool_support.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.tool_support` |
-| `supported_endpoints.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.supported_endpoints` |
 | `sort_order` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].preference.sort_order` |
 
 ### B.2.3 Kill switches / emergency flags

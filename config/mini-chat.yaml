@@ -195,11 +195,10 @@ modules:
       priority: 100
       model_catalog:
         # ── GPT-4.1 (Premium) ──
-        - model_id: "gpt-4.1"
+        - id: "gpt-4.1"
           provider_model_id: "gpt-4.1"
           display_name: "GPT-4.1"
           description: "Most capable model"
-          version: "4.1"
           provider_id: "azure_openai"
           provider_display_name: "Azure OpenAI"
           icon: ""
@@ -223,11 +222,11 @@ modules:
             web_search_surcharge_tokens: 500
             code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 50
-          max_retrieved_chunks_per_turn: 5
+          max_num_results: 5
+          web_search_context_size: low
           max_tool_calls: 10
           general_config:
             type: ""
-            tier: "premium"
             available_from: "1970-01-01T00:00:00Z"
             max_file_size_mb: 25
             api_params:
@@ -238,56 +237,30 @@ modules:
               stop: []
             features:
               streaming: true
-              function_calling: true
               structured_output: true
-              fine_tuning: false
-              distillation: false
-              fim_completion: false
-              chat_prefix_completion: false
-            input_type:
-              text: true
-              image: true
-              audio: false
-              video: false
             tool_support:
               web_search: true
               file_search: true
               image_generation: false
               code_interpreter: true
-              computer_use: false
               mcp: false
             supported_endpoints:
               chat_completions: true
               responses: true
-              realtime: false
-              assistants: false
-              batch_api: false
-              fine_tuning: false
               embeddings: false
-              videos: false
               image_generation: false
-              image_edit: false
               audio_speech_generation: false
               audio_transcription: false
               audio_translation: false
-              moderations: false
-              completions: false
-            token_policy:
-              input_tokens_credit_multiplier: 3.0
-              output_tokens_credit_multiplier: 15.0
-            performance:
-              response_latency_ms: 800
-              speed_tokens_per_second: 75
           preference:
             is_default: true
             sort_order: 0
 
         # ── GPT-4.1 Mini (Standard) ──
-        - model_id: "gpt-4.1-mini"
+        - id: "gpt-4.1-mini"
           provider_model_id: "gpt-4.1-mini"
           display_name: "GPT-4.1 Mini"
           description: "Fast and efficient model"
-          version: "4.1"
           provider_id: "azure_openai"
           provider_display_name: "Azure OpenAI"
           icon: ""
@@ -311,11 +284,11 @@ modules:
             web_search_surcharge_tokens: 500
             code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 50
-          max_retrieved_chunks_per_turn: 5
+          max_num_results: 5
+          web_search_context_size: low
           max_tool_calls: 10
           general_config:
             type: ""
-            tier: "standard"
             available_from: "1970-01-01T00:00:00Z"
             max_file_size_mb: 25
             api_params:
@@ -326,46 +299,21 @@ modules:
               stop: []
             features:
               streaming: true
-              function_calling: true
               structured_output: true
-              fine_tuning: false
-              distillation: false
-              fim_completion: false
-              chat_prefix_completion: false
-            input_type:
-              text: true
-              image: true
-              audio: false
-              video: false
             tool_support:
               web_search: false
               file_search: false
               image_generation: false
               code_interpreter: true
-              computer_use: false
               mcp: false
             supported_endpoints:
               chat_completions: true
               responses: true
-              realtime: false
-              assistants: false
-              batch_api: false
-              fine_tuning: false
               embeddings: false
-              videos: false
               image_generation: false
-              image_edit: false
               audio_speech_generation: false
               audio_transcription: false
               audio_translation: false
-              moderations: false
-              completions: false
-            token_policy:
-              input_tokens_credit_multiplier: 1.0
-              output_tokens_credit_multiplier: 3.0
-            performance:
-              response_latency_ms: 400
-              speed_tokens_per_second: 150
           preference:
             is_default: false
             sort_order: 1
@@ -373,11 +321,10 @@ modules:
         # ── GPT-4.1 Mini with tiny context (E2E thread summary testing) ──
         # Same provider model as gpt-4.1-mini but with context_window=4096
         # so the 80% compression threshold (~3200 tokens) is reachable in ~3 turns.
-        - model_id: "gpt-4.1-mini-tiny-ctx"
+        - id: "gpt-4.1-mini-tiny-ctx"
           provider_model_id: "gpt-4.1-mini"
           display_name: "GPT-4.1 Mini (Tiny Context - E2E)"
           description: "E2E testing model with small context for thread summary trigger"
-          version: "4.1"
           provider_id: "azure_openai"
           provider_display_name: "Azure OpenAI"
           icon: ""
@@ -401,11 +348,11 @@ modules:
             web_search_surcharge_tokens: 500
             code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 50
-          max_retrieved_chunks_per_turn: 5
+          max_num_results: 5
+          web_search_context_size: low
           max_tool_calls: 10
           general_config:
             type: ""
-            tier: "standard"
             available_from: "1970-01-01T00:00:00Z"
             max_file_size_mb: 25
             api_params:
@@ -416,46 +363,21 @@ modules:
               stop: []
             features:
               streaming: true
-              function_calling: true
               structured_output: true
-              fine_tuning: false
-              distillation: false
-              fim_completion: false
-              chat_prefix_completion: false
-            input_type:
-              text: true
-              image: true
-              audio: false
-              video: false
             tool_support:
               web_search: false
               file_search: false
               image_generation: false
               code_interpreter: false
-              computer_use: false
               mcp: false
             supported_endpoints:
               chat_completions: true
               responses: true
-              realtime: false
-              assistants: false
-              batch_api: false
-              fine_tuning: false
               embeddings: false
-              videos: false
               image_generation: false
-              image_edit: false
               audio_speech_generation: false
               audio_transcription: false
               audio_translation: false
-              moderations: false
-              completions: false
-            token_policy:
-              input_tokens_credit_multiplier: 1.0
-              output_tokens_credit_multiplier: 3.0
-            performance:
-              response_latency_ms: 400
-              speed_tokens_per_second: 150
           preference:
             is_default: false
             sort_order: 99

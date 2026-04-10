@@ -194,16 +194,7 @@ pub struct Citation {
     pub span: Option<TextSpan>,
 }
 
-/// How much context the web search tool should use.
-#[domain_model]
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum WebSearchContextSize {
-    #[default]
-    Low,
-    Medium,
-    High,
-}
+pub use mini_chat_sdk::models::WebSearchContextSize;
 
 /// Whether a citation came from a file or web search.
 #[domain_model]

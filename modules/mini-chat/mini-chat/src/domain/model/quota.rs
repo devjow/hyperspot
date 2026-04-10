@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::config::EstimationBudgets;
 use crate::infra::db::entity::quota_usage::PeriodType;
-use mini_chat_sdk::{ModelApiParams, ModelToolSupport};
+use mini_chat_sdk::{ModelApiParams, ModelToolSupport, models::WebSearchContextSize};
 
 /// Result of preflight reserve evaluation.
 #[domain_model]
@@ -26,14 +26,16 @@ pub enum PreflightDecision {
         max_input_tokens: u32,
         /// Per-model estimation budgets from the effective model's catalog entry.
         estimation_budgets: EstimationBudgets,
-        /// Top-k chunks for `file_search` (from `ModelCatalogEntry`).
-        max_retrieved_chunks_per_turn: u32,
+        /// Max results per `file_search` call (from `ModelCatalogEntry`).
+        file_search_max_num_results: u32,
         /// Max tool calls per request (from `ModelCatalogEntry`).
         max_tool_calls: u32,
         /// Tool support flags of the effective model.
         tool_support: ModelToolSupport,
         /// LLM API inference parameters (temperature, `top_p`, etc.).
         api_params: ModelApiParams,
+        /// Web search context size hint (from `ModelCatalogEntry`).
+        web_search_context_size: WebSearchContextSize,
     },
     Downgrade {
         effective_model: String,
@@ -54,14 +56,16 @@ pub enum PreflightDecision {
         max_input_tokens: u32,
         /// Per-model estimation budgets from the effective model's catalog entry.
         estimation_budgets: EstimationBudgets,
-        /// Top-k chunks for `file_search` (from `ModelCatalogEntry`).
-        max_retrieved_chunks_per_turn: u32,
+        /// Max results per `file_search` call (from `ModelCatalogEntry`).
+        file_search_max_num_results: u32,
         /// Max tool calls per request (from `ModelCatalogEntry`).
         max_tool_calls: u32,
         /// Tool support flags of the effective model.
         tool_support: ModelToolSupport,
         /// LLM API inference parameters (temperature, `top_p`, etc.).
         api_params: ModelApiParams,
+        /// Web search context size hint (from `ModelCatalogEntry`).
+        web_search_context_size: WebSearchContextSize,
     },
     Reject {
         error_code: String,

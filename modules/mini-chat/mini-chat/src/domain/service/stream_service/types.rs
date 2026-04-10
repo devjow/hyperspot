@@ -380,10 +380,11 @@ pub(super) struct PreflightResult {
     pub(super) context_window: u32,
     pub(super) max_input_tokens: u32,
     pub(super) estimation_budgets: crate::config::EstimationBudgets,
-    pub(super) max_retrieved_chunks_per_turn: u32,
+    pub(super) file_search_max_num_results: u32,
     pub(super) max_tool_calls: u32,
     pub(super) tool_support: mini_chat_sdk::ModelToolSupport,
     pub(super) api_params: mini_chat_sdk::ModelApiParams,
+    pub(super) web_search_context_size: mini_chat_sdk::models::WebSearchContextSize,
 }
 
 /// Convert a `PreflightDecision` into a flat `PreflightResult` or a `StreamError`.
@@ -404,10 +405,11 @@ pub(super) fn flatten_preflight(
             context_window,
             max_input_tokens,
             estimation_budgets,
-            max_retrieved_chunks_per_turn,
+            file_search_max_num_results,
             max_tool_calls,
             tool_support,
             api_params,
+            web_search_context_size,
             ..
         } => Ok(PreflightResult {
             effective_model,
@@ -424,10 +426,11 @@ pub(super) fn flatten_preflight(
             context_window,
             max_input_tokens,
             estimation_budgets,
-            max_retrieved_chunks_per_turn,
+            file_search_max_num_results,
             max_tool_calls,
             tool_support,
             api_params,
+            web_search_context_size,
         }),
         PreflightDecision::Downgrade {
             effective_model,
@@ -443,10 +446,11 @@ pub(super) fn flatten_preflight(
             context_window,
             max_input_tokens,
             estimation_budgets,
-            max_retrieved_chunks_per_turn,
+            file_search_max_num_results,
             max_tool_calls,
             tool_support,
             api_params,
+            web_search_context_size,
             ..
         } => Ok(PreflightResult {
             effective_model,
@@ -463,10 +467,11 @@ pub(super) fn flatten_preflight(
             context_window,
             max_input_tokens,
             estimation_budgets,
-            max_retrieved_chunks_per_turn,
+            file_search_max_num_results,
             max_tool_calls,
             tool_support,
             api_params,
+            web_search_context_size,
         }),
         PreflightDecision::Reject {
             error_code,

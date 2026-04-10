@@ -200,7 +200,7 @@ impl ModelResolver for MockModelResolver {
             }
             Some(m) if m.is_empty() => Err(DomainError::invalid_model("model must not be empty")),
             Some(m) => {
-                let entry = catalog.iter().find(|e| e.model_id == m && e.enabled);
+                let entry = catalog.iter().find(|e| e.id == m && e.enabled);
                 match entry {
                     Some(e) => Ok(ResolvedModel::from(e)),
                     None => Err(DomainError::invalid_model(&m)),
@@ -226,7 +226,7 @@ impl ModelResolver for MockModelResolver {
         let catalog = self.catalog.lock().unwrap();
         catalog
             .iter()
-            .find(|m| m.model_id == model_id && m.enabled)
+            .find(|m| m.id == model_id && m.enabled)
             .map(ResolvedModel::from)
             .ok_or_else(|| DomainError::model_not_found(model_id))
     }
@@ -430,24 +430,15 @@ pub struct TestCatalogEntryParams {
 }
 
 /// Build a [`ModelCatalogEntry`] for tests, filling in new required fields with defaults.
-#[allow(clippy::cast_precision_loss)]
 pub fn test_catalog_entry(params: TestCatalogEntryParams) -> ModelCatalogEntry {
     use mini_chat_sdk::models::*;
     use time::OffsetDateTime;
 
-    let input_mult = params.input_tokens_credit_multiplier_micro as f64 / 1_000_000.0;
-    let output_mult = params.output_tokens_credit_multiplier_micro as f64 / 1_000_000.0;
-    let has_vision = params
-        .multimodal_capabilities
-        .iter()
-        .any(|c| c == "VISION_INPUT");
-
     ModelCatalogEntry {
-        model_id: params.model_id,
+        id: params.model_id,
         provider_model_id: params.provider_model_id,
         display_name: params.display_name,
         description: params.description,
-        version: String::new(),
         provider_id: params.provider_id,
         provider_display_name: params.provider_display_name,
         icon: String::new(),
@@ -461,7 +452,8 @@ pub fn test_catalog_entry(params: TestCatalogEntryParams) -> ModelCatalogEntry {
         output_tokens_credit_multiplier_micro: params.output_tokens_credit_multiplier_micro,
         multiplier_display: params.multiplier_display.clone(),
         estimation_budgets: EstimationBudgets::default(),
-        max_retrieved_chunks_per_turn: 5,
+        max_num_results: 5,
+        web_search_context_size: WebSearchContextSize::Low,
         max_tool_calls: 2,
         general_config: ModelGeneralConfig {
             config_type: String::new(),
@@ -478,51 +470,23 @@ pub fn test_catalog_entry(params: TestCatalogEntryParams) -> ModelCatalogEntry {
             },
             features: ModelFeatures {
                 streaming: true,
-                function_calling: true,
                 structured_output: true,
-                fine_tuning: false,
-                distillation: false,
-                fim_completion: false,
-                chat_prefix_completion: false,
-            },
-            input_type: ModelInputType {
-                text: true,
-                image: has_vision,
-                audio: false,
-                video: false,
             },
             tool_support: ModelToolSupport {
                 web_search: false,
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             supported_endpoints: ModelSupportedEndpoints {
                 chat_completions: true,
                 responses: false,
-                realtime: false,
-                assistants: false,
-                batch_api: false,
-                fine_tuning: false,
                 embeddings: false,
-                videos: false,
                 image_generation: false,
-                image_edit: false,
                 audio_speech_generation: false,
                 audio_transcription: false,
                 audio_translation: false,
-                moderations: false,
-                completions: false,
-            },
-            token_policy: ModelTokenPolicy {
-                input_tokens_credit_multiplier: input_mult,
-                output_tokens_credit_multiplier: output_mult,
-            },
-            performance: ModelPerformance {
-                response_latency_ms: 500,
-                speed_tokens_per_second: 100,
             },
         },
         preference: Some(ModelPreference {

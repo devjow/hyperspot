@@ -119,6 +119,13 @@ pub struct RunOptions {
     /// These modules are spawned after the start phase, once `grpc-hub` is running
     /// and the real directory endpoint is known.
     pub oop: Option<OopSpawnOptions>,
+    /// Maximum time allowed for each module's graceful shutdown before hard-stop.
+    ///
+    /// If `None`, uses `DEFAULT_SHUTDOWN_DEADLINE` (30 seconds).
+    ///
+    /// See `HostRuntime::with_shutdown_deadline` for details on the relationship
+    /// with `WithLifecycle::stop_timeout`.
+    pub shutdown_deadline: Option<std::time::Duration>,
 }
 
 /// Full cycle is orchestrated by `HostRuntime` (see `runtime/host_runtime.rs` docs).
@@ -181,7 +188,7 @@ pub async fn run(opts: RunOptions) -> anyhow::Result<()> {
     }
 
     // 5. Instantiate HostRuntime
-    let host = HostRuntime::new(
+    let mut host = HostRuntime::new(
         registry,
         opts.modules_cfg.clone(),
         opts.db,
@@ -190,6 +197,11 @@ pub async fn run(opts: RunOptions) -> anyhow::Result<()> {
         opts.instance_id,
         opts.oop,
     );
+
+    // 5b. Apply custom shutdown deadline if provided
+    if let Some(deadline) = opts.shutdown_deadline {
+        host = host.with_shutdown_deadline(deadline);
+    }
 
     // 6. Run full lifecycle
     host.run_module_phases().await

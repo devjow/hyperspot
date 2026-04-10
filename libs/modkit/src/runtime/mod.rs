@@ -12,7 +12,8 @@ mod tests;
 
 pub use grpc_installers::{GrpcInstallerData, GrpcInstallerStore, ModuleInstallers};
 pub use host_runtime::{
-    DbOptions, HostRuntime, MODKIT_DIRECTORY_ENDPOINT_ENV, MODKIT_MODULE_CONFIG_ENV,
+    DEFAULT_SHUTDOWN_DEADLINE, DbOptions, HostRuntime, MODKIT_DIRECTORY_ENDPOINT_ENV,
+    MODKIT_MODULE_CONFIG_ENV,
 };
 pub use module_manager::{Endpoint, InstanceState, ModuleInstance, ModuleManager};
 pub use runner::{

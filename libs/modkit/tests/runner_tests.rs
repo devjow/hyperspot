@@ -371,6 +371,7 @@ async fn test_db_options_none() {
         shutdown: ShutdownOptions::Token(cancel),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     // This test requires registry discovery to work, which won't work in isolation
@@ -407,6 +408,7 @@ async fn test_db_options_manager() {
         shutdown: ShutdownOptions::Token(cancel),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = timeout(Duration::from_millis(1000), run(opts)).await;
@@ -427,6 +429,7 @@ async fn test_shutdown_options_token() {
         shutdown: ShutdownOptions::Token(cancel.clone()),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     // Start the runner in a background task
@@ -458,6 +461,7 @@ async fn test_shutdown_options_future() {
         })),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     // Start the runner in a background task
@@ -496,6 +500,7 @@ async fn test_runner_with_config_provider() {
         shutdown: ShutdownOptions::Token(cancel),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = timeout(Duration::from_millis(100), run(opts)).await;
@@ -517,6 +522,7 @@ async fn test_complete_lifecycle_success() {
         shutdown: ShutdownOptions::Token(cancel),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = run(opts).await;
@@ -534,6 +540,7 @@ fn test_run_options_construction() {
         shutdown: ShutdownOptions::Token(cancel),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     // Test that we can construct RunOptions with all variants
@@ -559,6 +566,7 @@ async fn test_cancellation_during_startup() {
         shutdown: ShutdownOptions::Token(cancel.clone()),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     // Start the runner in a background task
@@ -595,6 +603,7 @@ async fn test_multiple_config_provider_scenarios() {
         shutdown: ShutdownOptions::Token(cancel.clone()),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result = run(opts).await;
@@ -630,6 +639,7 @@ async fn test_multiple_config_provider_scenarios() {
         shutdown: ShutdownOptions::Token(cancel2),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let result2 = run(opts2).await;
@@ -648,6 +658,7 @@ async fn test_runner_timeout_scenarios() {
         shutdown: ShutdownOptions::Token(cancel.clone()),
         clients: vec![],
         oop: None,
+        shutdown_deadline: None,
     };
 
     let runner_handle = tokio::spawn(run(opts));

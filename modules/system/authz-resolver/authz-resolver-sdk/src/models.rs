@@ -27,10 +27,10 @@ pub enum TenantMode {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BarrierMode {
-    /// Respect all barriers — stop at barrier boundaries (default).
+    /// Respect all barriers - stop at barrier boundaries (default).
     #[default]
     Respect,
-    /// Ignore barriers — traverse through self-managed tenants.
+    /// Ignore barriers - traverse through self-managed tenants.
     Ignore,
 }
 
@@ -38,14 +38,21 @@ pub enum BarrierMode {
 ///
 /// Tells the PDP which advanced features the PEP can handle so the PDP
 /// can tailor its response accordingly.
+///
+/// **Note:** `GroupMembership` and `GroupHierarchy` require access to the
+/// Resource Group tables (`resource_group`, `resource_group_membership`, `resource_group_closure`).
+/// Services that can join against these tables may declare the capabilities;
+/// the PDP will then return `InGroup`/`InGroupSubtree` predicates directly.
+/// Services without access should omit these capabilities — the PDP will
+/// degrade group predicates to explicit `In` with pre-resolved resource IDs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     /// PEP understands tenant hierarchy constraints.
     TenantHierarchy,
-    /// PEP understands group membership constraints.
+    /// PEP can join against `resource_group_membership` to resolve group membership.
     GroupMembership,
-    /// PEP understands group hierarchy constraints.
+    /// PEP can join against `resource_group_closure` to resolve group hierarchy.
     GroupHierarchy,
 }
 
@@ -151,7 +158,7 @@ pub struct EvaluationRequestContext {
     #[serde(default)]
     pub supported_properties: Vec<String>,
     /// Original bearer token for PDP forwarding. Wrapped in `SecretString` to prevent
-    /// accidental logging. Skipped during serialization — the PDP receives the token
+    /// accidental logging. Skipped during serialization - the PDP receives the token
     /// through a separate channel if needed.
     #[serde(skip)]
     pub bearer_token: Option<SecretString>,

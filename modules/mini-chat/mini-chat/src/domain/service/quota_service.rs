@@ -256,7 +256,7 @@ impl<QR: QuotaUsageRepository> QuotaService<QR> {
         let ks = &ctx.snapshot.kill_switches;
 
         // 1. Look up selected model
-        let selected_entry = catalog.iter().find(|m| m.model_id == selected_model);
+        let selected_entry = catalog.iter().find(|m| m.id == selected_model);
 
         let (selected_tier, mut downgrade_reason) = match selected_entry {
             Some(e) if e.enabled => (e.tier, None),
@@ -324,7 +324,7 @@ impl<QR: QuotaUsageRepository> QuotaService<QR> {
             let tier_matches = |m: &&ModelCatalogEntry| m.tier == tier && m.enabled;
             let model = catalog
                 .iter()
-                .find(|m| tier_matches(m) && m.model_id == selected_model)
+                .find(|m| tier_matches(m) && m.id == selected_model)
                 .or_else(|| {
                     catalog
                         .iter()
@@ -338,14 +338,14 @@ impl<QR: QuotaUsageRepository> QuotaService<QR> {
             };
 
             // 3e. Decision
-            if effective.model_id == selected_model && downgrade_reason.is_none() {
+            if effective.id == selected_model && downgrade_reason.is_none() {
                 return CascadeDecision::Allow {
-                    effective_model: effective.model_id.clone(),
+                    effective_model: effective.id.clone(),
                     tier,
                 };
             }
             return CascadeDecision::Downgrade {
-                effective_model: effective.model_id.clone(),
+                effective_model: effective.id.clone(),
                 tier,
                 downgrade_from: selected_model.to_owned(),
                 reason: downgrade_reason.unwrap_or(DowngradeReason::PremiumQuotaExhausted),
@@ -475,7 +475,7 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
         let catalog_entry = snapshot
             .model_catalog
             .iter()
-            .find(|m| m.model_id == input.selected_model && m.enabled);
+            .find(|m| m.id == input.selected_model && m.enabled);
 
         let (in_mult, out_mult) = catalog_entry.map_or(
             (1_000_000, 1_000_000), // fallback for disabled models
@@ -589,7 +589,7 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                             let eff_entry = snapshot
                                 .model_catalog
                                 .iter()
-                                .find(|m| m.model_id == effective_model)
+                                .find(|m| m.id == effective_model)
                                 .ok_or_else(|| {
                                     to_db(DomainError::internal("effective model not in catalog"))
                                 })?;
@@ -717,11 +717,11 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                     context_window: eff_entry.context_window,
                                     max_input_tokens: eff_entry.max_input_tokens,
                                     estimation_budgets: model_estimation_budgets,
-                                    max_retrieved_chunks_per_turn: eff_entry
-                                        .max_retrieved_chunks_per_turn,
+                                    file_search_max_num_results: eff_entry.max_num_results,
                                     max_tool_calls: eff_entry.max_tool_calls,
                                     tool_support: eff_entry.general_config.tool_support.clone(),
                                     api_params: eff_entry.general_config.api_params.clone(),
+                                    web_search_context_size: eff_entry.web_search_context_size,
                                 },
                                 CascadeDecision::Downgrade {
                                     downgrade_from,
@@ -743,11 +743,11 @@ impl<QR: QuotaUsageRepository + 'static> QuotaService<QR> {
                                     context_window: eff_entry.context_window,
                                     max_input_tokens: eff_entry.max_input_tokens,
                                     estimation_budgets: model_estimation_budgets,
-                                    max_retrieved_chunks_per_turn: eff_entry
-                                        .max_retrieved_chunks_per_turn,
+                                    file_search_max_num_results: eff_entry.max_num_results,
                                     max_tool_calls: eff_entry.max_tool_calls,
                                     tool_support: eff_entry.general_config.tool_support.clone(),
                                     api_params: eff_entry.general_config.api_params.clone(),
+                                    web_search_context_size: eff_entry.web_search_context_size,
                                 },
                                 CascadeDecision::Reject => unreachable!(),
                             };
@@ -887,7 +887,7 @@ impl<QR: QuotaUsageRepository> QuotaService<QR> {
         let catalog_entry = snapshot
             .model_catalog
             .iter()
-            .find(|m| m.model_id == input.effective_model)
+            .find(|m| m.id == input.effective_model)
             .ok_or_else(|| {
                 DomainError::internal(format!(
                     "model {} not found in policy version {}",

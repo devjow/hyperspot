@@ -82,6 +82,7 @@ pub async fn run_server(config: AppConfig) -> Result<()> {
         clients: vec![],
         instance_id,
         oop: oop_options,
+        shutdown_deadline: None,
     };
 
     let result = run(run_options).await;

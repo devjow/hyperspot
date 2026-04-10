@@ -181,7 +181,7 @@ pub struct ResolvedModel {
 impl From<&mini_chat_sdk::ModelCatalogEntry> for ResolvedModel {
     fn from(e: &mini_chat_sdk::ModelCatalogEntry) -> Self {
         Self {
-            model_id: e.model_id.clone(),
+            model_id: e.id.clone(),
             provider_model_id: e.provider_model_id.clone(),
             provider_id: e.provider_id.clone(),
             display_name: e.display_name.clone(),

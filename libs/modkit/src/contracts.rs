@@ -92,10 +92,62 @@ pub trait ApiGatewayCapability: Send + Sync + 'static {
     fn as_registry(&self) -> &dyn OpenApiRegistry;
 }
 
+/// Capability for modules that have a long-running background task.
+///
+/// # Shutdown Contract
+///
+/// The `stop` method receives a **deadline token** that implements two-phase shutdown:
+///
+/// 1. **Graceful stop request**: When `stop(deadline_token)` is called, the `deadline_token`
+///    is *not* cancelled. This is the signal to begin graceful shutdown.
+///
+/// 2. **Hard-stop deadline**: After the runtime's `shutdown_deadline` expires (default 30s),
+///    the `deadline_token` is cancelled. This signals that graceful shutdown time is over
+///    and the module should abort immediately.
+///
+/// ## Recommended Implementation Pattern
+///
+/// ```ignore
+/// async fn stop(&self, deadline_token: CancellationToken) -> anyhow::Result<()> {
+///     // 1. Request cooperative shutdown of child tasks
+///     self.request_graceful_shutdown();
+///
+///     // 2. Wait for graceful completion OR hard-stop deadline
+///     tokio::select! {
+///         _ = self.wait_for_graceful_completion() => {
+///             // Graceful shutdown succeeded
+///         }
+///         _ = deadline_token.cancelled() => {
+///             // Deadline reached, force abort
+///             self.force_abort();
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
+///
+/// ## Important Notes
+///
+/// - The `deadline_token` passed to `stop()` is a **fresh token**, not the root cancellation
+///   token that triggered the shutdown. This allows modules to implement real graceful shutdown.
+/// - Modules should NOT assume the token is already cancelled when `stop()` is called.
+/// - The `WithLifecycle` wrapper handles this contract automatically via its `stop_timeout`.
 #[async_trait]
 pub trait RunnableCapability: Send + Sync {
+    /// Start the module's background task.
+    ///
+    /// The `cancel` token is a child of the runtime's root cancellation token.
+    /// When cancelled, the module should stop its background work.
     async fn start(&self, cancel: CancellationToken) -> anyhow::Result<()>;
-    async fn stop(&self, cancel: CancellationToken) -> anyhow::Result<()>;
+
+    /// Stop the module's background task.
+    ///
+    /// The `deadline_token` implements two-phase shutdown:
+    /// - Initially not cancelled: begin graceful shutdown
+    /// - When cancelled: graceful period expired, abort immediately
+    ///
+    /// See trait-level documentation for the full shutdown contract.
+    async fn stop(&self, deadline_token: CancellationToken) -> anyhow::Result<()>;
 }
 
 /// Represents a gRPC service registration callback used by the gRPC hub.

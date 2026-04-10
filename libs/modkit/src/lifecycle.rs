@@ -533,6 +533,21 @@ impl<T: Runnable> WithLifecycle<T> {
         }
     }
 
+    /// Set a custom stop timeout for graceful lifecycle shutdown.
+    ///
+    /// This is how long `Lifecycle::stop()` will wait for the task to finish
+    /// before aborting it.
+    ///
+    /// # Relationship with `HostRuntime::shutdown_deadline`
+    ///
+    /// When running under `HostRuntime`, this `stop_timeout` races against the
+    /// runtime's `shutdown_deadline` (both default to 30s). To ensure deterministic behavior:
+    ///
+    /// - `stop_timeout` should be **less than** `shutdown_deadline`
+    /// - This allows the lifecycle's internal timeout to trigger first for graceful cleanup
+    /// - The runtime's `deadline_token` then acts as a hard backstop
+    ///
+    /// Example: `stop_timeout = 25s`, `shutdown_deadline = 30s`
     pub fn with_stop_timeout(mut self, d: Duration) -> Self {
         self.stop_timeout = d;
         self
@@ -606,14 +621,25 @@ impl<T: Runnable> crate::contracts::RunnableCapability for WithLifecycle<T> {
         }
     }
 
-    #[tracing::instrument(skip(self, external_cancel), level = "debug")]
-    async fn stop(&self, external_cancel: CancellationToken) -> TaskResult<()> {
+    /// Stop the lifecycle-managed task.
+    ///
+    /// Implements the two-phase shutdown contract:
+    /// 1. Attempts graceful stop using `self.stop_timeout` (default 30s)
+    /// 2. If `deadline_token` is cancelled before graceful stop completes,
+    ///    immediately aborts with zero timeout
+    ///
+    /// The `deadline_token` is a fresh token from the runtime (not already cancelled),
+    /// allowing real graceful shutdown to occur.
+    #[tracing::instrument(skip(self, deadline_token), level = "debug")]
+    async fn stop(&self, deadline_token: CancellationToken) -> TaskResult<()> {
         tokio::select! {
             res = self.lc.stop(self.stop_timeout) => {
                 _ = res.map_err(anyhow::Error::from)?;
                 Ok(())
             }
-            () = external_cancel.cancelled() => {
+            () = deadline_token.cancelled() => {
+                // Hard-stop deadline reached, abort immediately
+                tracing::debug!("Hard-stop deadline reached, aborting lifecycle");
                 _ = self.lc.stop(Duration::from_millis(0)).await?;
                 Ok(())
             }

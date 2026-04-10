@@ -115,7 +115,7 @@ impl ModelResolver for ModelPolicyGateway {
                 let entry = snapshot
                     .model_catalog
                     .iter()
-                    .find(|m| m.model_id == model && m.enabled);
+                    .find(|m| m.id == model && m.enabled);
 
                 match entry {
                     Some(e) => Ok(ResolvedModel::from(e)),
@@ -146,7 +146,7 @@ impl ModelResolver for ModelPolicyGateway {
         snapshot
             .model_catalog
             .iter()
-            .find(|m| m.model_id == model_id && m.enabled)
+            .find(|m| m.id == model_id && m.enabled)
             .map(ResolvedModel::from)
             .ok_or_else(|| DomainError::model_not_found(model_id))
     }

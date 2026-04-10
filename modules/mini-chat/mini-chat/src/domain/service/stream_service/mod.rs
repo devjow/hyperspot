@@ -519,8 +519,8 @@ impl<
                 file_search_enabled,
                 &vector_store_ids,
                 None, // file_search_filters: wired by P4-6
-                self.streaming_config.web_search_context_size,
-                pf.max_retrieved_chunks_per_turn,
+                pf.web_search_context_size,
+                pf.file_search_max_num_results,
                 ci_file_ids,
                 token_budget,
                 &image_file_ids,
@@ -1235,8 +1235,8 @@ impl<
                 file_search_enabled,
                 &vector_store_ids,
                 None, // file_search_filters: wired by P4-6
-                self.streaming_config.web_search_context_size,
-                pf.max_retrieved_chunks_per_turn,
+                pf.web_search_context_size,
+                pf.file_search_max_num_results,
                 ci_file_ids,
                 token_budget,
                 &[], // retry/edit: no new image attachments
@@ -2148,7 +2148,6 @@ mod tests {
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             thread_summary_prompt: String::new(),
@@ -2600,14 +2599,13 @@ mod tests {
             context_window: 128_000,
             max_input_tokens: 65_536,
             estimation_budgets: EstimationBudgets::default(),
-            max_retrieved_chunks_per_turn: 5,
+            file_search_max_num_results: 4,
             max_tool_calls: 2,
             tool_support: mini_chat_sdk::ModelToolSupport {
                 web_search: false,
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             api_params: mini_chat_sdk::ModelApiParams {
@@ -2619,11 +2617,32 @@ mod tests {
                 extra_body: None,
                 reasoning_effort: None,
             },
+            web_search_context_size: mini_chat_sdk::models::WebSearchContextSize::Low,
         };
 
         let result = flatten_preflight(decision).expect("Allow should produce Ok");
         assert_eq!(result.max_input_tokens, 65_536);
         assert_eq!(result.context_window, 128_000);
+        assert_eq!(result.quota_decision, "allow");
+        assert!(result.downgrade_from.is_none());
+        assert!(result.downgrade_reason.is_none());
+        assert_eq!(result.reserve_tokens, 100);
+        assert_eq!(result.max_output_tokens_applied, 1024);
+        assert_eq!(result.reserved_credits_micro, 0);
+        assert_eq!(result.policy_version_applied, 1);
+        assert_eq!(result.minimal_generation_floor_applied, 50);
+        assert_eq!(result.system_prompt, "");
+        assert_eq!(
+            result.estimation_budgets.bytes_per_token_conservative,
+            EstimationBudgets::default().bytes_per_token_conservative,
+        );
+        assert_eq!(result.file_search_max_num_results, 4);
+        assert_eq!(result.max_tool_calls, 2);
+        assert!((result.api_params.temperature - 0.7).abs() < f64::EPSILON);
+        assert_eq!(
+            result.web_search_context_size,
+            mini_chat_sdk::models::WebSearchContextSize::Low,
+        );
     }
 
     /// `max_input_tokens` from `PreflightDecision::Downgrade` reaches `PreflightResult`.
@@ -2646,14 +2665,13 @@ mod tests {
             context_window: 32_000,
             max_input_tokens: 16_000,
             estimation_budgets: EstimationBudgets::default(),
-            max_retrieved_chunks_per_turn: 5,
+            file_search_max_num_results: 4,
             max_tool_calls: 2,
             tool_support: mini_chat_sdk::ModelToolSupport {
                 web_search: false,
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             api_params: mini_chat_sdk::ModelApiParams {
@@ -2665,12 +2683,32 @@ mod tests {
                 extra_body: None,
                 reasoning_effort: None,
             },
+            web_search_context_size: mini_chat_sdk::models::WebSearchContextSize::Low,
         };
 
         let result = flatten_preflight(decision).expect("Downgrade should produce Ok");
         assert_eq!(result.max_input_tokens, 16_000);
         assert_eq!(result.context_window, 32_000);
         assert_eq!(result.quota_decision, "downgrade");
+        assert_eq!(result.downgrade_from.as_deref(), Some("m"));
+        assert!(result.downgrade_reason.is_some());
+        assert_eq!(result.reserve_tokens, 50);
+        assert_eq!(result.max_output_tokens_applied, 512);
+        assert_eq!(result.reserved_credits_micro, 0);
+        assert_eq!(result.policy_version_applied, 1);
+        assert_eq!(result.minimal_generation_floor_applied, 50);
+        assert_eq!(result.system_prompt, "");
+        assert_eq!(
+            result.estimation_budgets.bytes_per_token_conservative,
+            EstimationBudgets::default().bytes_per_token_conservative,
+        );
+        assert_eq!(result.file_search_max_num_results, 4);
+        assert_eq!(result.max_tool_calls, 2);
+        assert!((result.api_params.temperature - 0.7).abs() < f64::EPSILON);
+        assert_eq!(
+            result.web_search_context_size,
+            mini_chat_sdk::models::WebSearchContextSize::Low,
+        );
     }
 
     // ── InputTooLong integration tests ──
@@ -3968,7 +4006,6 @@ mod tests {
                         file_search: false,
                         image_generation: false,
                         code_interpreter: false,
-                        computer_use: false,
                         mcp: false,
                     },
                     thread_summary_prompt: String::new(),
@@ -4133,7 +4170,6 @@ mod tests {
                         file_search: false,
                         image_generation: false,
                         code_interpreter: false,
-                        computer_use: false,
                         mcp: false,
                     },
                     thread_summary_prompt: String::new(),

@@ -2,8 +2,8 @@ use mini_chat_sdk::{
     EstimationBudgets, MiniChatModelPolicyPluginClientV1, MiniChatModelPolicyPluginError,
     ModelCatalogEntry, ModelGeneralConfig, ModelPreference, ModelTier,
     models::{
-        ModelApiParams, ModelFeatures, ModelInputType, ModelPerformance, ModelSupportedEndpoints,
-        ModelTokenPolicy, ModelToolSupport,
+        ModelApiParams, ModelFeatures, ModelSupportedEndpoints, ModelToolSupport,
+        WebSearchContextSize,
     },
 };
 use time::OffsetDateTime;
@@ -14,11 +14,10 @@ use super::service::Service;
 
 fn make_entry(model_id: &str, tier: ModelTier) -> ModelCatalogEntry {
     ModelCatalogEntry {
-        model_id: model_id.to_owned(),
+        id: model_id.to_owned(),
         provider_model_id: format!("{model_id}-v1"),
         display_name: model_id.to_owned(),
         description: String::new(),
-        version: String::new(),
         provider_id: "default".to_owned(),
         provider_display_name: "Default".to_owned(),
         icon: String::new(),
@@ -32,7 +31,8 @@ fn make_entry(model_id: &str, tier: ModelTier) -> ModelCatalogEntry {
         output_tokens_credit_multiplier_micro: 3_000_000,
         multiplier_display: "1x".to_owned(),
         estimation_budgets: EstimationBudgets::default(),
-        max_retrieved_chunks_per_turn: 5,
+        max_num_results: 5,
+        web_search_context_size: WebSearchContextSize::Low,
         max_tool_calls: 2,
         general_config: ModelGeneralConfig {
             config_type: String::new(),
@@ -49,51 +49,23 @@ fn make_entry(model_id: &str, tier: ModelTier) -> ModelCatalogEntry {
             },
             features: ModelFeatures {
                 streaming: true,
-                function_calling: true,
                 structured_output: true,
-                fine_tuning: false,
-                distillation: false,
-                fim_completion: false,
-                chat_prefix_completion: false,
-            },
-            input_type: ModelInputType {
-                text: true,
-                image: false,
-                audio: false,
-                video: false,
             },
             tool_support: ModelToolSupport {
                 web_search: false,
                 file_search: false,
                 image_generation: false,
                 code_interpreter: false,
-                computer_use: false,
                 mcp: false,
             },
             supported_endpoints: ModelSupportedEndpoints {
                 chat_completions: true,
                 responses: false,
-                realtime: false,
-                assistants: false,
-                batch_api: false,
-                fine_tuning: false,
                 embeddings: false,
-                videos: false,
                 image_generation: false,
-                image_edit: false,
                 audio_speech_generation: false,
                 audio_transcription: false,
                 audio_translation: false,
-                moderations: false,
-                completions: false,
-            },
-            token_policy: ModelTokenPolicy {
-                input_tokens_credit_multiplier: 1.0,
-                output_tokens_credit_multiplier: 3.0,
-            },
-            performance: ModelPerformance {
-                response_latency_ms: 500,
-                speed_tokens_per_second: 100,
             },
         },
         preference: Some(ModelPreference {

@@ -155,8 +155,8 @@ pub use backends::{
 pub use lifecycle::{Lifecycle, Runnable, Status, StopReason, WithLifecycle};
 pub use plugins::GtsPluginSelector;
 pub use runtime::{
-    DbOptions, Endpoint, ModuleInstance, ModuleManager, OopModuleSpawnConfig, OopSpawnOptions,
-    RunOptions, ShutdownOptions, run,
+    DEFAULT_SHUTDOWN_DEADLINE, DbOptions, Endpoint, ModuleInstance, ModuleManager,
+    OopModuleSpawnConfig, OopSpawnOptions, RunOptions, ShutdownOptions, run,
 };
 
 #[cfg(feature = "bootstrap")]
